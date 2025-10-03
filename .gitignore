@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# QGIS compiled resources
+resources.py
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.bak
+*.swp
+*~
+
+# Test files
+.pytest_cache/
+.coverage
+
+# Documentation builds
+help/build/
+
+# Compiled translations
+i18n/*.qm
