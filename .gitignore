@@ -65,6 +65,7 @@ logs/
 LOCAL_DEV_QUICKSTART.md
 FIX_API_URLS.md
 REBUILD_SUCCESS.md
+DEV_MODE_INSTRUCTIONS.txt
 
 # Null file artifacts (Windows)
 nul
