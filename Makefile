@@ -65,7 +65,11 @@ PEP8EXCLUDE=pydev,resources.py,conf.py,third_party,ui
 #	* Windows:
 #	  AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins'
 
-QGISDIR=C:\Users\joswh\AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
+# Set QGISDIR to your local QGIS plugins directory
+# Windows: C:\Users\YOUR_USER\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
+# Linux: ~/.local/share/QGIS/QGIS3/profiles/default/python/plugins
+# Mac: ~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins
+QGISDIR=$(HOME)/.local/share/QGIS/QGIS3/profiles/default/python/plugins
 
 #################################################
 # Normally you would not need to edit below here
