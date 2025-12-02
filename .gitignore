@@ -5,7 +5,7 @@ __pycache__/
 *.pyc
 
 # QGIS compiled resources
-resources.py
+# Note: resources.py is needed for the plugin to work, so we commit it
 
 # Distribution / packaging
 *.egg-info/
