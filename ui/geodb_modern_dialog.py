@@ -19,7 +19,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtGui import QColor, QTextCursor
 
 # Import our new managers
-from ..utils.config import Config
+from ..utils.config import Config, DEV_MODE
 from ..utils.logger import PluginLogger
 from ..api.client import APIClient
 from ..api.exceptions import (
@@ -129,7 +129,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """Initialize UI state."""
         self.modelListWidget.setCurrentRow(0)
         self._update_auth_status(False)
-        
+
+        # Hide local mode checkbox unless in dev mode
+        if not DEV_MODE:
+            self.localModeCheckBox.setVisible(False)
+
         # Set local mode checkbox from config
         is_local = self.config.get('api.use_local', False)
         self.localModeCheckBox.setChecked(is_local)

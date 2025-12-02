@@ -8,6 +8,11 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 
 
+# Dev mode is enabled via environment variable GEODB_DEV_MODE=1
+# This shows the local development server option in the UI
+DEV_MODE = os.environ.get('GEODB_DEV_MODE', '').lower() in ('1', 'true', 'yes')
+
+
 class Config:
     """Central configuration management for the plugin."""
     
