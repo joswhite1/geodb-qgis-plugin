@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/plugins/geodb" >
         <file>icon.png</file>
+        <file>icons/database-fill-check.svg</file>
     </qresource>
 </RCC>

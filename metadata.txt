@@ -3,27 +3,37 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=Geodb.io Connection
+name=geodb.io
 qgisMinimumVersion=3.0
 description=Connects to spatial data from geodb.io via api
-version=0.1
+version=2.0.0
 author=geodb.io
 email=admin@geodb.io
 
-about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more.
+about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.0 features a complete architectural rebuild with improved reliability, error handling, and maintainability.
 
-tracker=https://geodb.io
-repository=https://geodb.io
+tracker=https://github.com/joswhite1/geodb-qgis-plugin/issues
+repository=https://github.com/joswhite1/geodb-qgis-plugin
 # End of mandatory metadata
 
 # Recommended items:
 
+# License identifier (SPDX format)
+license=GPL-2.0-or-later
+
 hasProcessingProvider=no
-# Uncomment the following line and add your changelog:
-# changelog=
+changelog=
+    2.0.0 - Major architectural rebuild
+        - Modular design with separation of concerns
+        - Improved error handling and logging
+        - Progress feedback for long operations
+        - Incremental data synchronization
+        - Type-safe code with full type hints
+        - Comprehensive documentation
+    0.1 - Initial release
 
 # Tags are comma separated with spaces allowed
-tags=python
+tags=python,database,api,geospatial,data sync
 
 homepage=https://geodb.io
 category=Database

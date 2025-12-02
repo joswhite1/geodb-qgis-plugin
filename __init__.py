@@ -26,11 +26,10 @@
 
 # noinspection PyPep8Naming
 def classFactory(iface):  # pylint: disable=invalid-name
-    """Load GeodbIO class from file GeodbIO.
+    """Load GeodbIO class from plugin module.
 
     :param iface: A QGIS interface instance.
     :type iface: QgsInterface
     """
-    #
-    from .geodb import GeodbIO
+    from .plugin import GeodbIO
     return GeodbIO(iface)

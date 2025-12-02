@@ -11,26 +11,60 @@ resources.py
 *.egg-info/
 dist/
 build/
+*.zip
 
 # IDEs
 .vscode/
 .idea/
 
+# AI/LLM tools local settings
+.claude/
+.zencoder/
+.cursor/
+.aider/
+
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Temporary files
 *.bak
 *.swp
 *~
+*.tmp
+*.temp
 
 # Test files
 .pytest_cache/
 .coverage
+htmlcov/
 
 # Documentation builds
 help/build/
 
 # Compiled translations
 i18n/*.qm
+
+# Environment files (never commit secrets)
+.env
+.env.*
+*.env
+secrets.json
+credentials.json
+
+# Local config overrides
+*.local.json
+*.local.py
+
+# Logs
+*.log
+logs/
+
+# Local development notes (contain local paths)
+LOCAL_DEV_QUICKSTART.md
+FIX_API_URLS.md
+REBUILD_SUCCESS.md
+
+# Null file artifacts (Windows)
+nul
