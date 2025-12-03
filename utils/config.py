@@ -9,18 +9,13 @@ from pathlib import Path
 
 
 # Dev mode detection:
-# 1. Check for .devmode file in plugin directory (preferred - gitignored)
-# 2. Fall back to GEODB_DEV_MODE environment variable
+# Check for .devmode file in plugin directory (gitignored, never packaged)
 # This shows the local development server option in the UI
 def _check_dev_mode() -> bool:
-    """Check if dev mode is enabled via .devmode file or environment variable."""
-    # Check for .devmode file in plugin directory
+    """Check if dev mode is enabled via .devmode file in plugin directory."""
     plugin_dir = Path(__file__).parent.parent
     devmode_file = plugin_dir / '.devmode'
-    if devmode_file.exists():
-        return True
-    # Fall back to environment variable
-    return os.environ.get('GEODB_DEV_MODE', '').lower() in ('1', 'true', 'yes')
+    return devmode_file.exists()
 
 DEV_MODE = _check_dev_mode()
 
