@@ -75,6 +75,39 @@ class ModelSchema:
         """Get required fields."""
         return [f for f in self.fields if f.required]
 
+    def filter_for_push(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Filter data to only include fields accepted by the API for writes.
+
+        This removes computed fields, read-only fields, and QGIS-internal fields
+        that would cause a 400 Bad Request from the API.
+
+        IMPORTANT: The 'id' field is NEVER included. The server determines which
+        record to update based on the URL path (e.g., /landholdings/28/), not
+        the request body. Including 'id' in the body could cause issues if
+        QGIS assigns local feature IDs that don't match server IDs.
+
+        Args:
+            data: Full feature data from QGIS layer
+
+        Returns:
+            Filtered data with only writable fields plus 'geometry' (never 'id')
+        """
+        # Get writable field names from schema
+        writable_field_names = {f.name for f in self.get_writable_fields()}
+        # Include 'geometry' for spatial data
+        # NEVER include 'id' - server uses URL path for record identification
+        writable_field_names.add('geometry')
+        writable_field_names.discard('id')  # Ensure id is never included
+
+        # Filter to only include known writable fields
+        filtered = {}
+        for key, value in data.items():
+            if key in writable_field_names:
+                filtered[key] = value
+
+        return filtered
+
     def get_natural_key(self, feature_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Extract natural key fields from feature data.
@@ -109,6 +142,8 @@ DRILL_COLLAR_SCHEMA = ModelSchema(
         FieldSchema('id', FieldType.INTEGER, readonly=True),
         FieldSchema('name', FieldType.STRING, length=100, required=True,
                    description='Hole ID (e.g., DDH-001)'),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                   description='Project natural key (JSON object)'),
         FieldSchema('latitude', FieldType.DOUBLE, required=True),
         FieldSchema('longitude', FieldType.DOUBLE, required=True),
         FieldSchema('elevation', FieldType.DOUBLE),
@@ -116,9 +151,11 @@ DRILL_COLLAR_SCHEMA = ModelSchema(
         FieldSchema('azimuth', FieldType.DOUBLE, description='0-360 degrees'),
         FieldSchema('dip', FieldType.DOUBLE, description='Negative for down'),
         FieldSchema('hole_type', FieldType.STRING, length=10,
-                   description='DD=Diamond, RC=Reverse Circ, RAB=Rotary Air'),
+                   description='DD=Diamond Core, RC=Reverse Circ, DC=Direct Circ'),
         FieldSchema('hole_status', FieldType.STRING, length=10,
-                   description='PLN=Planned, IP=In Progress, COM=Complete'),
+                   description='CP=Completed, AB=Abandoned, PL=Planned, IP=In Progress'),
+        FieldSchema('hole_size', FieldType.STRING, length=10,
+                   description='Core size: AQ, BQ, NQ, NQ2, HQ, HQ3, PQ'),
         FieldSchema('length_units', FieldType.STRING, length=5, default='M'),
         FieldSchema('date_started', FieldType.DATE),
         FieldSchema('date_completed', FieldType.DATE),
@@ -126,6 +163,8 @@ DRILL_COLLAR_SCHEMA = ModelSchema(
         FieldSchema('geologist', FieldType.STRING, length=100),
         FieldSchema('purpose', FieldType.STRING, length=255),
         FieldSchema('comments', FieldType.STRING, length=1000),
+        FieldSchema('coordinate_system_metadata', FieldType.STRING, length=0,
+                   description='CRS metadata for plugin sync (JSON object)'),
         FieldSchema('date_created', FieldType.DATETIME, readonly=True),
         FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
         FieldSchema('created_by', FieldType.STRING, readonly=True),
@@ -139,6 +178,7 @@ DRILL_SAMPLE_SCHEMA = ModelSchema(
     geometry_type=GeometryType.LINESTRING,
     display_name='Drill Samples',
     description='Drill sample intervals with assay data',
+    supports_push=False,  # Read-only - samples managed via web interface
     fields=[
         FieldSchema('id', FieldType.INTEGER, readonly=True),
         FieldSchema('name', FieldType.STRING, length=100, required=True),
@@ -168,17 +208,39 @@ DRILL_PAD_SCHEMA = ModelSchema(
     api_endpoint='drill-pads',
     geometry_type=GeometryType.POLYGON,
     display_name='Drill Pads',
-    description='Drill pad locations',
+    description='Drill pad locations for organizing multiple drill holes',
     fields=[
         FieldSchema('id', FieldType.INTEGER, readonly=True),
-        FieldSchema('name', FieldType.STRING, length=100, required=True),
-        FieldSchema('pad_type', FieldType.STRING, length=50),
-        FieldSchema('status', FieldType.STRING, length=50),
-        FieldSchema('area_sqm', FieldType.DOUBLE),
-        FieldSchema('date_constructed', FieldType.DATE),
-        FieldSchema('comments', FieldType.STRING, length=1000),
+        FieldSchema('name', FieldType.STRING, length=100, required=True,
+                   description='Pad name or identifier'),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                   description='Project natural key (JSON object)'),
+        FieldSchema('status', FieldType.STRING, length=15,
+                   description='planned, built, or historic'),
+        FieldSchema('permit_number', FieldType.STRING, length=50,
+                   description='Drilling permit number'),
+        FieldSchema('constructed_date', FieldType.DATE,
+                   description='Date pad was constructed'),
+        FieldSchema('reclaimed_date', FieldType.DATE,
+                   description='Date pad was reclaimed/restored'),
+        FieldSchema('access_type', FieldType.STRING, length=50,
+                   description='Access method (road, helicopter, etc.)'),
+        FieldSchema('disturbance_area', FieldType.DOUBLE,
+                   description='Disturbed area in square meters'),
+        FieldSchema('notes', FieldType.STRING, length=0,
+                   description='General notes'),
+        FieldSchema('environmental_notes', FieldType.STRING, length=0,
+                   description='Environmental considerations'),
+        FieldSchema('coordinate_system_metadata', FieldType.STRING, length=0,
+                   description='CRS metadata for plugin sync (JSON object)'),
+        FieldSchema('hole_count', FieldType.INTEGER, readonly=True,
+                   description='Number of drill holes on this pad'),
+        FieldSchema('total_meters_drilled', FieldType.DOUBLE, readonly=True,
+                   description='Total meters drilled from this pad'),
         FieldSchema('date_created', FieldType.DATETIME, readonly=True),
         FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
+        FieldSchema('created_by', FieldType.STRING, readonly=True),
+        FieldSchema('last_edited_by', FieldType.STRING, readonly=True),
     ]
 )
 
@@ -359,6 +421,8 @@ LAND_HOLDING_SCHEMA = ModelSchema(
     fields=[
         FieldSchema('id', FieldType.INTEGER, readonly=True),
         FieldSchema('name', FieldType.STRING, length=100, required=True),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                   description='Project natural key (JSON object)'),
         FieldSchema('serial_number', FieldType.STRING, length=100),
         FieldSchema('claim_type', FieldType.STRING, length=50),
         FieldSchema('county', FieldType.STRING, length=100),
@@ -403,15 +467,27 @@ POINT_SAMPLE_SCHEMA = ModelSchema(
     fields=[
         FieldSchema('id', FieldType.INTEGER, readonly=True),
         FieldSchema('name', FieldType.STRING, length=100, required=True),
-        FieldSchema('sample_type', FieldType.STRING, length=50),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                   description='Project natural key (JSON object)'),
+        FieldSchema('sample_type', FieldType.STRING, length=3,
+                   description='SL=Soil, RK=Rock Chip, OC=Outcrop, etc.'),
+        FieldSchema('ps_type', FieldType.INTEGER,
+                   description='FK to PointSampleType (company-specific)'),
+        FieldSchema('lithology', FieldType.STRING, length=255,
+                   description='FK to Lithology'),
+        FieldSchema('alteration', FieldType.STRING, length=255,
+                   description='FK to Alteration'),
         FieldSchema('latitude', FieldType.DOUBLE, required=True),
         FieldSchema('longitude', FieldType.DOUBLE, required=True),
         FieldSchema('elevation', FieldType.DOUBLE),
         FieldSchema('date_collected', FieldType.DATE),
         FieldSchema('collected_by', FieldType.STRING, length=100),
         FieldSchema('sample_weight', FieldType.DOUBLE),
+        FieldSchema('length_units', FieldType.STRING, length=5, default='M'),
         FieldSchema('description', FieldType.STRING, length=1000),
         FieldSchema('comments', FieldType.STRING, length=1000),
+        FieldSchema('coordinate_system_metadata', FieldType.STRING, length=0,
+                   description='CRS metadata for plugin sync (JSON object)'),
         # Merged assay fields (populated when merge_assays=true)
         FieldSchema('assay_Au', FieldType.DOUBLE, readonly=True),
         FieldSchema('assay_Ag', FieldType.DOUBLE, readonly=True),
@@ -421,6 +497,49 @@ POINT_SAMPLE_SCHEMA = ModelSchema(
         FieldSchema('assay_Fe', FieldType.DOUBLE, readonly=True),
         FieldSchema('assay_As', FieldType.DOUBLE, readonly=True),
         FieldSchema('assay_Sb', FieldType.DOUBLE, readonly=True),
+        FieldSchema('date_created', FieldType.DATETIME, readonly=True),
+        FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
+        FieldSchema('created_by', FieldType.STRING, readonly=True),
+        FieldSchema('last_edited_by', FieldType.STRING, readonly=True),
+    ]
+)
+
+
+# =============================================================================
+# PHOTO MODEL (Field photos with GPS coordinates)
+# =============================================================================
+
+PHOTO_SCHEMA = ModelSchema(
+    name='Photo',
+    api_endpoint='photos',
+    geometry_type=GeometryType.POINT,
+    display_name='Photos',
+    description='Field photos with GPS coordinates from EXIF or manual entry',
+    supports_push=False,  # Pull-only for now (uploads require multipart handling)
+    supports_pull=True,
+    fields=[
+        FieldSchema('id', FieldType.INTEGER, readonly=True),
+        FieldSchema('original_filename', FieldType.STRING, length=255, readonly=True,
+                   description='Original filename of uploaded image'),
+        FieldSchema('category', FieldType.STRING, length=3,
+                   description='Photo category (DRL=Drill, MAP=Map, FLD=Field, etc.)'),
+        FieldSchema('category_display', FieldType.STRING, readonly=True,
+                   description='Human-readable category name'),
+        FieldSchema('description', FieldType.STRING, length=0,  # 0 = unlimited (TextField)
+                   description='Photo description'),
+        FieldSchema('latitude', FieldType.DOUBLE,
+                   description='GPS latitude (from EXIF or manual)'),
+        FieldSchema('longitude', FieldType.DOUBLE,
+                   description='GPS longitude (from EXIF or manual)'),
+        FieldSchema('elevation', FieldType.DOUBLE,
+                   description='GPS elevation in meters'),
+        FieldSchema('length_units', FieldType.STRING, length=5, default='M', readonly=True),
+        FieldSchema('file_size', FieldType.INTEGER, readonly=True,
+                   description='File size in bytes'),
+        FieldSchema('image_url', FieldType.STRING, length=500, readonly=True,
+                   description='Pre-signed S3 URL for full image'),
+        FieldSchema('thumbnail_url', FieldType.STRING, length=500, readonly=True,
+                   description='Pre-signed S3 URL for thumbnail (750x750)'),
         FieldSchema('date_created', FieldType.DATETIME, readonly=True),
         FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
         FieldSchema('created_by', FieldType.STRING, readonly=True),
@@ -528,6 +647,7 @@ MODEL_SCHEMAS: Dict[str, ModelSchema] = {
     'DrillTrace': DRILL_TRACE_SCHEMA,
     'LandHolding': LAND_HOLDING_SCHEMA,
     'PointSample': POINT_SAMPLE_SCHEMA,
+    'Photo': PHOTO_SCHEMA,
     'ProjectFile': PROJECT_FILE_SCHEMA,
     'AssayRangeConfiguration': ASSAY_RANGE_CONFIG_SCHEMA,
 }

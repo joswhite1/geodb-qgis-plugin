@@ -272,6 +272,15 @@ QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
          </item>
          <item>
           <property name="text">
+           <string>DrillPad</string>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>../icons/square-fill.svg</normaloff>../icons/square-fill.svg</iconset>
+          </property>
+         </item>
+         <item>
+          <property name="text">
            <string>DrillCollar</string>
           </property>
           <property name="icon">
@@ -304,6 +313,15 @@ QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
           <property name="icon">
            <iconset>
             <normaloff>../icons/diamond.png</normaloff>../icons/diamond.png</iconset>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Photo</string>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>../icons/camera.svg</normaloff>../icons/camera.svg</iconset>
           </property>
          </item>
          <item>

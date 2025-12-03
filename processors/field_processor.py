@@ -117,8 +117,19 @@ class FieldProcessor:
         Returns:
             Converted value
         """
-        if value is None or value == '':
+        # Handle various NULL representations from QGIS
+        if value is None or value == '' or value == 'NULL' or str(value) == 'NULL':
             return None
+
+        # Handle QVariant - convert to Python type or None
+        from qgis.PyQt.QtCore import QVariant
+        if isinstance(value, QVariant):
+            if value.isNull():
+                return None
+            # Convert QVariant to its Python equivalent
+            value = value.value() if hasattr(value, 'value') else value.toPyObject() if hasattr(value, 'toPyObject') else None
+            if value is None or value == '' or value == 'NULL':
+                return None
 
         # Don't convert dicts/lists - they're already in API format (natural keys)
         if isinstance(value, (dict, list)):
@@ -131,11 +142,19 @@ class FieldProcessor:
                 return float(value)
             elif field_type == 'boolean':
                 return bool(value)
-            elif field_type in ['date', 'datetime', 'time']:
-                # Convert QDate/QDateTime to ISO string
+            elif field_type == 'date':
+                # Convert QDate to ISO date string (YYYY-MM-DD)
+                if hasattr(value, 'toString'):
+                    return value.toString('yyyy-MM-dd')
+                # Handle string date values - keep them as-is or strip time portion
+                if isinstance(value, str) and ' ' in value:
+                    return value.split(' ')[0]  # Take just the date part
+                return str(value) if value else None
+            elif field_type in ['datetime', 'time']:
+                # Convert QDateTime to ISO datetime string
                 if hasattr(value, 'toString'):
                     return value.toString('yyyy-MM-dd HH:mm:ss')
-                return str(value)
+                return str(value) if value else None
             else:
                 return str(value)
         except (ValueError, TypeError) as e:
@@ -193,10 +212,16 @@ class FieldProcessor:
 
         return attributes
     
-    # Fields that should be parsed as JSON objects (natural keys)
+    # Fields that should be parsed as JSON objects (natural keys and metadata)
     NATURAL_KEY_FIELDS = {
-        'project', 'land_status', 'bhid', 'lithology', 'alteration',
-        'mineralization', 'structure', 'company'
+        'project', 'land_status', 'bhid',
+        'mineralization', 'structure', 'company', 'coordinate_system_metadata'
+    }
+
+    # Fields that are integer foreign keys (not natural keys)
+    # These must be converted to int before sending to API
+    INTEGER_FK_FIELDS = {
+        'lithology', 'alteration', 'ps_type', 'assay'
     }
 
     def prepare_for_push(
@@ -207,12 +232,17 @@ class FieldProcessor:
         """
         Prepare attributes for pushing to API.
 
+        IMPORTANT: The 'id' field is NEVER included. The server determines which
+        record to update based on the URL path (e.g., /landholdings/28/), not
+        the request body. Including 'id' could cause overwrites if QGIS assigns
+        local feature IDs that don't match server IDs.
+
         Args:
             attributes: Attributes from QGIS feature
             field_definitions: Field definitions
 
         Returns:
-            Dictionary ready for API
+            Dictionary ready for API (without 'id' field)
         """
         import json
 
@@ -222,11 +252,9 @@ class FieldProcessor:
             field_name = field_def.get('name')
             field_type = field_def.get('type', 'string')
 
-            # Skip read-only fields
+            # Skip ALL read-only fields including 'id'
+            # Server uses URL path for record identification, not request body
             if self.is_readonly_field(field_name):
-                # Include id if present (needed for updates)
-                if field_name == 'id' and field_name in attributes:
-                    prepared[field_name] = attributes[field_name]
                 continue
 
             # Get value
@@ -236,8 +264,14 @@ class FieldProcessor:
             if field_name in self.NATURAL_KEY_FIELDS and isinstance(value, str):
                 value = self._parse_natural_key(value)
 
-            # Convert to API value
-            converted_value = self.qgs_to_api_value(value, field_type)
+            # Handle integer FK fields - always convert to integer
+            # These are stored as strings in QGIS value map widgets but API expects int
+            if field_name in self.INTEGER_FK_FIELDS:
+                converted_value = self.qgs_to_api_value(value, 'integer')
+            else:
+                # Convert to API value using field type from layer
+                converted_value = self.qgs_to_api_value(value, field_type)
+
             prepared[field_name] = converted_value
 
         return prepared

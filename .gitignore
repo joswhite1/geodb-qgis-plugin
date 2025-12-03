@@ -57,6 +57,9 @@ credentials.json
 *.local.json
 *.local.py
 
+# Dev mode flag file (enables local server option in UI)
+.devmode
+
 # Logs
 *.log
 logs/

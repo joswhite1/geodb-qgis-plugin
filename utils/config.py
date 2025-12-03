@@ -8,9 +8,21 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 
 
-# Dev mode is enabled via environment variable GEODB_DEV_MODE=1
+# Dev mode detection:
+# 1. Check for .devmode file in plugin directory (preferred - gitignored)
+# 2. Fall back to GEODB_DEV_MODE environment variable
 # This shows the local development server option in the UI
-DEV_MODE = os.environ.get('GEODB_DEV_MODE', '').lower() in ('1', 'true', 'yes')
+def _check_dev_mode() -> bool:
+    """Check if dev mode is enabled via .devmode file or environment variable."""
+    # Check for .devmode file in plugin directory
+    plugin_dir = Path(__file__).parent.parent
+    devmode_file = plugin_dir / '.devmode'
+    if devmode_file.exists():
+        return True
+    # Fall back to environment variable
+    return os.environ.get('GEODB_DEV_MODE', '').lower() in ('1', 'true', 'yes')
+
+DEV_MODE = _check_dev_mode()
 
 
 class Config:
@@ -188,6 +200,13 @@ class Config:
             # Point samples
             'point_samples': f"{base}/point-samples/",
 
+            # Photos (field photos with GPS coordinates)
+            'photos': f"{base}/photos/",
+
+            # Lookup tables (project-scoped)
+            'lithologies': f"{base}/lithologies/",
+            'alterations': f"{base}/alterations/",
+
             # Project files (GeoTIFFs, DEMs, rasters)
             'project_files': f"{base}/project-files/",
 
@@ -220,6 +239,7 @@ class Config:
             'DrillTrace': 'drill_traces',
             'LandHolding': 'landholdings',
             'PointSample': 'point_samples',
+            'Photo': 'photos',
             'ProjectFile': 'project_files',
         }
 

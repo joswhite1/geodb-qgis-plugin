@@ -400,3 +400,72 @@ class StyleProcessor:
         layer.triggerRepaint()
 
         return True
+
+    def apply_photo_style(self, layer: QgsVectorLayer) -> bool:
+        """
+        Apply camera icon symbology to a Photo layer.
+
+        Uses a camera/photo marker symbol to indicate photo locations.
+
+        Args:
+            layer: Target QGIS vector layer (Photo layer)
+
+        Returns:
+            True if successful
+        """
+        if not layer or not layer.isValid():
+            self.logger.warning("Invalid layer for photo styling")
+            return False
+
+        from qgis.core import QgsSingleSymbolRenderer, QgsSvgMarkerSymbolLayer
+        import os
+
+        # Create a camera marker symbol
+        # QGIS has built-in SVG markers including camera icons
+        symbol = QgsMarkerSymbol()
+        symbol.deleteSymbolLayer(0)  # Remove default circle
+
+        # Try to use SVG camera icon from QGIS resources
+        # Falls back to a distinctive marker if SVG not available
+        svg_paths = [
+            # QGIS default SVG paths (cross-platform)
+            'gpsicons/camera.svg',
+            'entertainment/camera.svg',
+            'symbol/camera.svg',
+        ]
+
+        svg_layer = None
+        for svg_path in svg_paths:
+            try:
+                test_layer = QgsSvgMarkerSymbolLayer(svg_path)
+                if test_layer.isValid() or test_layer.path():
+                    svg_layer = test_layer
+                    svg_layer.setSize(6)
+                    svg_layer.setFillColor(QColor('#3498db'))  # Blue fill
+                    svg_layer.setStrokeColor(QColor('#2c3e50'))  # Dark outline
+                    svg_layer.setStrokeWidth(0.5)
+                    break
+            except Exception:
+                continue
+
+        if svg_layer:
+            symbol.appendSymbolLayer(svg_layer)
+            self.logger.info(f"Applied SVG camera icon to photo layer")
+        else:
+            # Fallback: use a distinctive star/cross marker
+            simple_layer = QgsSimpleMarkerSymbolLayer()
+            simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Star)
+            simple_layer.setSize(5)
+            simple_layer.setColor(QColor('#3498db'))  # Blue
+            simple_layer.setStrokeColor(QColor('#2c3e50'))
+            simple_layer.setStrokeWidth(0.5)
+            symbol.appendSymbolLayer(simple_layer)
+            self.logger.info("Applied star marker to photo layer (SVG not available)")
+
+        # Apply single symbol renderer
+        renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+        layer.triggerRepaint()
+
+        self.logger.info(f"Applied photo style to layer: {layer.name()}")
+        return True

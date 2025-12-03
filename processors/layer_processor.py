@@ -504,27 +504,57 @@ class LayerProcessor:
         geom_failed = 0
         first_failure_logged = False
 
+        # Check if layer has geometry (not NoGeometry type)
+        layer_has_geometry = layer.geometryType() != 4  # 4 = QgsWkbTypes.NullGeometry
+        skipped_no_geom = 0
+
         for feature_data in features_data:
             feature = QgsFeature()
             feature.setFields(layer.fields())
 
             # Set geometry - handle both WKT string and GeoJSON dict formats
+            # For models like DrillPad, try 'geometry' first, then fall back to 'location'
             geom_data = feature_data.get(geometry_field)
+            geometry = None
+
+            # Try primary geometry field (polygon/geometry)
             if geom_data:
                 geometry = self._parse_geometry(geom_data)
-                if geometry and not geometry.isNull():
-                    feature.setGeometry(geometry)
-                    geom_success += 1
-                else:
-                    geom_failed += 1
-                    # Log first failure for debugging
-                    if not first_failure_logged:
-                        first_failure_logged = True
-                        preview = str(geom_data)[:200] if geom_data else "None"
-                        QgsMessageLog.logMessage(
-                            f"First geometry parse failure. Data: {preview}",
-                            "GeodbIO", Qgis.Warning
-                        )
+
+            # Fallback: try 'location' field if primary geometry is null
+            # DrillPad uses 'location' for pad center point when 'geometry' (polygon) is not set
+            # For polygon layers, convert point to a 30m x 30m square
+            if (not geometry or geometry.isNull()) and 'location' in feature_data:
+                location_data = feature_data.get('location')
+                if location_data:
+                    point_geom = self._parse_geometry(location_data)
+                    if point_geom and not point_geom.isNull():
+                        # Check if layer expects polygon but we have a point
+                        # layer.geometryType() returns QgsWkbTypes.GeometryType enum:
+                        # 0=Point, 1=Line, 2=Polygon, 3=Unknown, 4=Null
+                        layer_geom_type = layer.geometryType()
+                        if layer_geom_type == 2:  # PolygonGeometry
+                            # Create 30m x 30m square centered on point
+                            geometry = self._point_to_square_polygon(point_geom, size_meters=30)
+                        else:
+                            geometry = point_geom
+
+            if geometry and not geometry.isNull():
+                feature.setGeometry(geometry)
+                geom_success += 1
+            elif geom_data or feature_data.get('location'):
+                geom_failed += 1
+                # Log first failure for debugging
+                if not first_failure_logged:
+                    first_failure_logged = True
+                    preview = str(geom_data or feature_data.get('location'))[:200]
+                    QgsMessageLog.logMessage(
+                        f"First geometry parse failure. Data: {preview}",
+                        "GeodbIO", Qgis.Warning
+                    )
+
+            # For polygon/line layers, features without geometry are still added (with null geometry)
+            # This allows viewing attributes even when geometry is missing
 
             # Set attributes
             for field_name in layer.fields().names():
@@ -540,18 +570,22 @@ class LayerProcessor:
         layer.updateExtents()
         layer.triggerRepaint()
 
-        QgsMessageLog.logMessage(
-            f"Added {added_count} features (geometry: {geom_success} success, {geom_failed} failed)",
-            "GeodbIO", Qgis.Info
-        )
+        # Log summary
+        msg = f"Added {added_count} features (geometry: {geom_success} success, {geom_failed} failed)"
+        if skipped_no_geom > 0:
+            msg += f", {skipped_no_geom} skipped (no geometry)"
+            QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.Warning)
+        else:
+            QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.Info)
+
         return added_count
 
     def _parse_geometry(self, geom_data) -> Optional[QgsGeometry]:
         """
-        Parse geometry from various formats (WKT string, EWKT string, or GeoJSON dict).
+        Parse geometry from various formats (WKT string, EWKT string, GeoJSON dict, or GeoJSON string).
 
         Args:
-            geom_data: Geometry data as WKT/EWKT string or GeoJSON dict
+            geom_data: Geometry data as WKT/EWKT string, GeoJSON string, or GeoJSON dict
 
         Returns:
             QgsGeometry or None
@@ -560,11 +594,21 @@ class LayerProcessor:
             return None
 
         try:
-            # If it's a string, assume WKT or EWKT
+            # If it's a string, could be WKT, EWKT, or GeoJSON string
             if isinstance(geom_data, str):
                 wkt_str = geom_data.strip()
                 if not wkt_str:
                     return None
+
+                # Check if it's a GeoJSON string (starts with '{')
+                if wkt_str.startswith('{'):
+                    try:
+                        import json
+                        geojson_dict = json.loads(wkt_str)
+                        # Recursively call with the parsed dict
+                        return self._parse_geometry(geojson_dict)
+                    except json.JSONDecodeError:
+                        pass  # Not valid JSON, try as WKT
 
                 # Handle EWKT format: "SRID=4326;MULTIPOLYGON(...)"
                 # Strip the SRID prefix if present
@@ -673,6 +717,69 @@ class LayerProcessor:
         else:
             self.logger.warning(f"Unsupported geometry type: {geom_type}")
             return ''
+
+    def _point_to_square_polygon(
+        self,
+        point_geom: QgsGeometry,
+        size_meters: float = 30
+    ) -> Optional[QgsGeometry]:
+        """
+        Create a square polygon centered on a point.
+
+        Used for DrillPad when only a center point (location) is provided
+        but no polygon boundary. Creates a square of the specified size.
+
+        Args:
+            point_geom: Point geometry (in WGS84/EPSG:4326)
+            size_meters: Side length of square in meters (default 30m)
+
+        Returns:
+            Polygon geometry or None if conversion fails
+        """
+        try:
+            if not point_geom or point_geom.isNull():
+                return None
+
+            point = point_geom.asPoint()
+            lon, lat = point.x(), point.y()
+
+            # Approximate meters to degrees conversion
+            # At the equator, 1 degree ≈ 111,320 meters
+            # Adjust for latitude (longitude degrees get smaller toward poles)
+            import math
+            meters_per_degree_lat = 111320
+            meters_per_degree_lon = 111320 * math.cos(math.radians(lat))
+
+            half_size_lat = (size_meters / 2) / meters_per_degree_lat
+            half_size_lon = (size_meters / 2) / meters_per_degree_lon
+
+            # Create square corners (clockwise from bottom-left)
+            # Use 6 decimal precision for consistency with snapshot hashing
+            min_lon = round(lon - half_size_lon, 6)
+            max_lon = round(lon + half_size_lon, 6)
+            min_lat = round(lat - half_size_lat, 6)
+            max_lat = round(lat + half_size_lat, 6)
+
+            # WKT for polygon (must close the ring)
+            # Use explicit 6-decimal formatting to match sync_manager snapshot generation
+            wkt = (
+                f"POLYGON (("
+                f"{min_lon:.6f} {min_lat:.6f}, "
+                f"{max_lon:.6f} {min_lat:.6f}, "
+                f"{max_lon:.6f} {max_lat:.6f}, "
+                f"{min_lon:.6f} {max_lat:.6f}, "
+                f"{min_lon:.6f} {min_lat:.6f}))"
+            )
+
+            polygon = QgsGeometry.fromWkt(wkt)
+            if polygon and not polygon.isNull():
+                return polygon
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error creating square polygon from point: {e}")
+            return None
 
     def update_feature(
         self,
@@ -896,3 +1003,217 @@ class LayerProcessor:
         field_idx = layer.fields().indexOf(field_name)
         if field_idx >= 0:
             layer.setFieldAlias(field_idx, alias)
+
+    def set_layer_project_metadata(
+        self,
+        layer: QgsVectorLayer,
+        project_name: str,
+        company_name: str,
+        crs_metadata: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Store project metadata in the GeoPackage metadata table.
+
+        This metadata is used when pushing new features to ensure they're
+        assigned to the correct project, even if the user has switched
+        to a different active project. Stored in GeoPackage for offline
+        portability.
+
+        Args:
+            layer: Vector layer
+            project_name: Project name
+            company_name: Company name
+            crs_metadata: Optional CRS metadata dict
+        """
+        if not layer or not layer.isValid():
+            return
+
+        # Store in GeoPackage if using GeoPackage storage
+        if self.is_using_geopackage() and self._geopackage_path:
+            self._store_metadata_in_geopackage(
+                project_name=project_name,
+                company_name=company_name,
+                crs_metadata=crs_metadata
+            )
+        else:
+            # Fallback to layer custom properties for memory layers
+            import json
+            layer.setCustomProperty('geodb_project_name', project_name)
+            layer.setCustomProperty('geodb_company_name', company_name)
+            if crs_metadata:
+                layer.setCustomProperty('geodb_crs_metadata', json.dumps(crs_metadata))
+
+        self.logger.debug(f"Stored project metadata: {project_name} / {company_name}")
+
+    def _store_metadata_in_geopackage(
+        self,
+        project_name: str,
+        company_name: str,
+        crs_metadata: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Store project metadata in a custom table in the GeoPackage.
+
+        Creates a geodb_metadata table if it doesn't exist.
+
+        Args:
+            project_name: Project name
+            company_name: Company name
+            crs_metadata: Optional CRS metadata dict
+        """
+        import sqlite3
+        import json
+
+        if not self._geopackage_path:
+            return
+
+        try:
+            conn = sqlite3.connect(self._geopackage_path)
+            cursor = conn.cursor()
+
+            # Create metadata table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS geodb_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Store project info
+            cursor.execute('''
+                INSERT OR REPLACE INTO geodb_metadata (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            ''', ('project_name', project_name))
+
+            cursor.execute('''
+                INSERT OR REPLACE INTO geodb_metadata (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            ''', ('company_name', company_name))
+
+            if crs_metadata:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO geodb_metadata (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                ''', ('crs_metadata', json.dumps(crs_metadata)))
+
+            conn.commit()
+            conn.close()
+
+            self.logger.info(f"Stored metadata in GeoPackage: {project_name} / {company_name}")
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Failed to store metadata in GeoPackage: {e}")
+
+    def get_layer_project_metadata(
+        self,
+        layer: QgsVectorLayer
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve project metadata from GeoPackage or layer custom properties.
+
+        Args:
+            layer: Vector layer
+
+        Returns:
+            Dict with 'project_name', 'company_name', and optional 'crs_metadata',
+            or None if not set
+        """
+        # Try GeoPackage first
+        if self.is_using_geopackage() and self._geopackage_path:
+            metadata = self._get_metadata_from_geopackage()
+            if metadata:
+                return metadata
+
+        # Fallback to layer custom properties (for memory layers or migration)
+        if not layer or not layer.isValid():
+            return None
+
+        import json
+        project_name = layer.customProperty('geodb_project_name')
+        company_name = layer.customProperty('geodb_company_name')
+
+        if not project_name or not company_name:
+            return None
+
+        result = {
+            'project_name': project_name,
+            'company_name': company_name,
+            'project_natural_key': {
+                'name': project_name,
+                'company': company_name
+            }
+        }
+
+        crs_metadata_str = layer.customProperty('geodb_crs_metadata')
+        if crs_metadata_str:
+            try:
+                result['crs_metadata'] = json.loads(crs_metadata_str)
+            except json.JSONDecodeError:
+                pass
+
+        return result
+
+    def _get_metadata_from_geopackage(self) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve project metadata from the GeoPackage metadata table.
+
+        Returns:
+            Dict with project metadata, or None if not found
+        """
+        import sqlite3
+        import json
+
+        if not self._geopackage_path or not os.path.exists(self._geopackage_path):
+            return None
+
+        try:
+            conn = sqlite3.connect(self._geopackage_path)
+            cursor = conn.cursor()
+
+            # Check if table exists
+            cursor.execute('''
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='geodb_metadata'
+            ''')
+            if not cursor.fetchone():
+                conn.close()
+                return None
+
+            # Get all metadata
+            cursor.execute('SELECT key, value FROM geodb_metadata')
+            rows = cursor.fetchall()
+            conn.close()
+
+            if not rows:
+                return None
+
+            metadata = {row[0]: row[1] for row in rows}
+
+            project_name = metadata.get('project_name')
+            company_name = metadata.get('company_name')
+
+            if not project_name or not company_name:
+                return None
+
+            result = {
+                'project_name': project_name,
+                'company_name': company_name,
+                'project_natural_key': {
+                    'name': project_name,
+                    'company': company_name
+                }
+            }
+
+            crs_metadata_str = metadata.get('crs_metadata')
+            if crs_metadata_str:
+                try:
+                    result['crs_metadata'] = json.loads(crs_metadata_str)
+                except json.JSONDecodeError:
+                    pass
+
+            return result
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Failed to read metadata from GeoPackage: {e}")
+            return None

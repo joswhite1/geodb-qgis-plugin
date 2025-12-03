@@ -29,6 +29,7 @@ SUPPORTED_MODELS = [
     'DrillTrace',
     'LandHolding',
     'PointSample',
+    'Photo',  # Field photos with GPS coordinates
     'ProjectFile',  # GeoTIFFs, DEMs, and other raster files
 ]
 
@@ -130,6 +131,12 @@ class DataManager:
             if model_name == 'PointSample' and ps_type_id:
                 params['ps_type_id'] = str(ps_type_id)
 
+            # Filter Photos to only include those with GPS coordinates
+            # Photos without geometry are typically linked to drill collars
+            # and should be accessed through those models instead
+            if model_name == 'Photo':
+                params['has_geometry'] = 'true'
+
             # Pull data from API using RESTful endpoint
             features = self.api_client.get_all_paginated(
                 model_name=model_name,
@@ -186,7 +193,11 @@ class DataManager:
                 model_name=effective_model_name,
                 features=features,
                 progress_callback=lambda p: progress_callback(50 + int(p * 0.4), "Syncing...") if progress_callback else None,
-                project_name=project.name
+                project_name=project.name,
+                company_name=project.company_name,
+                api_client=self.api_client,
+                project_id=project.id,
+                crs_metadata=self._get_coordinate_system_metadata()
             )
 
             if progress_callback:
@@ -269,58 +280,77 @@ class DataManager:
             if progress_callback:
                 progress_callback(30, f"Uploading {len(features)} changed features ({skipped} unchanged)...")
 
-            # Push each feature using RESTful API
+            # Push each feature using upsert (server handles create vs update)
             created = 0
             updated = 0
             errors = []
 
-            # Get schema for natural key support
+            # Get schema for filtering push data
             from ..models.schemas import get_schema
             schema = get_schema(model_name)
 
+            # Get layer metadata once (for project and CRS info)
+            layer = self.sync_manager._find_layer(model_name, project.name if project else None)
+            layer_metadata = None
+            if layer:
+                layer_metadata = self.sync_manager.layer_processor.get_layer_project_metadata(layer)
+
             for i, feature in enumerate(features):
                 try:
-                    # Strategy 1: Try using id or _server_id for updates
-                    # Records pulled from server have 'id'
-                    # New records created locally may have '_server_id' after first push
-                    record_id = feature.get('id') or feature.get('_server_id')
+                    # Filter feature data to only include fields accepted by API
+                    push_data = feature
+                    if schema:
+                        push_data = schema.filter_for_push(feature)
 
-                    # Strategy 2: If no ID, try natural key lookup
-                    if not record_id and schema and schema.natural_key_fields:
-                        natural_key = schema.get_natural_key(feature)
-                        if natural_key:
-                            existing = self.api_client.find_record_by_natural_key(
-                                model_name, natural_key, project_id
-                            )
-                            if existing:
-                                record_id = existing['id']
-                                self.logger.info(f"Found existing record by natural key: {natural_key}")
+                    # Ensure project natural key is set
+                    # The server uses this to look up the record for upsert
+                    project_value = push_data.get('project')
+                    needs_project = (
+                        not project_value or
+                        project_value is None or
+                        project_value == '' or
+                        project_value == 'NULL'
+                    )
 
-                    if record_id:
-                        # Update existing record
-                        self.api_client.update_record(
-                            model_name=model_name,
-                            record_id=record_id,
-                            data=feature
-                        )
-                        updated += 1
-                        self.logger.debug(f"Updated feature {record_id}")
-                    else:
-                        # Create new record
-                        result = self.api_client.create_record(
-                            model_name=model_name,
-                            data=feature
-                        )
+                    if needs_project:
+                        if layer_metadata and layer_metadata.get('project_natural_key'):
+                            # Use metadata stored in layer (most reliable)
+                            push_data['project'] = layer_metadata['project_natural_key']
+                        elif project:
+                            # Fallback to active project
+                            push_data['project'] = {
+                                'name': project.name,
+                                'company': project.company_name
+                            }
+
+                    # Ensure coordinate_system_metadata is set
+                    if not push_data.get('coordinate_system_metadata'):
+                        if layer_metadata and layer_metadata.get('crs_metadata'):
+                            push_data['coordinate_system_metadata'] = layer_metadata['crs_metadata']
+                        else:
+                            push_data['coordinate_system_metadata'] = self._get_coordinate_system_metadata()
+
+                    # Handle model-specific required fields
+                    self._populate_required_fields(model_name, push_data, is_new_feature=True)
+
+                    # Use upsert - server determines create vs update by natural key
+                    result = self.api_client.upsert_record(
+                        model_name=model_name,
+                        data=push_data
+                    )
+
+                    # Track create vs update based on server response
+                    if result.get('_status') == 'created':
                         created += 1
-                        self.logger.debug(f"Created new feature")
-
-                        # Store server ID in feature for later reference
-                        if 'id' in result:
-                            feature['_server_id'] = result['id']
+                        self.logger.info(f"Created {model_name}: {feature.get('name')}")
+                    else:
+                        # Default to updated if status not specified
+                        updated += 1
+                        self.logger.info(f"Updated {model_name}: {feature.get('name')}")
 
                 except Exception as e:
                     errors.append({'feature': feature.get('name', 'unknown'), 'error': str(e)})
-                    self.logger.error(f"Failed to push feature {feature.get('id', 'unknown')}: {e}")
+                    self.logger.error(f"Failed to push {model_name} '{feature.get('name', 'unknown')}': {e}")
 
                 if progress_callback:
                     progress = 30 + int((i + 1) / len(features) * 60)
@@ -426,32 +456,51 @@ class DataManager:
         in WGS84 (EPSG:4326). This is already transformed from the local
         grid coordinates stored in trace_data.coords.
 
+        IMPORTANT: trace_data.coords contains LOCAL GRID coordinates (e.g., UTM),
+        NOT WGS84 lat/lon. Using them directly would result in wildly incorrect
+        geometries (e.g., longitude=500000 degrees). We must only use the
+        pre-transformed geometry_wgs84 from the API.
+
         Args:
             features: List of trace feature dictionaries from API
 
         Returns:
             Features with 'geometry' field populated from geometry_wgs84
         """
+        valid_features = []
+        skipped_count = 0
+
         for feature in features:
             # Use pre-transformed WGS84 geometry from API
             wgs84_wkt = feature.get('geometry_wgs84')
             if wgs84_wkt:
                 feature['geometry'] = wgs84_wkt
+                valid_features.append(feature)
             else:
-                # Fallback: try trace_data.coords (legacy - these are local grid coords!)
-                # This won't display correctly but at least creates the geometry
-                trace_data = feature.get('trace_data', {})
-                if trace_data:
-                    coords = trace_data.get('coords', [])
-                    if coords:
-                        coord_strings = [f"{c[0]} {c[1]} {c[2]}" for c in coords]
-                        feature['geometry'] = f"LINESTRING Z ({', '.join(coord_strings)})"
-                        self.logger.warning(
-                            f"Trace {feature.get('collar_name', 'unknown')} missing geometry_wgs84, "
-                            "using local grid coords (may display incorrectly)"
-                        )
+                # Cannot use trace_data.coords - they are LOCAL GRID coordinates
+                # (e.g., UTM eastings/northings like 500000, 5400000) and would
+                # display incorrectly if interpreted as WGS84 lat/lon.
+                # Skip traces that don't have WGS84 geometry.
+                collar_name = feature.get('collar_name', 'unknown')
+                needs_recalc = feature.get('needs_recalculation', False)
+                if needs_recalc:
+                    self.logger.warning(
+                        f"Trace '{collar_name}' needs recalculation on server - skipping"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Trace '{collar_name}' missing geometry_wgs84 - skipping. "
+                        "Trace may need recalculation on the server."
+                    )
+                skipped_count += 1
 
-        return features
+        if skipped_count > 0:
+            self.logger.info(
+                f"Skipped {skipped_count} traces without WGS84 geometry. "
+                "These traces may need recalculation on the geodb.io server."
+            )
+
+        return valid_features
 
     def _pull_raster_model(
         self,
@@ -642,3 +691,174 @@ class DataManager:
             progress_callback(100, "All data pulled")
 
         return results
+
+    def _get_coordinate_system_metadata(self) -> dict:
+        """
+        Get coordinate system metadata from the active project.
+
+        Returns:
+            Dict with CRS metadata for the CoordinateSystemValidatorMixin
+        """
+        project = self.project_manager.get_active_project()
+        if not project:
+            # Return default WGS84 metadata when no project
+            return {
+                'crs_epsg': 4326,
+                'origin_x': 0.0,
+                'origin_y': 0.0,
+                'rotation_degrees': 0.0
+            }
+
+        # Build metadata from project's local_grid settings
+        # API requires: origin_x, origin_y, crs_epsg, rotation_degrees
+        metadata = {
+            'crs_epsg': 4326,  # Default to WGS84
+            'origin_x': 0.0,
+            'origin_y': 0.0,
+            'rotation_degrees': 0.0
+        }
+
+        if hasattr(project, 'crs') and project.crs:
+            try:
+                metadata['crs_epsg'] = int(project.crs)
+            except (ValueError, TypeError):
+                pass
+
+        if hasattr(project, 'local_grid') and project.local_grid:
+            lg = project.local_grid
+            if lg.get('origin_x') is not None:
+                metadata['origin_x'] = lg['origin_x']
+            if lg.get('origin_y') is not None:
+                metadata['origin_y'] = lg['origin_y']
+            if lg.get('rotation_degrees') is not None:
+                metadata['rotation_degrees'] = lg['rotation_degrees']
+            if lg.get('epsg') is not None:
+                metadata['crs_epsg'] = lg['epsg']
+
+        if hasattr(project, 'proj4_string') and project.proj4_string:
+            metadata['proj4_string'] = project.proj4_string
+
+        return metadata
+
+    def _populate_required_fields(
+        self, model_name: str, push_data: dict, is_new_feature: bool = True
+    ) -> None:
+        """
+        Populate required fields for a model before pushing to API.
+
+        This handles model-specific required fields that may be NULL when creating
+        new features in QGIS. Each model type has different requirements:
+
+        - LandHolding: 'dropped' cannot be NULL (default False)
+        - DrillPad: 'status' defaults to 'planned' if not set
+        - DrillCollar: coordinates validated together (handled by API)
+        - PointSample: coordinates validated together (handled by API)
+
+        For NEW features, we also clean up NULL values for optional fields to
+        avoid validation errors. For UPDATES, we preserve all values (including
+        NULL) to allow unsetting fields via PATCH.
+
+        Args:
+            model_name: Name of the model being pushed
+            push_data: Data dictionary to be modified in-place
+            is_new_feature: True if creating a new record, False if updating
+        """
+        def is_null_or_empty(value):
+            """Check if a value is effectively NULL/empty."""
+            return value is None or value == '' or str(value) == 'NULL'
+
+        # LandHolding: 'dropped' field cannot be NULL
+        if model_name == 'LandHolding':
+            if is_null_or_empty(push_data.get('dropped')):
+                push_data['dropped'] = False
+
+        # DrillPad: 'status' defaults to 'planned' if not set
+        elif model_name == 'DrillPad':
+            if is_null_or_empty(push_data.get('status')):
+                push_data['status'] = 'planned'
+
+        # For NEW features only: Remove NULL values for optional fields
+        # This keeps the payload clean and avoids some validation edge cases
+        # For UPDATES, we preserve all values to allow explicit NULL via PATCH
+        if is_new_feature:
+            keys_to_remove = []
+            for key, value in push_data.items():
+                # Skip required fields - let API validate these
+                if key in ('name', 'project', 'bhid'):
+                    continue
+                # Skip ID field
+                if key == 'id':
+                    continue
+                # Skip geometry - even if NULL, needed for some models
+                if key == 'geometry':
+                    continue
+                # Remove NULL optional fields to keep payload clean
+                if is_null_or_empty(value):
+                    keys_to_remove.append(key)
+
+            for key in keys_to_remove:
+                del push_data[key]
+
+        # For Point-based models (PointSample, DrillCollar), extract lat/lon from geometry
+        # The API expects latitude, longitude, elevation, epsg - not geometry field
+        if model_name in ('PointSample', 'DrillCollar'):
+            self._extract_coordinates_from_geometry(push_data)
+
+    def _extract_coordinates_from_geometry(self, push_data: dict) -> None:
+        """
+        Extract latitude, longitude, elevation, and EPSG from EWKT geometry.
+
+        The API expects coordinates as separate fields (latitude, longitude, elevation, epsg)
+        rather than a geometry field. This method parses EWKT format and populates those fields.
+
+        EWKT format examples:
+        - SRID=4326;Point Z (-116.219452 48.566896 1453.6)
+        - SRID=4326;Point (-116.219452 48.566896)
+        - Point Z (-116.219452 48.566896 1453.6)
+
+        Args:
+            push_data: Data dictionary to be modified in-place
+        """
+        import re
+
+        geometry = push_data.get('geometry')
+        if not geometry or not isinstance(geometry, str):
+            return
+
+        # Parse SRID if present: SRID=4326;Point...
+        srid = None
+        geom_part = geometry
+        if geometry.upper().startswith('SRID='):
+            match = re.match(r'SRID=(\d+);(.+)', geometry, re.IGNORECASE)
+            if match:
+                srid = int(match.group(1))
+                geom_part = match.group(2)
+
+        # Parse Point coordinates: Point Z (lon lat elev) or Point (lon lat)
+        # Note: WKT uses (X Y Z) order which is (longitude latitude elevation)
+        point_match = re.match(
+            r'Point\s*Z?\s*\(\s*([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\s*([+-]?\d+\.?\d*)?\s*\)',
+            geom_part,
+            re.IGNORECASE
+        )
+
+        if point_match:
+            lon = float(point_match.group(1))
+            lat = float(point_match.group(2))
+            elev = float(point_match.group(3)) if point_match.group(3) else None
+
+            # Update push_data with extracted coordinates
+            push_data['longitude'] = lon
+            push_data['latitude'] = lat
+            if elev is not None:
+                push_data['elevation'] = elev
+            if srid is not None:
+                push_data['epsg'] = srid
+
+            # Remove geometry field - API doesn't accept it for writes
+            del push_data['geometry']
+
+            self.logger.debug(
+                f"Extracted coordinates from geometry: "
+                f"lat={lat}, lon={lon}, elev={elev}, epsg={srid}"
+            )

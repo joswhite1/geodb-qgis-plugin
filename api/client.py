@@ -93,9 +93,6 @@ class APIClient:
         request_data = None
         if data:
             json_data = json.dumps(data)
-            # Log first PATCH request for debugging
-            if method == 'PATCH':
-                self.logger.info(f"PATCH data sample (first 500 chars): {json_data[:500]}")
             request_data = QByteArray(json_data.encode('utf-8'))
         
         # Execute request with retry logic
@@ -126,10 +123,9 @@ class APIClient:
         data: Optional[QByteArray]
     ) -> Dict[str, Any]:
         """Execute single HTTP request synchronously."""
-        
         # Create event loop for synchronous behavior
         loop = QEventLoop()
-        
+
         # Make request based on method
         if method == 'GET':
             reply = self.network_manager.get(request)
@@ -146,11 +142,11 @@ class APIClient:
             reply = self.network_manager.deleteResource(request)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
-        
+
         # Wait for completion
         reply.finished.connect(loop.quit)
         loop.exec_()
-        
+
         # Process response
         return self._process_response(reply)
     
@@ -169,30 +165,53 @@ class APIClient:
         """
         status_code = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
         response_data = bytes(reply.readAll()).decode('utf-8')
-        
-        # Check for network errors
-        if reply.error() != QNetworkReply.NoError:
-            error_msg = reply.errorString()
-            self.logger.error(f"Network error: {error_msg}")
-            raise NetworkError(f"Network error: {error_msg}", status_code=status_code)
-        
-        # Parse JSON response
+
+        # Parse JSON response first (even for errors, to get validation messages)
+        parsed_data = {}
         try:
             parsed_data = json.loads(response_data) if response_data else {}
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse JSON: {e}")
-            raise APIException(f"Invalid JSON response: {e}", status_code=status_code)
-        
+        except json.JSONDecodeError:
+            pass  # Will handle below
+
+        # Check for network errors - but for HTTP errors (4xx, 5xx) process normally
+        # QNetworkReply reports 400/500 as errors, but we want to parse their response
+        if reply.error() != QNetworkReply.NoError:
+            # If we have a valid HTTP status code, handle as HTTP error below
+            if status_code and status_code >= 400:
+                pass  # Fall through to HTTP error handling
+            else:
+                # True network error (connection refused, timeout, etc.)
+                error_msg = reply.errorString()
+                self.logger.error(f"Network error: {error_msg}")
+                self.logger.error(f"Response body: {response_data}")
+                raise NetworkError(f"Network error: {error_msg}", status_code=status_code)
+
         # Handle HTTP errors
-        if status_code >= 400:
+        if status_code and status_code >= 400:
             error_msg = parsed_data.get('error') or parsed_data.get('detail') or 'Unknown error'
-            
-            if status_code == 401:
+
+            # For 400 errors, include full validation details in the message
+            if status_code == 400:
+                # DRF returns field errors as dict: {"field_name": ["error message"]}
+                validation_details = []
+                for field, errors in parsed_data.items():
+                    if field not in ('error', 'detail'):
+                        if isinstance(errors, list):
+                            validation_details.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                        else:
+                            validation_details.append(f"{field}: {errors}")
+                if validation_details:
+                    error_msg = f"Validation failed - {'; '.join(validation_details)}"
+                self.logger.error(f"[API 400] Validation error: {error_msg}")
+                self.logger.error(f"[API 400] Full response: {parsed_data}")
+                # Also print to console for immediate visibility
+                print(f"\n[API 400] Validation error: {error_msg}")
+                print(f"[API 400] Full response: {parsed_data}\n")
+                raise ValidationError(error_msg, status_code, parsed_data)
+            elif status_code == 401:
                 raise AuthenticationError(error_msg, status_code, parsed_data)
             elif status_code == 403:
                 raise PermissionError(error_msg, status_code, parsed_data)
-            elif status_code == 400:
-                raise ValidationError(error_msg, status_code, parsed_data)
             elif status_code >= 500:
                 raise ServerError(error_msg, status_code, parsed_data)
             else:
@@ -441,7 +460,10 @@ class APIClient:
         partial: bool = True
     ) -> Dict[str, Any]:
         """
-        Update an existing record.
+        Update an existing record by ID.
+
+        Note: Consider using upsert_record() instead, which uses natural key
+        lookup and doesn't require tracking server IDs.
 
         Args:
             model_name: Model name
@@ -459,6 +481,34 @@ class APIClient:
         url = f"{endpoint}{record_id}/"
         method = 'PATCH' if partial else 'PUT'
         return self._make_request(method, url, data=data)
+
+    def upsert_record(
+        self,
+        model_name: str,
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create or update a record using natural key lookup.
+
+        The server looks up the record by its natural key (e.g., name + project
+        for DrillPad). If found, it updates the existing record. If not found,
+        it creates a new record.
+
+        This is the preferred method for sync operations as it doesn't require
+        tracking server IDs on the client side.
+
+        Args:
+            model_name: Model name (e.g., 'DrillCollar', 'LandHolding')
+            data: Record data (must include natural key fields)
+
+        Returns:
+            Dict with record data and 'status' field ('created' or 'updated')
+        """
+        endpoint = self.config.get_model_endpoint(model_name)
+        if not endpoint:
+            raise ValueError(f"Unknown model: {model_name}")
+
+        return self._make_request('POST', endpoint, data=data)
 
     def delete_record(self, model_name: str, record_id: int) -> None:
         """
@@ -567,6 +617,59 @@ class APIClient:
         params = {'merge_assays': 'true'} if merge_assays else None
         return self.get_all_paginated('PointSample', project_id, params=params)
 
+    def get_drill_pads(self, project_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all drill pads for a project.
+
+        Args:
+            project_id: Project ID to filter by
+
+        Returns:
+            List of drill pad dictionaries with polygon geometry
+        """
+        return self.get_all_paginated('DrillPad', project_id)
+
+    # =========================================================================
+    # Lookup Tables (Lithology, Alteration)
+    # =========================================================================
+
+    def get_lithologies(self, project_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all lithology types for a project.
+
+        Args:
+            project_id: Project ID to filter by
+
+        Returns:
+            List of lithology dictionaries with 'id', 'name', 'color', etc.
+        """
+        url = self.config.endpoints['lithologies']
+        url = f"{url}?project={project_id}"
+        self.logger.info(f"Fetching lithologies from: {url}")
+
+        response = self._make_request('GET', url)
+        if isinstance(response, list):
+            return response
+        return response.get('results', [])
+
+    def get_alterations(self, project_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all alteration types for a project.
+
+        Args:
+            project_id: Project ID to filter by
+
+        Returns:
+            List of alteration dictionaries with 'id', 'name', 'color', etc.
+        """
+        url = self.config.endpoints['alterations']
+        url = f"{url}?project={project_id}"
+
+        response = self._make_request('GET', url)
+        if isinstance(response, list):
+            return response
+        return response.get('results', [])
+
     # =========================================================================
     # Assay Range Configurations
     # =========================================================================
@@ -587,7 +690,7 @@ class APIClient:
             List of assay range configurations
         """
         url = self.config.endpoints['assay_range_configurations']
-        url = f"{url}?project_id={project_id}"
+        url = f"{url}?project={project_id}"
         if is_active:
             url = f"{url}&is_active=true"
 
@@ -632,7 +735,7 @@ class APIClient:
         params = []
 
         if project_id:
-            params.append(f"project_id={project_id}")
+            params.append(f"project={project_id}")
         if company_id:
             params.append(f"company_id={company_id}")
 
