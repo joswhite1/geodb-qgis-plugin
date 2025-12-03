@@ -644,7 +644,7 @@ class APIClient:
             List of lithology dictionaries with 'id', 'name', 'color', etc.
         """
         url = self.config.endpoints['lithologies']
-        url = f"{url}?project={project_id}"
+        url = f"{url}?project_id={project_id}"
         self.logger.info(f"Fetching lithologies from: {url}")
 
         response = self._make_request('GET', url)
@@ -663,7 +663,7 @@ class APIClient:
             List of alteration dictionaries with 'id', 'name', 'color', etc.
         """
         url = self.config.endpoints['alterations']
-        url = f"{url}?project={project_id}"
+        url = f"{url}?project_id={project_id}"
 
         response = self._make_request('GET', url)
         if isinstance(response, list):
@@ -690,7 +690,7 @@ class APIClient:
             List of assay range configurations
         """
         url = self.config.endpoints['assay_range_configurations']
-        url = f"{url}?project={project_id}"
+        url = f"{url}?project_id={project_id}"
         if is_active:
             url = f"{url}&is_active=true"
 
@@ -735,7 +735,7 @@ class APIClient:
         params = []
 
         if project_id:
-            params.append(f"project={project_id}")
+            params.append(f"project_id={project_id}")
         if company_id:
             params.append(f"company_id={company_id}")
 
