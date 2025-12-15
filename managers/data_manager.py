@@ -862,3 +862,167 @@ class DataManager:
                 f"Extracted coordinates from geometry: "
                 f"lat={lat}, lon={lon}, elev={elev}, epsg={srid}"
             )
+
+    # =========================================================================
+    # FIELD WORK PLANNING METHODS
+    # =========================================================================
+
+    def push_planned_samples(
+        self,
+        source_layer,
+        prefix: str,
+        start_number: int,
+        padding: int,
+        sample_type: str,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Push points from any QGIS layer as planned PointSample records.
+
+        This creates "Planned" samples that can be assigned to field workers
+        via the geodb.io dashboard. The samples have:
+        - status = 'PL' (Planned)
+        - sequence_number = generated ID (e.g., SS-001)
+        - target_latitude/longitude = point coordinates (where to go)
+        - name = NULL (lab sample ID not yet known)
+        - latitude/longitude = NULL (actual coords set in field)
+
+        Args:
+            source_layer: Any point layer in QGIS (QgsVectorLayer)
+            prefix: Sequence number prefix (e.g., "SS-")
+            start_number: Starting sequence number (e.g., 1)
+            padding: Zero-padding width (e.g., 3 for "001")
+            sample_type: Sample type code (SL, RK, OC, etc.)
+            progress_callback: Optional callback(progress_percent, status_message)
+
+        Returns:
+            Dict with 'created', 'errors', 'error_details'
+        """
+        from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+
+        self.logger.info(f"Pushing planned samples from layer: {source_layer.name()}")
+
+        # Validate inputs
+        project = self.project_manager.get_active_project()
+        if not project:
+            raise ValueError("No project selected")
+
+        if not self.project_manager.can_edit():
+            raise PermissionError("No permission to edit data in this project")
+
+        feature_count = source_layer.featureCount()
+        if feature_count == 0:
+            raise ValueError("Source layer has no features")
+
+        try:
+            if progress_callback:
+                progress_callback(5, "Preparing coordinate transformation...")
+
+            # Set up coordinate transform to WGS84 if needed
+            source_crs = source_layer.crs()
+            wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+            transform = None
+            if source_crs != wgs84:
+                transform = QgsCoordinateTransform(
+                    source_crs, wgs84, QgsProject.instance()
+                )
+                self.logger.info(f"Will transform from {source_crs.authid()} to WGS84")
+
+            # Get CRS metadata for tracking
+            crs_metadata = self._get_coordinate_system_metadata()
+            if source_crs.isValid():
+                try:
+                    crs_metadata['crs_epsg'] = int(source_crs.authid().split(':')[1])
+                except (ValueError, IndexError):
+                    pass
+
+            # Build project natural key
+            project_nk = {
+                'name': project.name,
+                'company': project.company_name
+            }
+
+            if progress_callback:
+                progress_callback(10, f"Processing {feature_count} features...")
+
+            # Process each feature
+            created = 0
+            errors = []
+
+            for i, feature in enumerate(source_layer.getFeatures()):
+                try:
+                    # Generate sequence number
+                    seq_num = f"{prefix}{str(start_number + i).zfill(padding)}"
+
+                    # Get geometry and transform to WGS84
+                    geom = feature.geometry()
+                    if geom.isEmpty():
+                        raise ValueError("Feature has empty geometry")
+
+                    point = geom.asPoint()
+                    if transform:
+                        point = transform.transform(point)
+
+                    # Get elevation if available (Z coordinate)
+                    elevation = None
+                    if geom.constGet().is3D():
+                        elevation = geom.constGet().z()
+
+                    # Build sample data for API
+                    sample_data = {
+                        'project': project_nk,
+                        'status': 'PL',  # Planned
+                        'sequence_number': seq_num,
+                        'sample_type': sample_type,
+                        # Target coordinates (where to go)
+                        'target_latitude': point.y(),
+                        'target_longitude': point.x(),
+                        'target_epsg': 4326,  # Always WGS84 after transform
+                        # Actual coordinates left NULL (set in field)
+                        # 'latitude': None,
+                        # 'longitude': None,
+                        # name left NULL (lab sample ID set in field)
+                        # 'name': None,
+                        'coordinate_system_metadata': crs_metadata,
+                    }
+
+                    if elevation is not None:
+                        sample_data['target_elevation'] = elevation
+
+                    # Push to server
+                    result = self.api_client.upsert_record(
+                        model_name='PointSample',
+                        data=sample_data
+                    )
+
+                    created += 1
+                    self.logger.debug(f"Created planned sample: {seq_num}")
+
+                except Exception as e:
+                    seq_num = f"{prefix}{str(start_number + i).zfill(padding)}"
+                    errors.append({
+                        'sequence_number': seq_num,
+                        'error': str(e)
+                    })
+                    self.logger.error(f"Failed to create planned sample {seq_num}: {e}")
+
+                # Progress update
+                if progress_callback and (i + 1) % 10 == 0:
+                    progress = 10 + int((i + 1) / feature_count * 85)
+                    progress_callback(progress, f"Created {created} of {i + 1} samples...")
+
+            if progress_callback:
+                progress_callback(100, "Push complete")
+
+            result = {
+                'created': created,
+                'errors': len(errors),
+                'error_details': errors if errors else None
+            }
+
+            self.logger.info(f"Planned samples push complete: {result}")
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Push planned samples failed: {e}")
+            raise

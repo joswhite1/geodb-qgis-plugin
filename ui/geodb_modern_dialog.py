@@ -38,6 +38,7 @@ from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
 from .assay_range_dialog import AssayRangeDialog
 from .storage_dialog import StorageConfigDialog
+from .field_work_dialog import FieldWorkDialog
 
 # Ensure plugin directory is in sys.path for UI resource imports
 plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -84,6 +85,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Add storage button dynamically (since not in .ui file)
         self._add_storage_button()
+
+        # Add field work button dynamically
+        self._add_field_work_button()
 
         # Replace manual assay options with AssayRangeConfiguration selector
         self._replace_assay_options_ui()
@@ -274,6 +278,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.projectComboBox.setEnabled(False)
             self.pullButton.setEnabled(False)
             self.pushButton.setEnabled(False)
+
+        # Update field work button state
+        self._update_field_work_button_state()
     
     # ==================== PROJECT MANAGEMENT ====================
 
@@ -347,6 +354,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.pullButton.setEnabled(False)
             self.pushButton.setEnabled(False)
             self._update_storage_status()
+            self._update_field_work_button_state()
             return
 
         project = self.projectComboBox.itemData(index)
@@ -385,10 +393,13 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Update storage status for this project
             self._update_storage_status()
 
+            # Update field work button state
+            self._update_field_work_button_state()
+
         except Exception as e:
             self.logger.exception("Failed to select project")
             self._log_message(f"Failed to select project: {e}", "error")
-    
+
     # ==================== MODEL SELECTION ====================
     
     def _on_model_selected(self, current, previous):
@@ -1454,3 +1465,92 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 "warning"
             )
             return True
+
+    # ==================== FIELD WORK PLANNING ====================
+
+    def _add_field_work_button(self):
+        """Add field work planning button near the Pull/Push buttons."""
+        # Create the field work button
+        self.fieldWorkButton = QPushButton("Plan Field Samples...")
+        self.fieldWorkButton.setEnabled(False)  # Enable when logged in with edit permission
+        self.fieldWorkButton.setToolTip(
+            "Create planned samples from any point layer for field collection"
+        )
+        self.fieldWorkButton.clicked.connect(self._on_field_work_clicked)
+
+        # Style the button to distinguish it from Pull/Push
+        self.fieldWorkButton.setStyleSheet("""
+            QPushButton {
+                background-color: #059669;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #047857;
+            }
+            QPushButton:disabled {
+                background-color: #9ca3af;
+            }
+        """)
+
+        # Find the button layout and add our button
+        # The buttonLayout contains pullButton and pushButton
+        button_layout = self.buttonLayout
+
+        # Insert after pushButton (position 1) as position 2
+        button_layout.insertWidget(2, self.fieldWorkButton)
+
+    def _on_field_work_clicked(self):
+        """Handle field work button click - open the planning dialog."""
+        if not self.project_manager.active_project:
+            QMessageBox.warning(
+                self, "No Project",
+                "Please select a project before planning field samples."
+            )
+            return
+
+        if not self.project_manager.can_edit():
+            QMessageBox.warning(
+                self, "Permission Denied",
+                "You need edit permission to create planned samples."
+            )
+            return
+
+        # Open the Field Work Dialog
+        dialog = FieldWorkDialog(
+            parent=self,
+            data_manager=self.data_manager,
+            project_manager=self.project_manager
+        )
+
+        dialog.push_completed.connect(self._on_field_work_completed)
+        dialog.exec_()
+
+    def _on_field_work_completed(self, result: dict):
+        """Handle field work push completion."""
+        created = result.get('created', 0)
+        errors = result.get('errors', 0)
+
+        if errors == 0:
+            self._log_message(
+                f"✓ Field work planning complete: Created {created} planned samples",
+                "success"
+            )
+        else:
+            self._log_message(
+                f"⚠ Field work planning: {created} created, {errors} errors",
+                "warning"
+            )
+
+    def _update_field_work_button_state(self):
+        """Update field work button enabled state based on permissions."""
+        if hasattr(self, 'fieldWorkButton'):
+            can_edit = (
+                self.current_session is not None and
+                self.project_manager.active_project is not None and
+                self.project_manager.can_edit()
+            )
+            self.fieldWorkButton.setEnabled(can_edit)

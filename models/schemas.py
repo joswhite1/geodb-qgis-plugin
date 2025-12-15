@@ -464,9 +464,12 @@ POINT_SAMPLE_SCHEMA = ModelSchema(
     geometry_type=GeometryType.POINT,
     display_name='Point Samples',
     description='Surface geochemical samples',
+    natural_key_fields=['name', 'project'],
     fields=[
         FieldSchema('id', FieldType.INTEGER, readonly=True),
-        FieldSchema('name', FieldType.STRING, length=100, required=True),
+        # name is now nullable for planned samples (lab sample ID set in field)
+        FieldSchema('name', FieldType.STRING, length=100, required=False,
+                   description='Lab sample bag ID (set when collected)'),
         FieldSchema('project', FieldType.STRING, length=0, required=True,
                    description='Project natural key (JSON object)'),
         FieldSchema('sample_type', FieldType.STRING, length=3,
@@ -477,8 +480,11 @@ POINT_SAMPLE_SCHEMA = ModelSchema(
                    description='FK to Lithology'),
         FieldSchema('alteration', FieldType.STRING, length=255,
                    description='FK to Alteration'),
-        FieldSchema('latitude', FieldType.DOUBLE, required=True),
-        FieldSchema('longitude', FieldType.DOUBLE, required=True),
+        # Actual coordinates (where sample was collected - set in field)
+        FieldSchema('latitude', FieldType.DOUBLE, required=False,
+                   description='Actual collection latitude (set in field)'),
+        FieldSchema('longitude', FieldType.DOUBLE, required=False,
+                   description='Actual collection longitude (set in field)'),
         FieldSchema('elevation', FieldType.DOUBLE),
         FieldSchema('date_collected', FieldType.DATE),
         FieldSchema('collected_by', FieldType.STRING, length=100),
@@ -488,6 +494,34 @@ POINT_SAMPLE_SCHEMA = ModelSchema(
         FieldSchema('comments', FieldType.STRING, length=1000),
         FieldSchema('coordinate_system_metadata', FieldType.STRING, length=0,
                    description='CRS metadata for plugin sync (JSON object)'),
+        # === FIELD WORKFLOW FIELDS ===
+        # Status tracking
+        FieldSchema('status', FieldType.STRING, length=2, default='CO',
+                   description='PL=Planned, AS=Assigned, CO=Collected, SK=Skipped'),
+        FieldSchema('status_notes', FieldType.STRING, length=1000,
+                   description='Reason for skipping, access issues, etc.'),
+        # Sequence number for planned samples (display/navigation ID)
+        FieldSchema('sequence_number', FieldType.STRING, length=50,
+                   description='Planning reference ID (e.g., SS-001)'),
+        # Target coordinates (where to go - set during planning)
+        FieldSchema('target_latitude', FieldType.DOUBLE,
+                   description='Planned collection latitude'),
+        FieldSchema('target_longitude', FieldType.DOUBLE,
+                   description='Planned collection longitude'),
+        FieldSchema('target_elevation', FieldType.DOUBLE,
+                   description='Planned collection elevation'),
+        FieldSchema('target_epsg', FieldType.INTEGER,
+                   description='EPSG code of original target coordinates'),
+        # Assignment fields (readonly - managed by server/dashboard)
+        FieldSchema('assigned_to', FieldType.STRING, length=100, readonly=True,
+                   description='Assigned field worker email'),
+        FieldSchema('assigned_by', FieldType.STRING, length=100, readonly=True,
+                   description='Manager who made assignment'),
+        FieldSchema('assigned_date', FieldType.DATETIME, readonly=True,
+                   description='When assignment was made'),
+        FieldSchema('due_date', FieldType.DATE, readonly=True,
+                   description='Target collection date'),
+        # === END FIELD WORKFLOW FIELDS ===
         # Merged assay fields (populated when merge_assays=true)
         FieldSchema('assay_Au', FieldType.DOUBLE, readonly=True),
         FieldSchema('assay_Ag', FieldType.DOUBLE, readonly=True),
