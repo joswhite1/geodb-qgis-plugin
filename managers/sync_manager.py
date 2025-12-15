@@ -493,6 +493,54 @@ class SyncManager:
             self.logger.warning(f"Failed to build DrillSample geometry: {e}")
             return None
 
+    def _build_pointsample_geometry_with_fallback(self, feature_data: Dict) -> Optional[str]:
+        """
+        Build Point WKT geometry for PointSample, with fallback to target coordinates.
+
+        For collected samples: uses latitude/longitude (actual collection point)
+        For planned samples: falls back to target_latitude/target_longitude (where to go)
+
+        This enables planned samples (status='PL') to be displayed on the map
+        at their target locations before field collection.
+
+        Args:
+            feature_data: Feature dictionary from API
+
+        Returns:
+            WKT Point string, or None if no coordinates available
+        """
+        # First try actual coordinates (collected samples)
+        lat = feature_data.get('latitude')
+        lon = feature_data.get('longitude')
+        elev = feature_data.get('elevation')
+
+        # If actual coords not available, fall back to target coords (planned samples)
+        if lat is None or lon is None:
+            lat = feature_data.get('target_latitude')
+            lon = feature_data.get('target_longitude')
+            elev = feature_data.get('target_elevation')
+
+        # Still no coords? Can't build geometry
+        if lat is None or lon is None:
+            sample_id = feature_data.get('sequence_number') or feature_data.get('name') or 'unknown'
+            self.logger.debug(
+                f"PointSample '{sample_id}' has no coordinates "
+                f"(lat={feature_data.get('latitude')}, target_lat={feature_data.get('target_latitude')})"
+            )
+            return None
+
+        try:
+            # Build WKT Point (with optional Z dimension)
+            if elev is not None:
+                wkt = f"POINT Z ({lon} {lat} {elev})"
+            else:
+                wkt = f"POINT ({lon} {lat})"
+            return wkt
+
+        except (TypeError, ValueError) as e:
+            self.logger.warning(f"Failed to build PointSample geometry: {e}")
+            return None
+
     def _create_dynamic_image_document_fields(self, max_images: int, max_docs: int) -> List[Dict]:
         """
         Create field definitions for image_1, image_2, ..., document_1, ...
@@ -1695,6 +1743,18 @@ class SyncManager:
                         f"DrillSample geometry not built: xyz_from present={has_xyz_from}, "
                         f"xyz_to present={has_xyz_to}. Available keys: {list(feature_data.keys())[:15]}"
                     )
+
+            # PointSample: Fall back to target coordinates for planned samples
+            # When latitude/longitude are NULL (planned, not yet collected), use target_* coords
+            if not geom_data and model_name.startswith('PointSample'):
+                point_geom = self._build_pointsample_geometry_with_fallback(feature_data)
+                if point_geom:
+                    attributes['geometry'] = point_geom
+                    if idx == 0:
+                        # Check if using target coords (planned sample)
+                        has_actual = feature_data.get('latitude') and feature_data.get('longitude')
+                        coord_source = "actual" if has_actual else "target (planned)"
+                        self.logger.info(f"Built PointSample geometry from {coord_source} coordinates")
             
             # Collect processed attributes for snapshot computation
             # This ensures the hash matches what we'll read back from QGIS
