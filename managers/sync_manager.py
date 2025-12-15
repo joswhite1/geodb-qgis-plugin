@@ -1565,13 +1565,14 @@ class SyncManager:
         crs: Optional[str] = None,
         api_client=None,
         project_id: Optional[int] = None,
-        crs_metadata: Optional[Dict[str, Any]] = None
+        crs_metadata: Optional[Dict[str, Any]] = None,
+        base_schema_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Sync pulled features to QGIS layer.
 
         Args:
-            model_name: Model name
+            model_name: Model name (used for layer naming, may be custom like "FieldTasks")
             features: List of feature dictionaries from API
             progress_callback: Optional progress callback
             project_name: Optional project name to prefix layer name
@@ -1580,6 +1581,8 @@ class SyncManager:
             api_client: Optional APIClient for fetching lookup table data
             project_id: Optional project ID for fetching lookup table data
             crs_metadata: Optional CRS metadata for coordinate_system_metadata field
+            base_schema_name: Optional base schema name for schema lookup when model_name
+                is custom (e.g., "PointSample" for "FieldTasks" layer)
 
         Returns:
             Dictionary with sync results
@@ -1602,7 +1605,9 @@ class SyncManager:
         first_feature = features[0]
 
         # Get geometry type from schema first, fall back to feature data
-        geometry_type = self._get_geometry_type_from_schema(model_name)
+        # Use base_schema_name if provided (e.g., for FieldTasks which uses PointSample schema)
+        schema_lookup_name = base_schema_name or model_name
+        geometry_type = self._get_geometry_type_from_schema(schema_lookup_name)
         if not geometry_type:
             geometry_type = first_feature.get('geometry_type', 'Point')
 

@@ -1469,8 +1469,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     # ==================== FIELD WORK PLANNING ====================
 
     def _add_field_work_button(self):
-        """Add field work planning button near the Pull/Push buttons."""
-        # Create the field work button
+        """Add field work planning button and pull field tasks button."""
+        # Create the field work planning button
         self.fieldWorkButton = QPushButton("Plan Field Samples...")
         self.fieldWorkButton.setEnabled(False)  # Enable when logged in with edit permission
         self.fieldWorkButton.setToolTip(
@@ -1496,12 +1496,40 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             }
         """)
 
-        # Find the button layout and add our button
+        # Create the pull field tasks button
+        self.pullFieldTasksButton = QPushButton("Pull Field Tasks")
+        self.pullFieldTasksButton.setEnabled(False)  # Enable when logged in with view permission
+        self.pullFieldTasksButton.setToolTip(
+            "Pull planned and assigned samples as a field tasks layer\n"
+            "(separate from assay-colored layers)"
+        )
+        self.pullFieldTasksButton.clicked.connect(self._on_pull_field_tasks_clicked)
+
+        # Style the button (blue to distinguish from green plan button)
+        self.pullFieldTasksButton.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+            QPushButton:disabled {
+                background-color: #9ca3af;
+            }
+        """)
+
+        # Find the button layout and add our buttons
         # The buttonLayout contains pullButton and pushButton
         button_layout = self.buttonLayout
 
-        # Insert after pushButton (position 1) as position 2
-        button_layout.insertWidget(2, self.fieldWorkButton)
+        # Insert buttons after pushButton
+        button_layout.insertWidget(2, self.pullFieldTasksButton)
+        button_layout.insertWidget(3, self.fieldWorkButton)
 
     def _on_field_work_clicked(self):
         """Handle field work button click - open the planning dialog."""
@@ -1545,8 +1573,79 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 "warning"
             )
 
+    def _on_pull_field_tasks_clicked(self):
+        """Handle pull field tasks button click - pull planned/assigned samples."""
+        if not self.project_manager.active_project:
+            QMessageBox.warning(
+                self, "No Project",
+                "Please select a project before pulling field tasks."
+            )
+            return
+
+        if not self.project_manager.can_view():
+            QMessageBox.warning(
+                self, "Permission Denied",
+                "You need view permission to pull field tasks."
+            )
+            return
+
+        try:
+            self._log_message("Starting pull for field tasks (planned/assigned samples)...", "info")
+            self.pullFieldTasksButton.setEnabled(False)
+            self.progressBar.setVisible(True)
+            self.progressBar.setValue(0)
+
+            # Pull field tasks
+            result = self.data_manager.pull_field_tasks(
+                progress_callback=self._on_progress
+            )
+
+            pulled = result.get('pulled', 0)
+            layer = result.get('layer')
+
+            if pulled > 0:
+                self._log_message(
+                    f"✓ Field tasks pull complete: {pulled} tasks",
+                    "success"
+                )
+                # Apply status-based styling to the layer
+                if layer:
+                    self._apply_field_task_styling(layer)
+            else:
+                self._log_message(
+                    "No planned or assigned samples found for this project.",
+                    "info"
+                )
+
+        except Exception as e:
+            self.logger.exception("Pull field tasks failed")
+            self._log_message(f"Pull field tasks failed: {e}", "error")
+            QMessageBox.critical(self, "Error", f"Pull field tasks failed: {e}")
+        finally:
+            self.pullFieldTasksButton.setEnabled(True)
+            self.progressBar.setVisible(False)
+
+    def _apply_field_task_styling(self, layer):
+        """Apply status-based categorized styling to field tasks layer."""
+        try:
+            success = self.style_processor.apply_field_task_style(layer)
+            if success:
+                self._log_message(
+                    "✓ Applied status-based styling (Planned=gray, Assigned=yellow)",
+                    "success"
+                )
+            else:
+                self._log_message(
+                    "Could not apply status styling - 'status' field not found",
+                    "warning"
+                )
+        except Exception as e:
+            self.logger.exception("Failed to apply field task styling")
+            self._log_message(f"Failed to apply styling: {e}", "warning")
+
     def _update_field_work_button_state(self):
         """Update field work button enabled state based on permissions."""
+        # Plan Field Samples button - requires edit permission
         if hasattr(self, 'fieldWorkButton'):
             can_edit = (
                 self.current_session is not None and
@@ -1554,3 +1653,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 self.project_manager.can_edit()
             )
             self.fieldWorkButton.setEnabled(can_edit)
+
+        # Pull Field Tasks button - requires view permission
+        if hasattr(self, 'pullFieldTasksButton'):
+            can_view = (
+                self.current_session is not None and
+                self.project_manager.active_project is not None and
+                self.project_manager.can_view()
+            )
+            self.pullFieldTasksButton.setEnabled(can_view)

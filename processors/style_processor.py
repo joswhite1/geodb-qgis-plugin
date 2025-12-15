@@ -401,6 +401,122 @@ class StyleProcessor:
 
         return True
 
+    def apply_field_task_style(self, layer: QgsVectorLayer) -> bool:
+        """
+        Apply status-based categorized styling to a field tasks layer.
+
+        Creates a categorized renderer based on sample status:
+        - PL (Planned): Gray hollow circle
+        - AS (Assigned): Yellow/orange filled circle
+        - CO (Collected): Green filled circle (if present)
+        - SK (Skipped): Red X marker
+
+        Args:
+            layer: Target QGIS vector layer (FieldTasks layer)
+
+        Returns:
+            True if successful
+        """
+        if not layer or not layer.isValid():
+            self.logger.warning("Invalid layer for field task styling")
+            return False
+
+        status_field = 'status'
+        field_index = layer.fields().indexFromName(status_field)
+        if field_index < 0:
+            self.logger.warning(
+                f"Field '{status_field}' not found in layer. "
+                f"Available fields: {[f.name() for f in layer.fields()]}"
+            )
+            return False
+
+        self.logger.info(f"Applying field task status styling to {layer.name()}")
+
+        # Define status categories with colors and symbols
+        # PL = Planned (gray hollow), AS = Assigned (yellow), CO = Collected (green), SK = Skipped (red)
+        status_styles = {
+            'PL': {
+                'color': '#9ca3af',  # Gray
+                'outline': '#374151',  # Dark gray
+                'label': 'Planned',
+                'size': 4,
+                'style': 'hollow'
+            },
+            'AS': {
+                'color': '#fbbf24',  # Yellow/Amber
+                'outline': '#d97706',  # Dark amber
+                'label': 'Assigned',
+                'size': 5,
+                'style': 'filled'
+            },
+            'CO': {
+                'color': '#10b981',  # Green
+                'outline': '#059669',  # Dark green
+                'label': 'Collected',
+                'size': 5,
+                'style': 'filled'
+            },
+            'SK': {
+                'color': '#ef4444',  # Red
+                'outline': '#b91c1c',  # Dark red
+                'label': 'Skipped',
+                'size': 4,
+                'style': 'cross'
+            }
+        }
+
+        categories = []
+
+        for status_code, style in status_styles.items():
+            # Create marker symbol
+            symbol = QgsMarkerSymbol()
+            symbol.deleteSymbolLayer(0)  # Remove default
+
+            simple_layer = QgsSimpleMarkerSymbolLayer()
+
+            if style['style'] == 'hollow':
+                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+                simple_layer.setColor(QColor('transparent'))
+                simple_layer.setStrokeColor(QColor(style['outline']))
+                simple_layer.setStrokeWidth(1.0)
+            elif style['style'] == 'cross':
+                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Cross2)
+                simple_layer.setColor(QColor(style['color']))
+                simple_layer.setStrokeColor(QColor(style['outline']))
+                simple_layer.setStrokeWidth(1.0)
+            else:  # filled
+                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+                simple_layer.setColor(QColor(style['color']))
+                simple_layer.setStrokeColor(QColor(style['outline']))
+                simple_layer.setStrokeWidth(0.5)
+
+            simple_layer.setSize(style['size'])
+            symbol.appendSymbolLayer(simple_layer)
+
+            category = QgsRendererCategory(status_code, symbol, style['label'])
+            categories.append(category)
+
+        # Add default category for unknown/null status values
+        default_symbol = QgsMarkerSymbol.createSimple({
+            'name': 'circle',
+            'color': '#d1d5db',
+            'outline_color': '#9ca3af',
+            'outline_width': '0.5',
+            'size': '3'
+        })
+        null_category = QgsRendererCategory(None, default_symbol, "Unknown")
+        categories.append(null_category)
+
+        # Create and apply categorized renderer
+        renderer = QgsCategorizedSymbolRenderer(status_field, categories)
+        layer.setRenderer(renderer)
+        layer.triggerRepaint()
+
+        self.logger.info(
+            f"Applied categorized status style with {len(categories)} categories"
+        )
+        return True
+
     def apply_photo_style(self, layer: QgsVectorLayer) -> bool:
         """
         Apply camera icon symbology to a Photo layer.

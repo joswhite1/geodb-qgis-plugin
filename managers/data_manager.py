@@ -74,6 +74,7 @@ class DataManager:
         ps_type_name: Optional[str] = None,
         assay_element: Optional[str] = None,
         assay_units: Optional[str] = None,
+        status_filter: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None
     ) -> Dict[str, Any]:
         """
@@ -90,6 +91,7 @@ class DataManager:
             ps_type_name: Optional PointSampleType name for layer naming
             assay_element: Optional element symbol for layer naming (e.g., 'Au')
             assay_units: Optional units for layer naming (e.g., 'ppb')
+            status_filter: Optional status filter (e.g., 'CO' for collected only, 'PL,AS' for planned/assigned)
             progress_callback: Optional callback(progress_percent, status_message)
 
         Returns:
@@ -130,6 +132,16 @@ class DataManager:
             # Add sample type filter for PointSample
             if model_name == 'PointSample' and ps_type_id:
                 params['ps_type_id'] = str(ps_type_id)
+
+            # Add status filter for PointSample
+            # When pulling with assay config (merge_assays=true), default to collected only
+            # This excludes planned/assigned samples from assay-colored layers
+            if model_name == 'PointSample':
+                if status_filter:
+                    params['status'] = status_filter
+                elif merge_assays and assay_config_id:
+                    # Default to collected samples only for assay visualization
+                    params['status'] = 'CO'
 
             # Filter Photos to only include those with GPS coordinates
             # Photos without geometry are typically linked to drill collars
@@ -866,6 +878,100 @@ class DataManager:
     # =========================================================================
     # FIELD WORK PLANNING METHODS
     # =========================================================================
+
+    def pull_field_tasks(
+        self,
+        ps_type_id: Optional[int] = None,
+        ps_type_name: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Pull planned and assigned PointSamples as field tasks.
+
+        This creates a separate layer for field tasks, styled by status.
+        Unlike regular PointSample pulls (which get collected samples for assay viz),
+        this specifically pulls samples that are:
+        - PL (Planned) - ready to be assigned
+        - AS (Assigned) - assigned to field workers
+
+        Args:
+            ps_type_id: Optional PointSampleType ID to filter by
+            ps_type_name: Optional PointSampleType name for layer naming
+            progress_callback: Optional callback(progress_percent, status_message)
+
+        Returns:
+            Dictionary with sync results
+        """
+        self.logger.info("Pulling field tasks (planned/assigned samples)")
+
+        # Check if project is selected
+        project = self.project_manager.get_active_project()
+        if not project:
+            raise ValueError("No project selected")
+
+        # Check permissions
+        if not self.project_manager.can_view():
+            raise PermissionError("No permission to view data")
+
+        try:
+            if progress_callback:
+                progress_callback(10, "Fetching field tasks from server...")
+
+            # Build params for field tasks (planned and assigned only)
+            params = {
+                'status__in': 'PL,AS',  # Only planned and assigned
+            }
+
+            # Add sample type filter if specified
+            if ps_type_id:
+                params['ps_type_id'] = str(ps_type_id)
+
+            # Pull data from API
+            features = self.api_client.get_all_paginated(
+                model_name='PointSample',
+                project_id=project.id,
+                params=params,
+                progress_callback=lambda p: progress_callback(10 + int(p * 0.3), "Downloading...") if progress_callback else None
+            )
+
+            if progress_callback:
+                progress_callback(40, f"Processing {len(features)} field tasks...")
+
+            # Build layer name for field tasks
+            # e.g., "ProjectName_FieldTasks" or "ProjectName_FieldTasks_Soil"
+            effective_model_name = "FieldTasks"
+            if ps_type_name:
+                effective_model_name = f"FieldTasks_{ps_type_name.replace(' ', '')}"
+
+            if progress_callback:
+                progress_callback(50, f"Syncing {len(features)} field tasks to QGIS layer...")
+
+            # Sync to QGIS layer with project name prefix
+            result = self.sync_manager.sync_pull_to_layer(
+                model_name=effective_model_name,
+                features=features,
+                progress_callback=lambda p: progress_callback(50 + int(p * 0.4), "Syncing...") if progress_callback else None,
+                project_name=project.name,
+                company_name=project.company_name,
+                api_client=self.api_client,
+                project_id=project.id,
+                crs_metadata=self._get_coordinate_system_metadata(),
+                base_schema_name='PointSample'  # Use PointSample schema for field mapping
+            )
+
+            if progress_callback:
+                progress_callback(95, "Field tasks layer created")
+
+            self.logger.info(f"Field tasks pull complete: {len(features)} records")
+            return {
+                'pulled': len(features),
+                'model': 'FieldTasks',
+                **result
+            }
+
+        except Exception as e:
+            self.logger.error(f"Pull field tasks failed: {e}")
+            raise
 
     def push_planned_samples(
         self,
