@@ -153,6 +153,13 @@ class ProjectManager:
         self.logger.info(f"Selecting project: {project}")
 
         try:
+            # Clear custom field schema cache for old project
+            # (schemas may differ between projects)
+            from ..models.schema_cache import clear_cache
+            if self.active_project and self.active_project.id != project.id:
+                clear_cache(self.active_project.id)
+                self.logger.debug(f"Cleared schema cache for project {self.active_project.id}")
+
             # Notify server of project selection
             response = self.api_client.set_active_project(project.id)
             user_context = UserContext.from_api_response(response)

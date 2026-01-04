@@ -352,16 +352,23 @@ class FieldWorkDialog(QDialog):
 
             # Show results
             created = result.get('created', 0)
+            updated = result.get('updated', 0)
             errors = result.get('errors', 0)
+            total_success = created + updated
 
             if errors == 0:
+                # Build success message
+                if updated > 0:
+                    msg = f"Created {created}, updated {updated} planned samples."
+                else:
+                    msg = f"Created {created} planned samples."
+
                 self._log_message(
-                    f"<span style='color: #059669;'><b>Success!</b> "
-                    f"Created {created} planned samples.</span>"
+                    f"<span style='color: #059669;'><b>Success!</b> {msg}</span>"
                 )
                 QMessageBox.information(
                     self, "Push Complete",
-                    f"Successfully created {created} planned samples.\n\n"
+                    f"Successfully {msg}\n\n"
                     "Samples can now be assigned to field workers via the geodb.io dashboard."
                 )
                 self.push_completed.emit(result)
@@ -369,12 +376,18 @@ class FieldWorkDialog(QDialog):
             else:
                 self._log_message(
                     f"<span style='color: #dc2626;'><b>Completed with errors:</b> "
-                    f"{created} created, {errors} failed.</span>"
+                    f"{created} created, {updated} updated, {errors} failed.</span>"
                 )
                 error_details = result.get('error_details', [])
                 if error_details:
                     for err in error_details[:5]:
-                        self._log_message(f"  - {err.get('error', 'Unknown error')}")
+                        # Handle both old format (error key) and new format (errors key from bulk API)
+                        error_msg = err.get('error') or err.get('errors') or 'Unknown error'
+                        seq = err.get('sequence_number') or err.get('data', '')
+                        if seq:
+                            self._log_message(f"  - {seq}: {error_msg}")
+                        else:
+                            self._log_message(f"  - {error_msg}")
                     if len(error_details) > 5:
                         self._log_message(f"  ... and {len(error_details) - 5} more errors")
 

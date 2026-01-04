@@ -12,7 +12,7 @@ from qgis.PyQt.QtCore import QVariant
 from ..processors.geometry_processor import GeometryProcessor
 from ..processors.field_processor import FieldProcessor
 from ..processors.layer_processor import LayerProcessor
-from ..models.schemas import get_schema, ModelSchema, FieldType, GeometryType
+from ..models.schemas import get_schema, get_extended_schema, ModelSchema, FieldType, GeometryType
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
 
@@ -1749,9 +1749,15 @@ class SyncManager:
                         f"xyz_to present={has_xyz_to}. Available keys: {list(feature_data.keys())[:15]}"
                     )
 
-            # PointSample: Fall back to target coordinates for planned samples
+            # PointSample/FieldTasks: Fall back to target coordinates for planned samples
             # When latitude/longitude are NULL (planned, not yet collected), use target_* coords
-            if not geom_data and model_name.startswith('PointSample'):
+            # Check both model_name and base_schema_name since FieldTasks uses PointSample schema
+            is_pointsample_data = (
+                model_name.startswith('PointSample') or
+                model_name.startswith('FieldTasks') or
+                base_schema_name == 'PointSample'
+            )
+            if not geom_data and is_pointsample_data:
                 point_geom = self._build_pointsample_geometry_with_fallback(feature_data)
                 if point_geom:
                     attributes['geometry'] = point_geom
@@ -2225,8 +2231,8 @@ class SyncManager:
         """
         from qgis.core import QgsMessageLog, Qgis
 
-        # Get schema for this model
-        schema = get_schema(model_name)
+        # Get schema for this model (extended with custom fields if available)
+        schema = get_extended_schema(api_client, model_name, project_id)
         if not schema:
             self.logger.warning(f"No schema found for {model_name}, skipping empty layer creation")
             return {'added': 0, 'updated': 0, 'deleted': 0}
@@ -2254,8 +2260,10 @@ class SyncManager:
             self.logger.warning(f"No geometry type for {model_name}, skipping")
             return {'added': 0, 'updated': 0, 'deleted': 0}
 
-        # Get field definitions from schema
-        field_definitions = self._get_field_definitions_from_schema(model_name)
+        # Get field definitions from schema (including custom fields)
+        field_definitions = self._get_field_definitions_from_schema(
+            model_name, api_client=api_client, project_id=project_id
+        )
         if not field_definitions:
             self.logger.warning(f"No field definitions for {model_name}, skipping")
             return {'added': 0, 'updated': 0, 'deleted': 0}
@@ -2324,17 +2332,25 @@ class SyncManager:
             'empty_layer_created': True
         }
 
-    def _get_field_definitions_from_schema(self, model_name: str) -> List[Dict[str, Any]]:
+    def _get_field_definitions_from_schema(
+        self,
+        model_name: str,
+        api_client=None,
+        project_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Get field definitions from model schema.
+        Get field definitions from model schema (including custom fields).
 
         Args:
             model_name: Model name
+            api_client: Optional API client for fetching custom field schema
+            project_id: Optional project ID for custom field schema lookup
 
         Returns:
             List of field definition dictionaries
         """
-        schema = get_schema(model_name)
+        # Use extended schema to include custom fields if api_client and project_id provided
+        schema = get_extended_schema(api_client, model_name, project_id)
         if not schema:
             self.logger.warning(f"No schema found for model: {model_name}")
             return []

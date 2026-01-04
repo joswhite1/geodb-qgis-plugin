@@ -25,8 +25,8 @@ class Config:
     
     DEFAULT_CONFIG = {
         "api": {
-            "base_url": "https://api.geodb.io/v1",
-            "local_base_url": "http://localhost:8000/api/v1",
+            "base_url": "https://api.geodb.io/api/v2",
+            "local_base_url": "http://localhost:8000/api/v2",
             "use_local": False,
             "timeout": 30,
             "retry_attempts": 3

@@ -248,8 +248,19 @@ class APIClient:
         url = self.config.endpoints['login']
         self.logger.info(f"Login attempt - Base URL: {self.config.base_url}")
         self.logger.info(f"Login attempt - Full URL: {url}")
-        data = {'username': username, 'password': password}
-        return self._make_request('POST', url, data=data)
+
+        # Clear any existing token before login - sending a stale/invalid token
+        # to the login endpoint causes Knox to return "Invalid token." error
+        old_token = self.token
+        self.token = None
+
+        try:
+            data = {'username': username, 'password': password}
+            return self._make_request('POST', url, data=data)
+        except Exception:
+            # Restore the old token if login fails (allows retry without losing state)
+            self.token = old_token
+            raise
 
     def logout(self) -> None:
         """Logout and invalidate current token."""
@@ -409,6 +420,8 @@ class APIClient:
             for key, value in params.items():
                 url = f"{url}&{key}={value}"
 
+        self.logger.info(f"get_all_paginated initial URL: {url}")
+
         while url:
             response = self._make_request('GET', url, progress_callback=progress_callback)
 
@@ -509,6 +522,40 @@ class APIClient:
             raise ValueError(f"Unknown model: {model_name}")
 
         return self._make_request('POST', endpoint, data=data)
+
+    def bulk_upsert_records(
+        self,
+        model_name: str,
+        records: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Bulk create or update multiple records in a single request.
+
+        Uses the /bulk/ endpoint which accepts an array of objects and performs
+        upsert operations in a single database transaction. Much faster than
+        individual requests for large datasets.
+
+        Args:
+            model_name: Model name (e.g., 'PointSample', 'DrillCollar')
+            records: List of record data dicts (each must include natural key fields)
+
+        Returns:
+            Dict with 'results', 'errors', and 'summary' keys:
+            {
+                'results': [...],  # Created/updated records
+                'errors': [...],   # Any errors that occurred
+                'summary': {'created': N, 'updated': N, 'errors': N}
+            }
+        """
+        endpoint = self.config.get_model_endpoint(model_name)
+        if not endpoint:
+            raise ValueError(f"Unknown model: {model_name}")
+
+        url = f"{endpoint}bulk/"
+        # Debug: Log first record to verify project natural key format
+        if records:
+            print(f"[DEBUG] bulk_upsert first record: {records[0]}")
+        return self._make_request('POST', url, data=records)
 
     def delete_record(self, model_name: str, record_id: int) -> None:
         """

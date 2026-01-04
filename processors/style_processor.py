@@ -401,6 +401,47 @@ class StyleProcessor:
 
         return True
 
+    def apply_simple_gray_style(
+        self,
+        layer: QgsVectorLayer,
+        color: str = '#808080',
+        size: float = 3.0
+    ) -> bool:
+        """
+        Apply a simple gray circle style to a layer.
+
+        Used when "None" assay configuration is selected, displaying
+        all points as uniform gray circles without graduated coloring.
+
+        Args:
+            layer: Target QGIS vector layer
+            color: Hex color code (default gray #808080)
+            size: Symbol size in mm (default 3.0)
+
+        Returns:
+            True if successful
+        """
+        if not layer or not layer.isValid():
+            self.logger.warning("Invalid layer for simple styling")
+            return False
+
+        from qgis.core import QgsSingleSymbolRenderer
+
+        geometry_type = layer.geometryType()
+
+        # Create symbol based on geometry type
+        symbol = self._create_symbol(geometry_type, color, size)
+
+        # Apply single symbol renderer
+        renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+        layer.triggerRepaint()
+
+        self.logger.info(
+            f"Applied simple gray style to layer: {layer.name()}"
+        )
+        return True
+
     def apply_field_task_style(self, layer: QgsVectorLayer) -> bool:
         """
         Apply status-based categorized styling to a field tasks layer.

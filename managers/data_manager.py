@@ -297,9 +297,9 @@ class DataManager:
             updated = 0
             errors = []
 
-            # Get schema for filtering push data
-            from ..models.schemas import get_schema
-            schema = get_schema(model_name)
+            # Get schema for filtering push data (including custom fields if available)
+            from ..models.schemas import get_extended_schema
+            schema = get_extended_schema(self.api_client, model_name, project.id)
 
             # Get layer metadata once (for project and CRS info)
             layer = self.sync_manager._find_layer(model_name, project.name if project else None)
@@ -918,8 +918,9 @@ class DataManager:
                 progress_callback(10, "Fetching field tasks from server...")
 
             # Build params for field tasks (planned and assigned only)
+            # Server expects 'status' param with comma-separated values
             params = {
-                'status__in': 'PL,AS',  # Only planned and assigned
+                'status': 'PL,AS',  # Only planned and assigned
             }
 
             # Add sample type filter if specified
@@ -1043,17 +1044,29 @@ class DataManager:
                     pass
 
             # Build project natural key
+            # IMPORTANT: Both name and company are required for the API's natural key lookup
+            if not project.name:
+                raise ValueError("Project name is missing")
+            if not project.company_name:
+                raise ValueError(
+                    f"Project company_name is missing for project '{project.name}'. "
+                    f"Project object: id={project.id}, company_id={project.company_id}"
+                )
+
             project_nk = {
                 'name': project.name,
                 'company': project.company_name
             }
+            self.logger.info(
+                f"Project natural key: name='{project.name}', company='{project.company_name}'"
+            )
 
             if progress_callback:
                 progress_callback(10, f"Processing {feature_count} features...")
 
-            # Process each feature
-            created = 0
-            errors = []
+            # Build all sample records first
+            samples_to_push = []
+            prep_errors = []
 
             for i, feature in enumerate(source_layer.getFeatures()):
                 try:
@@ -1075,55 +1088,106 @@ class DataManager:
                         elevation = geom.constGet().z()
 
                     # Build sample data for API
+                    # For planned samples, we send WGS84 coordinates (already transformed).
+                    # Setting epsg=4326 tells the API these are WGS84 coordinates, which
+                    # bypasses the CoordinateSystemValidatorMixin check (designed for
+                    # round-trip data protection, not new externally-created data).
                     sample_data = {
                         'project': project_nk,
                         'status': 'PL',  # Planned
                         'sequence_number': seq_num,
                         'sample_type': sample_type,
-                        # Target coordinates (where to go)
+                        # Target coordinates (where to go) - already in WGS84
                         'target_latitude': point.y(),
                         'target_longitude': point.x(),
                         'target_epsg': 4326,  # Always WGS84 after transform
-                        # Actual coordinates left NULL (set in field)
-                        # 'latitude': None,
-                        # 'longitude': None,
-                        # name left NULL (lab sample ID set in field)
-                        # 'name': None,
-                        'coordinate_system_metadata': crs_metadata,
+                        # Setting epsg=4326 bypasses coordinate_system_metadata validation
+                        # (see CoordinateSystemValidatorMixin._is_wgs84_coordinates)
+                        'epsg': 4326,
                     }
 
                     if elevation is not None:
                         sample_data['target_elevation'] = elevation
 
-                    # Push to server
-                    result = self.api_client.upsert_record(
-                        model_name='PointSample',
-                        data=sample_data
-                    )
-
-                    created += 1
-                    self.logger.debug(f"Created planned sample: {seq_num}")
+                    samples_to_push.append(sample_data)
 
                 except Exception as e:
                     seq_num = f"{prefix}{str(start_number + i).zfill(padding)}"
-                    errors.append({
+                    prep_errors.append({
                         'sequence_number': seq_num,
                         'error': str(e)
                     })
-                    self.logger.error(f"Failed to create planned sample {seq_num}: {e}")
+                    self.logger.error(f"Failed to prepare sample {seq_num}: {e}")
+
+                # Progress update during preparation
+                if progress_callback and (i + 1) % 100 == 0:
+                    progress = 10 + int((i + 1) / feature_count * 20)
+                    progress_callback(progress, f"Prepared {i + 1} of {feature_count} samples...")
+
+            if progress_callback:
+                progress_callback(30, f"Pushing {len(samples_to_push)} samples to server...")
+
+            # Push in batches using bulk endpoint (much faster than individual requests)
+            # Batch size of 500 balances between request size and server processing
+            BATCH_SIZE = 500
+            total_created = 0
+            total_updated = 0
+            api_errors = []
+
+            for batch_start in range(0, len(samples_to_push), BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, len(samples_to_push))
+                batch = samples_to_push[batch_start:batch_end]
+
+                try:
+                    result = self.api_client.bulk_upsert_records(
+                        model_name='PointSample',
+                        records=batch
+                    )
+
+                    summary = result.get('summary', {})
+                    total_created += summary.get('created', 0)
+                    total_updated += summary.get('updated', 0)
+
+                    # Collect any errors from this batch
+                    batch_errors = result.get('errors', [])
+                    if batch_errors:
+                        api_errors.extend(batch_errors)
+
+                    self.logger.info(
+                        f"Batch {batch_start}-{batch_end}: "
+                        f"created={summary.get('created', 0)}, "
+                        f"updated={summary.get('updated', 0)}, "
+                        f"errors={summary.get('errors', 0)}"
+                    )
+
+                except Exception as e:
+                    # If bulk request fails entirely, record error for all items in batch
+                    self.logger.error(f"Bulk push failed for batch {batch_start}-{batch_end}: {e}")
+                    for item in batch:
+                        api_errors.append({
+                            'sequence_number': item.get('sequence_number'),
+                            'error': str(e)
+                        })
 
                 # Progress update
-                if progress_callback and (i + 1) % 10 == 0:
-                    progress = 10 + int((i + 1) / feature_count * 85)
-                    progress_callback(progress, f"Created {created} of {i + 1} samples...")
+                if progress_callback:
+                    progress = 30 + int(batch_end / len(samples_to_push) * 65)
+                    progress_callback(
+                        progress,
+                        f"Pushed {batch_end} of {len(samples_to_push)} samples..."
+                    )
 
             if progress_callback:
                 progress_callback(100, "Push complete")
 
+            # Combine preparation errors and API errors
+            all_errors = prep_errors + api_errors
+
             result = {
-                'created': created,
-                'errors': len(errors),
-                'error_details': errors if errors else None
+                'created': total_created,
+                'updated': total_updated,
+                'errors': len(all_errors),
+                'error_details': all_errors if all_errors else None
             }
 
             self.logger.info(f"Planned samples push complete: {result}")

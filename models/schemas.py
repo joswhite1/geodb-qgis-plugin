@@ -714,3 +714,127 @@ def get_pullable_models() -> List[str]:
 def get_pushable_models() -> List[str]:
     """Get model names that support push operations."""
     return [name for name, schema in MODEL_SCHEMAS.items() if schema.supports_push]
+
+
+# =============================================================================
+# CUSTOM FIELD SUPPORT
+# =============================================================================
+
+# Custom field prefix used by API
+CUSTOM_FIELD_PREFIX = 'cf_'
+
+# Map API field types to QGIS FieldType
+API_TO_QGIS_TYPE = {
+    'text': FieldType.STRING,
+    'number': FieldType.INTEGER,
+    'decimal': FieldType.DOUBLE,
+    'date': FieldType.DATE,
+    'boolean': FieldType.BOOLEAN,
+    'choice': FieldType.STRING,
+    'url': FieldType.STRING,
+}
+
+
+def fetch_custom_fields(api_client, project_id: int, model_type: str) -> List[FieldSchema]:
+    """
+    Fetch custom field definitions from API.
+
+    Args:
+        api_client: Authenticated API client instance
+        project_id: Project ID to fetch schema for
+        model_type: Model type (e.g., 'DrillCollar')
+
+    Returns:
+        List of FieldSchema objects for custom fields
+    """
+    from ..utils.logger import PluginLogger
+    logger = PluginLogger.get_logger()
+
+    try:
+        response = api_client.get(
+            'custom-field-schemas/for_model/',
+            params={'project_id': project_id, 'model_type': model_type}
+        )
+
+        if not response or not response.get('schema_exists'):
+            logger.debug(f"No custom field schema for {model_type} in project {project_id}")
+            return []
+
+        custom_fields = []
+        for field_def in response.get('fields', []):
+            field_type = API_TO_QGIS_TYPE.get(
+                field_def.get('field_type', 'text'),
+                FieldType.STRING
+            )
+
+            custom_fields.append(FieldSchema(
+                name=field_def['name'],  # Already has cf_ prefix from API
+                field_type=field_type,
+                required=field_def.get('required', False),
+                readonly=False,  # Custom fields are always writable
+                description=field_def.get('help_text', field_def.get('display_name', ''))
+            ))
+
+        logger.info(f"Loaded {len(custom_fields)} custom fields for {model_type}")
+        return custom_fields
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch custom fields for {model_type}: {e}")
+        return []
+
+
+def get_extended_schema(
+    api_client,
+    model_name: str,
+    project_id: Optional[int] = None
+) -> Optional[ModelSchema]:
+    """
+    Get model schema extended with custom fields from API.
+
+    Args:
+        api_client: Authenticated API client instance
+        model_name: Model name (e.g., 'DrillCollar')
+        project_id: Project ID for custom fields (optional)
+
+    Returns:
+        ModelSchema with standard + custom fields, or None if model not found
+    """
+    from ..utils.logger import PluginLogger
+    from .schema_cache import get_cached_custom_fields, set_cached_custom_fields
+
+    logger = PluginLogger.get_logger()
+
+    base_schema = get_schema(model_name)
+    if not base_schema:
+        return None
+
+    if not project_id or not api_client:
+        return base_schema
+
+    # Check cache first
+    cached_fields = get_cached_custom_fields(project_id, model_name)
+    if cached_fields is not None:
+        logger.debug(f"Using cached custom fields for {model_name}")
+        custom_fields = cached_fields
+    else:
+        # Fetch from API
+        custom_fields = fetch_custom_fields(api_client, project_id, model_name)
+        set_cached_custom_fields(project_id, model_name, custom_fields)
+
+    if not custom_fields:
+        return base_schema
+
+    # Create extended schema with custom fields appended
+    extended_fields = list(base_schema.fields) + custom_fields
+
+    return ModelSchema(
+        name=base_schema.name,
+        api_endpoint=base_schema.api_endpoint,
+        geometry_type=base_schema.geometry_type,
+        fields=extended_fields,
+        display_name=base_schema.display_name,
+        description=base_schema.description,
+        supports_push=base_schema.supports_push,
+        supports_pull=base_schema.supports_pull,
+        natural_key_fields=base_schema.natural_key_fields,
+    )

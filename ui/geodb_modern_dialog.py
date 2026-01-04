@@ -78,6 +78,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.current_session: Optional[AuthSession] = None
         self.current_model: Optional[str] = None
         self.current_assay_config: Optional[dict] = None  # Selected AssayRangeConfiguration
+        self.assay_config_is_none: bool = False  # True when "None (Gray circles)" is selected
         self.assay_configurations: List[Dict[str, Any]] = []  # Loaded configurations
         self.merge_settings_map: Dict[int, Dict[str, Any]] = {}  # Map of merge_settings_id -> settings
         self.project_files: List[Dict[str, Any]] = []  # Loaded ProjectFile records
@@ -298,22 +299,53 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     def _load_projects_from_context(self):
         """Load companies and projects from already-loaded user context."""
         companies = self.project_manager.get_companies()
-        self._populate_project_combos(companies)
 
-        # Auto-select current company/project if set
-        if self.project_manager.active_company:
-            for i in range(self.companyComboBox.count()):
-                company = self.companyComboBox.itemData(i)
-                if company and company.id == self.project_manager.active_company.id:
-                    self.companyComboBox.setCurrentIndex(i)
-                    break
+        # Block signals while we set up the combo boxes to avoid
+        # triggering _on_company_changed and _on_project_changed prematurely
+        self.companyComboBox.blockSignals(True)
+        self.projectComboBox.blockSignals(True)
 
-        if self.project_manager.active_project:
-            for i in range(self.projectComboBox.count()):
-                project = self.projectComboBox.itemData(i)
-                if project and project.id == self.project_manager.active_project.id:
-                    self.projectComboBox.setCurrentIndex(i)
-                    break
+        try:
+            self._populate_project_combos(companies)
+
+            # Auto-select current company if set (from server's active_company)
+            target_company_index = 0  # Default to first
+            if self.project_manager.active_company:
+                for i in range(self.companyComboBox.count()):
+                    company = self.companyComboBox.itemData(i)
+                    if company and company.id == self.project_manager.active_company.id:
+                        target_company_index = i
+                        break
+
+            self.companyComboBox.setCurrentIndex(target_company_index)
+
+            # Now populate projects for the selected company
+            company = self.companyComboBox.itemData(target_company_index)
+            if company:
+                self.projectComboBox.clear()
+                for project in company.projects:
+                    self.projectComboBox.addItem(project.name, project)
+                self.projectComboBox.setEnabled(True)
+
+            # Auto-select current project if set (from server's active_project)
+            target_project_index = 0  # Default to first
+            if self.project_manager.active_project:
+                for i in range(self.projectComboBox.count()):
+                    project = self.projectComboBox.itemData(i)
+                    if project and project.id == self.project_manager.active_project.id:
+                        target_project_index = i
+                        break
+
+            self.projectComboBox.setCurrentIndex(target_project_index)
+
+        finally:
+            # Re-enable signals
+            self.companyComboBox.blockSignals(False)
+            self.projectComboBox.blockSignals(False)
+
+        # Now manually trigger the project changed handler to update permissions
+        # and other UI elements for the selected project
+        self._on_project_changed(self.projectComboBox.currentIndex())
 
     def _populate_project_combos(self, companies):
         """Populate company and project combo boxes."""
@@ -362,9 +394,15 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             return
 
         try:
-            # Select project (notifies server and gets updated permissions)
-            self.project_manager.select_project(project)
-            self._log_message(f"Selected project: {project.name}", "success")
+            # Check if this project is already the active one (skip API call if so)
+            current_active = self.project_manager.active_project
+            if current_active and current_active.id == project.id:
+                # Project is already active, just update UI without API call
+                self._log_message(f"Active project: {project.name}", "info")
+            else:
+                # Select project (notifies server and gets updated permissions)
+                self.project_manager.select_project(project)
+                self._log_message(f"Selected project: {project.name}", "success")
 
             # Update permission display based on user_status from context
             user_status = self.project_manager.get_permission_level()
@@ -410,6 +448,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         model_name = current.text()
         self.current_model = model_name
         self.current_assay_config = None  # Reset assay config when model changes
+        self.assay_config_is_none = False  # Reset "None" flag when model changes
 
         # Update title
         self.selectedModelLabel.setText(f"{model_name}")
@@ -466,6 +505,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.assay_configurations = []
         self.merge_settings_map = {}
         self.current_assay_config = None
+        self.assay_config_is_none = False
+
+        # Always add "None" option first - plots points as gray circles
+        self.assayConfigComboBox.addItem("None (Gray circles)")
 
         try:
             # Fetch AssayMergeSettings for the company
@@ -484,13 +527,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             )
             self.assay_configurations = configs
 
-            if not configs:
-                self._log_message("No assay configurations found for this project.", "warning")
-                self.mergeSettingsLabel.setText("No configurations available. Create one on geodb.io first.")
-                self.rangesTable.setRowCount(0)
-                return
-
-            # Populate combo box
+            # Populate combo box with configurations (after "None" option)
             for config in configs:
                 element = config.get('element', '?')
                 element_display = config.get('element_display', element)
@@ -499,11 +536,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 display_text = f"{element_display} - {name} ({units})"
                 self.assayConfigComboBox.addItem(display_text)
 
-            self._log_message(f"Loaded {len(configs)} assay configuration(s)", "success")
-
-            # Select first item
             if configs:
-                self.assayConfigComboBox.setCurrentIndex(0)
+                self._log_message(f"Loaded {len(configs)} assay configuration(s)", "success")
+            else:
+                self._log_message("No assay configurations found. Select 'None' to plot as gray circles.", "info")
+
+            # Select first item (the "None" option)
+            self.assayConfigComboBox.setCurrentIndex(0)
+            self._on_assay_config_selected(0)
 
         except Exception as e:
             self._log_message(f"Error loading assay configurations: {str(e)}", "error")
@@ -549,14 +589,27 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
     def _on_assay_config_selected(self, index: int):
         """Handle assay configuration selection change."""
-        if index < 0 or index >= len(self.assay_configurations):
+        # Index 0 is always "None (Gray circles)"
+        if index == 0:
             self.current_assay_config = None
+            self.assay_config_is_none = True
+            self.mergeSettingsLabel.setText("Points will be displayed as gray circles without assay data.")
+            self.rangesTable.setRowCount(0)
+            self._log_message("Selected: None (Gray circles)", "info")
+            return
+
+        # Adjust index for actual configurations (subtract 1 for the "None" option)
+        config_index = index - 1
+        if config_index < 0 or config_index >= len(self.assay_configurations):
+            self.current_assay_config = None
+            self.assay_config_is_none = False
             self.mergeSettingsLabel.setText("No configuration selected")
             self.rangesTable.setRowCount(0)
             return
 
-        config = self.assay_configurations[index]
+        config = self.assay_configurations[config_index]
         self.current_assay_config = config
+        self.assay_config_is_none = False
 
         # Display merge settings
         self._display_merge_settings(config)
@@ -663,20 +716,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
 
-        # For PointSample/DrillSample, check that a configuration is selected
+        # For PointSample/DrillSample, log the selected configuration
         if self.current_model in ["PointSample", "DrillSample"]:
-            if not self.current_assay_config:
-                QMessageBox.warning(
-                    self,
-                    "No Configuration",
-                    "Please select an assay configuration before pulling data.\n\n"
-                    "If no configurations are available, create one on geodb.io first."
-                )
-                return
-
-            element = self.current_assay_config.get('element', 'Unknown')
-            name = self.current_assay_config.get('name', 'Unnamed')
-            self._log_message(f"Using color scheme: {name} ({element})", "info")
+            if self.assay_config_is_none:
+                self._log_message("Using style: Gray circles (no assay data)", "info")
+            elif self.current_assay_config:
+                element = self.current_assay_config.get('element', 'Unknown')
+                name = self.current_assay_config.get('name', 'Unnamed')
+                self._log_message(f"Using color scheme: {name} ({element})", "info")
 
         # For ProjectFile, check that a file is selected
         if self.current_model == "ProjectFile":
@@ -758,9 +805,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 if result.layer:
                     self._log_message(f"Layer '{result.layer.name()}' added to QGIS", "success")
 
-            # Apply assay styling if config was selected
-            if self.current_assay_config and self.current_model in ["PointSample", "DrillSample"]:
-                # Build full suffix for layer lookup: SampleType_Element_Units
+            # Apply styling for PointSample/DrillSample
+            if self.current_model in ["PointSample", "DrillSample"]:
+                # Build suffix for layer lookup
                 suffix_parts = []
                 if ps_type_name:
                     suffix_parts.append(ps_type_name.replace(' ', ''))
@@ -768,7 +815,13 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                     suffix_parts.append(assay_element)
                     suffix_parts.append(assay_units)
                 suffix = '_'.join(suffix_parts) if suffix_parts else None
-                self._apply_assay_styling(self.current_assay_config, layer_name_suffix=suffix)
+
+                if self.assay_config_is_none:
+                    # Apply simple gray circle style
+                    self._apply_simple_gray_styling(layer_name_suffix=suffix)
+                elif self.current_assay_config:
+                    # Apply assay color-coded styling
+                    self._apply_assay_styling(self.current_assay_config, layer_name_suffix=suffix)
 
         except APIPermissionError as e:
             self._log_message(f"Permission denied: {e}", "error")
@@ -920,7 +973,52 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         except Exception as e:
             self.logger.exception("Failed to apply assay styling")
             self._log_message(f"Failed to apply color scheme: {e}", "warning")
-    
+
+    def _apply_simple_gray_styling(self, layer_name_suffix: str = None):
+        """Apply simple gray circle styling to the pulled layer."""
+        try:
+            # Build the effective layer name (including sample type if filtered)
+            effective_model_name = self.current_model
+            if layer_name_suffix:
+                effective_model_name = f"{self.current_model}_{layer_name_suffix}"
+
+            # Find the layer by model name (with project prefix)
+            project = self.project_manager.active_project
+            if project:
+                full_layer_name = f"{project.name}_{effective_model_name}"
+            else:
+                full_layer_name = effective_model_name
+
+            layer = self.sync_manager.layer_processor.find_layer_by_name(full_layer_name)
+            if not layer:
+                # Try without project prefix as fallback
+                layer = self.sync_manager.layer_processor.find_layer_by_name(effective_model_name)
+
+            if not layer:
+                self._log_message(
+                    f"Could not find layer '{full_layer_name}' for styling",
+                    "warning"
+                )
+                return
+
+            # Apply simple gray circle style
+            success = self.style_processor.apply_simple_gray_style(layer)
+
+            if success:
+                self._log_message(
+                    "✓ Applied gray circle style (no assay coloring)",
+                    "success"
+                )
+            else:
+                self._log_message(
+                    "Could not apply gray circle style",
+                    "warning"
+                )
+
+        except Exception as e:
+            self.logger.exception("Failed to apply simple gray styling")
+            self._log_message(f"Failed to apply gray style: {e}", "warning")
+
     def _on_push_clicked(self):
         """Handle push button click."""
         if not self.current_model:
@@ -1009,11 +1107,13 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             options['include_company_land'] = self.includeCompanyLandCheckBox.isChecked()
 
         # Assay configuration options (from selected AssayRangeConfiguration)
-        if self.assayOptionsGroupBox.isVisible() and self.current_assay_config:
+        # Always set merge_assays=True for sample models (required by API)
+        # but only pass config ID if an actual config is selected
+        if self.assayOptionsGroupBox.isVisible():
             options['merge_assays'] = True
-            options['assay_config'] = self.current_assay_config
-            # The config ID will be used by the data manager to apply styling
-            options['assay_config_id'] = self.current_assay_config.get('id')
+            if self.current_assay_config:
+                options['assay_config'] = self.current_assay_config
+                options['assay_config_id'] = self.current_assay_config.get('id')
 
         return options
     

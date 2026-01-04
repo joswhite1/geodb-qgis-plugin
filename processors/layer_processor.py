@@ -30,23 +30,36 @@ class LayerProcessor:
     """
 
     # Geometry type mapping: API type -> QGIS type
+    # Includes both 2D and 3D (Z-dimension) geometry types
     GEOMETRY_TYPE_MAPPING = {
         'Point': QgsWkbTypes.Point,
+        'PointZ': QgsWkbTypes.PointZ,
         'LineString': QgsWkbTypes.LineString,
+        'LineStringZ': QgsWkbTypes.LineStringZ,
         'Polygon': QgsWkbTypes.Polygon,
+        'PolygonZ': QgsWkbTypes.PolygonZ,
         'MultiPoint': QgsWkbTypes.MultiPoint,
+        'MultiPointZ': QgsWkbTypes.MultiPointZ,
         'MultiLineString': QgsWkbTypes.MultiLineString,
-        'MultiPolygon': QgsWkbTypes.MultiPolygon
+        'MultiLineStringZ': QgsWkbTypes.MultiLineStringZ,
+        'MultiPolygon': QgsWkbTypes.MultiPolygon,
+        'MultiPolygonZ': QgsWkbTypes.MultiPolygonZ
     }
 
     # Reverse mapping for GeoPackage creation
     GEOMETRY_TYPE_NAMES = {
         QgsWkbTypes.Point: 'Point',
+        QgsWkbTypes.PointZ: 'PointZ',
         QgsWkbTypes.LineString: 'LineString',
+        QgsWkbTypes.LineStringZ: 'LineStringZ',
         QgsWkbTypes.Polygon: 'Polygon',
+        QgsWkbTypes.PolygonZ: 'PolygonZ',
         QgsWkbTypes.MultiPoint: 'MultiPoint',
+        QgsWkbTypes.MultiPointZ: 'MultiPointZ',
         QgsWkbTypes.MultiLineString: 'MultiLineString',
-        QgsWkbTypes.MultiPolygon: 'MultiPolygon'
+        QgsWkbTypes.MultiLineStringZ: 'MultiLineStringZ',
+        QgsWkbTypes.MultiPolygon: 'MultiPolygon',
+        QgsWkbTypes.MultiPolygonZ: 'MultiPolygonZ'
     }
 
     def __init__(self, config):
@@ -255,9 +268,23 @@ class LayerProcessor:
         """
         gpkg_path = self._geopackage_path
 
-        # Ensure GeoPackage exists
+        if not gpkg_path:
+            raise LayerError("GeoPackage path not configured")
+
+        # Ensure parent directory exists
+        gpkg_dir = os.path.dirname(gpkg_path)
+        if gpkg_dir and not os.path.exists(gpkg_dir):
+            try:
+                os.makedirs(gpkg_dir, exist_ok=True)
+                self.logger.info(f"Created directory for GeoPackage: {gpkg_dir}")
+            except OSError as e:
+                raise LayerError(f"Failed to create directory for GeoPackage: {e}")
+
+        # Log GeoPackage status
         if not os.path.exists(gpkg_path):
             self.logger.info(f"Creating new GeoPackage: {gpkg_path}")
+        else:
+            self.logger.info(f"Adding layer to existing GeoPackage: {gpkg_path}")
 
         # Get the QGIS geometry type
         qgs_geom_type = self.GEOMETRY_TYPE_MAPPING.get(geometry_type, QgsWkbTypes.Point)
@@ -286,7 +313,8 @@ class LayerProcessor:
         options.layerName = model_name
 
         # If GeoPackage already exists, update it
-        if os.path.exists(gpkg_path):
+        gpkg_exists = os.path.exists(gpkg_path)
+        if gpkg_exists:
             options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
         else:
             options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
@@ -300,7 +328,33 @@ class LayerProcessor:
         )
 
         if error[0] != QgsVectorFileWriter.NoError:
-            raise LayerError(f"Failed to create GeoPackage layer: {error[1]}")
+            error_msg = error[1] if error[1] else "Unknown error"
+            self.logger.error(f"GeoPackage write failed: {error_msg}")
+            self.logger.error(f"  Path: {gpkg_path}")
+            self.logger.error(f"  Exists: {gpkg_exists}")
+            self.logger.error(f"  Geometry type: {geometry_type}")
+            self.logger.error(f"  Layer name: {model_name}")
+
+            # If the GeoPackage exists but we can't update it, try recreating the whole file
+            if gpkg_exists and "update mode" in error_msg.lower():
+                self.logger.warning("Attempting to recreate GeoPackage file...")
+                try:
+                    os.remove(gpkg_path)
+                    options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+                    error = QgsVectorFileWriter.writeAsVectorFormatV3(
+                        temp_layer,
+                        gpkg_path,
+                        QgsProject.instance().transformContext(),
+                        options
+                    )
+                    if error[0] == QgsVectorFileWriter.NoError:
+                        self.logger.info("Successfully recreated GeoPackage file")
+                    else:
+                        raise LayerError(f"Failed to create GeoPackage layer: {error[1] or error_msg}")
+                except OSError as e:
+                    raise LayerError(f"Failed to recreate GeoPackage: {e}")
+            else:
+                raise LayerError(f"Failed to create GeoPackage layer: {error_msg}")
 
         # Load the layer from GeoPackage with the display name
         layer_uri = f"{gpkg_path}|layername={model_name}"
@@ -406,6 +460,8 @@ class LayerProcessor:
         Returns:
             New QgsVectorLayer
         """
+        from qgis.PyQt.QtCore import QCoreApplication
+
         layer_name = self._build_layer_name(model_name, project_name)
         self.logger.info(f"Removing and recreating layer: {layer_name}")
 
@@ -417,6 +473,9 @@ class LayerProcessor:
 
         if existing_layer:
             QgsProject.instance().removeMapLayer(existing_layer.id())
+            # Process events to ensure layer is fully released before GeoPackage operations
+            # This prevents "Opening of data source in update mode failed" errors
+            QCoreApplication.processEvents()
 
         # Delete from GeoPackage if using GeoPackage
         if self.is_using_geopackage():
