@@ -442,10 +442,98 @@ LAND_HOLDING_SCHEMA = ModelSchema(
         FieldSchema('dropped', FieldType.BOOLEAN, default=False),
         FieldSchema('land_status', FieldType.STRING, length=255,
                    description='Land holding type/status'),
+        # === QCLAIMS INTEGRATION FIELDS ===
+        FieldSchema('source', FieldType.STRING, length=20, default='manual',
+                   description='How claim was created: qclaims, blm_purchase, admin, import, staking_request, manual'),
+        FieldSchema('claim_status', FieldType.STRING, length=2, default='PL',
+                   description='Claim status: PL=Planned, ST=Staked, FI=Filed, etc.'),
+        FieldSchema('qclaims_data', FieldType.STRING, length=0,
+                   description='QClaims processing data (JSON): PLSS, corners, monuments, deadlines'),
+        # Filing tracking
+        FieldSchema('county_filed', FieldType.BOOLEAN, default=False,
+                   description='Whether claim has been filed with county'),
+        FieldSchema('county_filed_date', FieldType.DATE,
+                   description='Date filed with county'),
+        FieldSchema('county_recording_number', FieldType.STRING, length=100,
+                   description='County recording/document number'),
+        FieldSchema('blm_filed', FieldType.BOOLEAN, default=False,
+                   description='Whether claim has been filed with BLM'),
+        FieldSchema('blm_filed_date', FieldType.DATE,
+                   description='Date filed with BLM'),
         FieldSchema('current_retain', FieldType.BOOLEAN, readonly=True),
         FieldSchema('retain_fiscal_year', FieldType.INTEGER, readonly=True),
         FieldSchema('serial_link', FieldType.STRING, length=500, readonly=True),
         FieldSchema('comments', FieldType.STRING, length=1000),
+        FieldSchema('date_created', FieldType.DATETIME, readonly=True),
+        FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
+        FieldSchema('created_by', FieldType.STRING, readonly=True),
+        FieldSchema('last_edited_by', FieldType.STRING, readonly=True),
+    ]
+)
+
+
+# =============================================================================
+# CLAIM STAKE MODEL
+# =============================================================================
+
+CLAIM_STAKE_SCHEMA = ModelSchema(
+    name='ClaimStake',
+    api_endpoint='claim-stakes',
+    geometry_type=GeometryType.POINT,
+    display_name='Claim Stakes',
+    description='Mining claim corner stakes and monuments',
+    natural_key_fields=['sequence_number', 'land_holding'],
+    supports_pull=True,
+    supports_push=True,
+    fields=[
+        FieldSchema('id', FieldType.INTEGER, readonly=True),
+        FieldSchema('sequence_number', FieldType.STRING, length=20, required=True,
+                   description='Waypoint sequence (e.g., WP 1, LM 1)'),
+        FieldSchema('name', FieldType.STRING, length=100,
+                   description='Stake name/label'),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                   description='Project natural key (JSON object)'),
+        FieldSchema('land_holding', FieldType.STRING, length=0,
+                   description='Associated LandHolding natural key (JSON object)'),
+        # Stake type and status
+        FieldSchema('stake_type', FieldType.STRING, length=2, default='WP',
+                   description='WP=Corner Waypoint, LM=Location Monument, SM=Sideline Monument, EM=Endline Monument'),
+        FieldSchema('status', FieldType.STRING, length=2, default='PL',
+                   description='PL=Planned, ST=Staked, VE=Verified'),
+        # Target coordinates (from QClaims processing)
+        FieldSchema('target_latitude', FieldType.DOUBLE,
+                   description='Target latitude from QClaims'),
+        FieldSchema('target_longitude', FieldType.DOUBLE,
+                   description='Target longitude from QClaims'),
+        # Actual coordinates (set by mobile app when staked)
+        FieldSchema('latitude', FieldType.DOUBLE,
+                   description='Actual staked latitude (set in field)'),
+        FieldSchema('longitude', FieldType.DOUBLE,
+                   description='Actual staked longitude (set in field)'),
+        FieldSchema('elevation', FieldType.DOUBLE,
+                   description='Elevation at stake location'),
+        # GPS accuracy (captured by mobile app)
+        FieldSchema('gps_accuracy_meters', FieldType.DOUBLE,
+                   description='Horizontal GPS accuracy in meters at time of capture'),
+        # Staking details
+        FieldSchema('date_staked', FieldType.DATE,
+                   description='Date stake was placed'),
+        FieldSchema('staked_by', FieldType.STRING, length=100,
+                   description='Person who placed the stake'),
+        FieldSchema('monument_type', FieldType.STRING, length=50,
+                   description='Type of monument: wood post, iron pipe, stone cairn, etc.'),
+        FieldSchema('monument_height_inches', FieldType.INTEGER,
+                   description='Height of monument above ground'),
+        FieldSchema('corner_number', FieldType.INTEGER,
+                   description='Corner number (1-4 for standard claims)'),
+        FieldSchema('corner_name', FieldType.STRING, length=10,
+                   description='Corner name: NE, SE, SW, NW, Discovery, etc.'),
+        # Notes and photos
+        FieldSchema('notes', FieldType.STRING, length=1000,
+                   description='Field notes about the stake'),
+        FieldSchema('photo_count', FieldType.INTEGER, readonly=True,
+                   description='Number of photos attached'),
+        # Metadata
         FieldSchema('date_created', FieldType.DATETIME, readonly=True),
         FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
         FieldSchema('created_by', FieldType.STRING, readonly=True),
@@ -611,12 +699,31 @@ PROJECT_FILE_SCHEMA = ModelSchema(
                    description='Pre-signed URL for file download'),
         FieldSchema('is_raster', FieldType.BOOLEAN, default=False,
                    description='Is this file a georeferenced raster?'),
-        FieldSchema('crs', FieldType.STRING, length=50,
-                   description='Coordinate Reference System (e.g., EPSG:4326)'),
+        FieldSchema('epsg', FieldType.INTEGER,
+                   description='EPSG code (numeric, e.g., 4326, 32610)'),
+        FieldSchema('crs', FieldType.STRING, length=255,
+                   description='CRS string - for backwards compat or non-EPSG (Proj4)'),
         FieldSchema('bounds', FieldType.STRING, length=255,
                    description='Bounding box as [minX, minY, maxX, maxY]'),
         FieldSchema('resolution', FieldType.DOUBLE,
                    description='Pixel resolution in CRS units'),
+        FieldSchema('georeferencing', FieldType.STRING, length=0, readonly=True,
+                   description='Georeferencing data for sketches (JSON with sw/ne lat/lng, canvas dimensions)'),
+        # XYZ Tile fields (for large rasters served as tile pyramids)
+        FieldSchema('tiles_available', FieldType.BOOLEAN, default=False, readonly=True,
+                   description='Whether XYZ tiles have been generated for this raster'),
+        FieldSchema('tile_url_template', FieldType.STRING, length=500, readonly=True,
+                   description='XYZ tile URL template with {z}/{x}/{y} placeholders'),
+        FieldSchema('tile_min_zoom', FieldType.INTEGER, readonly=True,
+                   description='Minimum zoom level for tiles'),
+        FieldSchema('tile_max_zoom', FieldType.INTEGER, readonly=True,
+                   description='Maximum zoom level for tiles'),
+        FieldSchema('tiles_status', FieldType.STRING, length=20, readonly=True,
+                   description='Tile generation status: none, queued, processing, completed, failed'),
+        FieldSchema('tiles_total_count', FieldType.INTEGER, readonly=True,
+                   description='Total number of tiles generated'),
+        FieldSchema('tiles_size_bytes', FieldType.INTEGER, readonly=True,
+                   description='Total size of all tiles in bytes'),
         FieldSchema('date_created', FieldType.DATETIME, readonly=True),
         FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
         FieldSchema('created_by', FieldType.STRING, readonly=True),
@@ -664,6 +771,122 @@ ASSAY_RANGE_CONFIG_SCHEMA = ModelSchema(
 
 
 # =============================================================================
+# FIELD NOTE MODEL
+# =============================================================================
+
+FIELDNOTE_SCHEMA = ModelSchema(
+    name='FieldNote',
+    api_endpoint='field-notes',
+    geometry_type=GeometryType.POINT,
+    display_name='Field Notes',
+    description='Field observations with photos and notes',
+    natural_key_fields=['uuid'],
+    fields=[
+        FieldSchema('id', FieldType.INTEGER, readonly=True),
+        FieldSchema('uuid', FieldType.STRING, length=36, readonly=True),
+        FieldSchema('name', FieldType.STRING, length=150,
+                   description='Auto-generated if not provided (FN-001)'),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                   description='Project natural key (JSON object)'),
+        FieldSchema('latitude', FieldType.DOUBLE),
+        FieldSchema('longitude', FieldType.DOUBLE),
+        FieldSchema('elevation', FieldType.DOUBLE),
+        FieldSchema('epsg', FieldType.INTEGER),
+        FieldSchema('lithology', FieldType.STRING, length=255,
+                   description='FK to Lithology'),
+        FieldSchema('alteration', FieldType.STRING, length=255,
+                   description='FK to Alteration'),
+        FieldSchema('notes', FieldType.STRING, length=0),
+        FieldSchema('date_collected', FieldType.DATE),
+        FieldSchema('collected_by', FieldType.STRING, length=50),
+        FieldSchema('length_units', FieldType.STRING, length=2, default='M'),
+        FieldSchema('date_created', FieldType.DATETIME, readonly=True),
+        FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
+        FieldSchema('created_by', FieldType.STRING, readonly=True),
+        FieldSchema('last_edited_by', FieldType.STRING, readonly=True),
+        # Photo count for quick reference (derived field)
+        FieldSchema('photo_count', FieldType.INTEGER, readonly=True,
+                   description='Number of attached photos'),
+    ]
+)
+
+FIELDNOTE_PHOTO_SCHEMA = ModelSchema(
+    name='FieldNotePhoto',
+    api_endpoint='field-notes',  # Same endpoint, different processing
+    geometry_type=GeometryType.POINT,
+    display_name='Field Note Photos',
+    description='Photos from field notes with click-to-view',
+    supports_push=False,  # Read-only photo layer
+    fields=[
+        FieldSchema('id', FieldType.INTEGER, readonly=True),
+        FieldSchema('photo_id', FieldType.INTEGER, readonly=True),
+        FieldSchema('fieldnote_id', FieldType.INTEGER, readonly=True),
+        FieldSchema('fieldnote_uuid', FieldType.STRING, length=36, readonly=True),
+        FieldSchema('fieldnote_name', FieldType.STRING, length=150, readonly=True),
+        FieldSchema('latitude', FieldType.DOUBLE),
+        FieldSchema('longitude', FieldType.DOUBLE),
+        FieldSchema('elevation', FieldType.DOUBLE),
+        FieldSchema('image_url', FieldType.STRING, length=500, readonly=True),
+        FieldSchema('thumbnail_url', FieldType.STRING, length=500, readonly=True),
+        FieldSchema('original_filename', FieldType.STRING, length=255, readonly=True),
+        FieldSchema('description', FieldType.STRING, length=0, readonly=True),
+    ]
+)
+
+
+# =============================================================================
+# STRUCTURE MODEL (Surface geological structures)
+# =============================================================================
+
+STRUCTURE_SCHEMA = ModelSchema(
+    name='Structure',
+    api_endpoint='structures',
+    geometry_type=GeometryType.POINT,
+    display_name='Structures',
+    description='Geological structure measurements (strike, dip, etc.)',
+    natural_key_fields=['uuid'],
+    fields=[
+        FieldSchema('id', FieldType.INTEGER, readonly=True),
+        FieldSchema('uuid', FieldType.STRING, length=36, readonly=True),
+        FieldSchema('name', FieldType.STRING, length=150,
+                   description='Structure name/label'),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                   description='Project natural key (JSON object)'),
+        FieldSchema('feature_type', FieldType.STRING, length=3,
+                   description='FT=Fault, BD=Bedding, FL=Foliation, LN=Lineation, SZ=Shear Zone, VN=Vein, JT=Joint, OT=Other'),
+        FieldSchema('latitude', FieldType.DOUBLE),
+        FieldSchema('longitude', FieldType.DOUBLE),
+        FieldSchema('elevation', FieldType.DOUBLE),
+        FieldSchema('epsg', FieldType.INTEGER,
+                   description='EPSG code of original coordinates'),
+        FieldSchema('strike', FieldType.DOUBLE,
+                   description='Strike angle 0-360 degrees'),
+        FieldSchema('dip', FieldType.DOUBLE,
+                   description='Dip angle 0-90 degrees'),
+        FieldSchema('dip_direction', FieldType.DOUBLE,
+                   description='Dip direction 0-360 degrees'),
+        FieldSchema('trend', FieldType.DOUBLE,
+                   description='Trend for linear features 0-360'),
+        FieldSchema('plunge', FieldType.DOUBLE,
+                   description='Plunge for linear features 0-90'),
+        FieldSchema('rake', FieldType.DOUBLE,
+                   description='Rake angle'),
+        FieldSchema('rake_direction', FieldType.STRING, length=50,
+                   description='Rake direction'),
+        FieldSchema('notes', FieldType.STRING, length=0,
+                   description='Field notes'),
+        FieldSchema('date_collected', FieldType.DATE),
+        FieldSchema('collected_by', FieldType.STRING, length=50),
+        FieldSchema('length_units', FieldType.STRING, length=2, default='M'),
+        FieldSchema('date_created', FieldType.DATETIME, readonly=True),
+        FieldSchema('last_edited', FieldType.DATETIME, readonly=True),
+        FieldSchema('created_by', FieldType.STRING, readonly=True),
+        FieldSchema('last_edited_by', FieldType.STRING, readonly=True),
+    ]
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -680,10 +903,14 @@ MODEL_SCHEMAS: Dict[str, ModelSchema] = {
     'DrillPhoto': DRILL_PHOTO_SCHEMA,
     'DrillTrace': DRILL_TRACE_SCHEMA,
     'LandHolding': LAND_HOLDING_SCHEMA,
+    'ClaimStake': CLAIM_STAKE_SCHEMA,
     'PointSample': POINT_SAMPLE_SCHEMA,
     'Photo': PHOTO_SCHEMA,
     'ProjectFile': PROJECT_FILE_SCHEMA,
     'AssayRangeConfiguration': ASSAY_RANGE_CONFIG_SCHEMA,
+    'FieldNote': FIELDNOTE_SCHEMA,
+    'FieldNotePhoto': FIELDNOTE_PHOTO_SCHEMA,
+    'Structure': STRUCTURE_SCHEMA,
 }
 
 

@@ -31,6 +31,8 @@ SUPPORTED_MODELS = [
     'PointSample',
     'Photo',  # Field photos with GPS coordinates
     'ProjectFile',  # GeoTIFFs, DEMs, and other raster files
+    'FieldNote',  # Field notes with attached photos
+    'Structure',  # Surface geological structures (bedding, faults, etc.)
 ]
 
 
@@ -116,6 +118,10 @@ class DataManager:
         if is_raster_model(model_name):
             return self._pull_raster_model(model_name, project, progress_callback)
 
+        # Special handling for FieldNote (creates two layers: notes + photos)
+        if model_name == 'FieldNote':
+            return self._pull_fieldnote_model(project, progress_callback)
+
         try:
             if progress_callback:
                 progress_callback(10, f"Fetching {model_name} data from server...")
@@ -149,13 +155,25 @@ class DataManager:
             if model_name == 'Photo':
                 params['has_geometry'] = 'true'
 
+            # Add deleted_since parameter for incremental deletion sync
+            # This tells the server to only return records deleted since our last sync
+            last_sync_timestamp = self.sync_manager.get_sync_timestamp(model_name)
+            if last_sync_timestamp and incremental:
+                params['deleted_since'] = last_sync_timestamp
+
             # Pull data from API using RESTful endpoint
-            features = self.api_client.get_all_paginated(
+            # Response includes: results, deleted_ids, sync_timestamp, deleted_since_applied
+            api_response = self.api_client.get_all_paginated(
                 model_name=model_name,
                 project_id=project.id,
                 params=params if params else None,
                 progress_callback=lambda p: progress_callback(10 + int(p * 0.3), "Downloading...") if progress_callback else None
             )
+
+            # Extract results and deletion sync metadata
+            features = api_response.get('results', [])
+            deleted_ids = api_response.get('deleted_ids', [])
+            sync_timestamp = api_response.get('sync_timestamp')
 
             if progress_callback:
                 progress_callback(40, f"Processing {len(features)} records...")
@@ -215,8 +233,64 @@ class DataManager:
             if progress_callback:
                 progress_callback(90, "Updating sync metadata...")
 
-            # Update last sync time
-            self.sync_manager.set_last_sync_time(model_name, datetime.now().isoformat())
+            # Process deleted records from server
+            # The API returns deleted_ids for records that were soft-deleted on the server
+            # We need to remove these from our local layer
+            deleted_count = 0
+            conflicts = []
+            skipped_ids = []
+
+            if deleted_ids:
+                self.logger.info(f"Processing {len(deleted_ids)} deleted records for {model_name}")
+                layer = result.get('layer')
+                if layer:
+                    # Check for conflicts: local changes vs server deletion
+                    # A conflict occurs when user has modified a record locally,
+                    # but that record was deleted by another user on the server
+                    conflicts = self.sync_manager.detect_deletion_conflicts(
+                        layer=layer,
+                        server_ids=deleted_ids,
+                        model_name=model_name
+                    )
+
+                    if conflicts:
+                        # Log conflicts - these records will NOT be deleted
+                        # The user's local changes are preserved
+                        skipped_ids = [c['server_id'] for c in conflicts]
+                        conflict_names = [c['name'] for c in conflicts]
+                        self.logger.warning(
+                            f"Deletion conflict detected: {len(conflicts)} records have local changes "
+                            f"but were deleted on server. Preserving local copies: {conflict_names}"
+                        )
+
+                    # Remove deleted features, skipping conflicting ones
+                    deleted_count = self.sync_manager.remove_features_by_server_id(
+                        layer=layer,
+                        server_ids=deleted_ids,
+                        skip_ids=skipped_ids
+                    )
+                    self.logger.info(f"Removed {deleted_count} deleted features from layer")
+
+                    # For drill-related parent models, handle orphan cleanup
+                    # When a DrillCollar is deleted, its child records should also be removed
+                    # But skip orphan cleanup for collars that had conflicts
+                    if model_name == 'DrillCollar' and deleted_count > 0:
+                        # Only cleanup orphans for collars that were actually deleted
+                        deleted_collar_ids = [
+                            id for id in deleted_ids if id not in skipped_ids
+                        ]
+                        if deleted_collar_ids:
+                            self._cleanup_orphaned_drill_children(
+                                deleted_collar_ids=deleted_collar_ids,
+                                project_name=project.name
+                            )
+
+            # Update sync timestamp for next incremental sync
+            # Use the server-provided sync_timestamp if available
+            if sync_timestamp:
+                self.sync_manager.set_sync_timestamp(model_name, sync_timestamp)
+            else:
+                self.sync_manager.set_last_sync_time(model_name, datetime.now().isoformat())
 
             # Configure landholding-specific widgets
             if model_name == 'LandHolding':
@@ -227,9 +301,14 @@ class DataManager:
             if progress_callback:
                 progress_callback(100, "Pull complete")
 
-            self.logger.info(f"Pull complete for {model_name}: {len(features)} records")
+            self.logger.info(
+                f"Pull complete for {model_name}: {len(features)} records pulled, "
+                f"{deleted_count} deleted, {len(conflicts)} conflicts preserved"
+            )
             return {
                 'pulled': len(features),
+                'deleted': deleted_count,
+                'conflicts': conflicts,
                 'model': model_name,
                 **result
             }
@@ -396,6 +475,163 @@ class DataManager:
             self.logger.error(f"Push failed for {model_name}: {e}")
             raise
 
+    def delete_record(
+        self,
+        model_name: str,
+        record_id: int,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Delete a record on the server (soft delete).
+
+        This sends a DELETE request to the server, which will soft-delete the record
+        (set mark_deleted=True). The record will be removed from local layers during
+        the next sync when its ID appears in deleted_ids.
+
+        Args:
+            model_name: Model name (e.g., 'DrillCollar', 'LandHolding')
+            record_id: Server ID of the record to delete
+            progress_callback: Optional callback(progress_percent, status_message)
+
+        Returns:
+            Dictionary with deletion result
+        """
+        self.logger.info(f"Deleting {model_name} record {record_id}")
+
+        # Check if project is selected
+        project = self.project_manager.get_active_project()
+        if not project:
+            raise ValueError("No project selected")
+
+        # Check permissions
+        if not self.project_manager.can_edit():
+            raise PermissionError("No permission to edit data")
+
+        # Validate model name
+        if model_name not in SUPPORTED_MODELS:
+            raise ValueError(f"Unsupported model: {model_name}")
+
+        try:
+            if progress_callback:
+                progress_callback(10, f"Deleting {model_name} record...")
+
+            # Send DELETE request to server
+            self.api_client.delete_record(model_name=model_name, record_id=record_id)
+
+            if progress_callback:
+                progress_callback(50, "Record deleted on server")
+
+            # Remove from local layer
+            layer = self.sync_manager._find_layer(model_name, project.name)
+            if layer:
+                removed = self.sync_manager.remove_features_by_server_id(
+                    layer=layer,
+                    server_ids=[record_id]
+                )
+                self.logger.info(f"Removed {removed} feature(s) from local layer")
+
+            if progress_callback:
+                progress_callback(100, "Delete complete")
+
+            self.logger.info(f"Delete complete for {model_name} record {record_id}")
+            return {
+                'deleted': True,
+                'model': model_name,
+                'record_id': record_id
+            }
+
+        except Exception as e:
+            self.logger.error(f"Delete failed for {model_name} record {record_id}: {e}")
+            raise
+
+    def queue_deletion(
+        self,
+        model_name: str,
+        record_id: int,
+        record_name: Optional[str] = None
+    ) -> bool:
+        """
+        Queue a record for deletion during the next sync.
+
+        Use this for offline scenarios or when you want to batch deletions.
+        The queued deletions will be processed during push_model_data.
+
+        Args:
+            model_name: Model name
+            record_id: Server ID of the record to delete
+            record_name: Optional human-readable name for logging
+
+        Returns:
+            True if successfully queued
+        """
+        return self.sync_manager.queue_deletion(model_name, record_id, record_name)
+
+    def process_deletion_queue(
+        self,
+        model_name: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Process all queued deletions, sending them to the server.
+
+        Args:
+            model_name: Optional filter to process only one model's deletions
+            progress_callback: Optional callback(progress_percent, status_message)
+
+        Returns:
+            Dictionary with results: deleted count, errors, etc.
+        """
+        self.logger.info(f"Processing deletion queue for {model_name or 'all models'}")
+
+        # Check permissions
+        if not self.project_manager.can_edit():
+            raise PermissionError("No permission to edit data")
+
+        # Get queued deletions
+        queue = self.sync_manager.get_deletion_queue(model_name)
+        if not queue:
+            self.logger.info("No deletions in queue")
+            return {'deleted': 0, 'errors': 0, 'error_details': []}
+
+        deleted = 0
+        errors = []
+
+        for i, item in enumerate(queue):
+            item_model = item['model_name']
+            item_id = item['record_id']
+            item_name = item.get('record_name', f'{item_model}:{item_id}')
+
+            try:
+                if progress_callback:
+                    progress = int((i / len(queue)) * 100)
+                    progress_callback(progress, f"Deleting {item_name}...")
+
+                self.api_client.delete_record(model_name=item_model, record_id=item_id)
+                deleted += 1
+
+                # Remove from queue after successful delete
+                self.sync_manager.remove_from_deletion_queue(item_model, item_id)
+
+                self.logger.info(f"Deleted {item_name} from server")
+
+            except Exception as e:
+                error_msg = str(e)
+                errors.append({'model': item_model, 'id': item_id, 'error': error_msg})
+                self.logger.error(f"Failed to delete {item_name}: {error_msg}")
+
+                # If record not found (404), remove from queue anyway
+                if '404' in error_msg or 'not found' in error_msg.lower():
+                    self.sync_manager.remove_from_deletion_queue(item_model, item_id)
+
+        if progress_callback:
+            progress_callback(100, f"Deleted {deleted} records")
+
+        return {
+            'deleted': deleted,
+            'errors': len(errors),
+            'error_details': errors if errors else None
+        }
+
     def configure_landholding_widgets(self, layer, company_id: int):
         """
         Configure field widgets and constraints for landholding layer.
@@ -528,6 +764,10 @@ class DataManager:
         2. Downloading actual raster files from storage
         3. Loading as QGIS raster layers (not vector layers)
 
+        Now also handles georeferenced sketches from the mobile app:
+        - GL category files with georeferencing data are pulled and displayed
+        - World files are generated from georeferencing bounds
+
         Args:
             model_name: Model name (should be 'ProjectFile')
             project: Active project object
@@ -545,21 +785,35 @@ class DataManager:
                 progress_callback(5, f"Fetching {model_name} metadata from server...")
 
             # Fetch project file records from API
-            # Filter to only raster files
-            params = {'is_raster': 'true'}
-            files = self.api_client.get_all_paginated(
+            # We need both:
+            # 1. Traditional rasters (is_raster=true)
+            # 2. Georeferenced sketches (GL category with georeferencing field)
+            # The API doesn't support OR queries easily, so we fetch all and filter client-side
+            # Actually, we fetch all files and let the raster_processor filter based on
+            # is_raster=true OR (category='GL' AND georeferencing is not null)
+
+            # Fetch all project files for this project
+            # Use include_deletion_metadata=False for raster pulls since we just need the list
+            response = self.api_client.get_all_paginated(
                 model_name=model_name,
                 project_id=project.id,
-                params=params,
+                params={},  # No filter - get all files
                 progress_callback=lambda p: progress_callback(
                     5 + int(p * 0.15), "Fetching file list..."
-                ) if progress_callback else None
+                ) if progress_callback else None,
+                include_deletion_metadata=False
             )
 
+            # Handle both dict (with 'results' key) and list responses for backwards compatibility
+            if isinstance(response, dict):
+                files = response.get('results', [])
+            else:
+                files = response if response else []
+
             if not files:
-                self.logger.info(f"No raster files found for project {project.name}")
+                self.logger.info(f"No project files found for project {project.name}")
                 if progress_callback:
-                    progress_callback(100, "No raster files found")
+                    progress_callback(100, "No project files found")
                 return {
                     'pulled': 0,
                     'model': model_name,
@@ -568,36 +822,85 @@ class DataManager:
                     'errors': []
                 }
 
-            if progress_callback:
-                progress_callback(20, f"Found {len(files)} raster files. Downloading...")
+            # Filter to loadable files (rasters + georeferenced sketches + tiled rasters)
+            # This is done in process_project_files, but we can pre-filter here for accurate counting
+            loadable_files = [
+                f for f in files
+                if (f.get('is_raster', False) or
+                    f.get('georeferencing') or
+                    (f.get('tiles_available', False) and f.get('tiles_status') == 'completed'))
+            ]
 
-            # Initialize raster processor
-            raster_processor = RasterProcessor()
+            # Debug: Log all files and their georeferencing/tile status
+            for f in files:
+                self.logger.info(
+                    f"  File '{f.get('name')}' (id={f.get('id')}): "
+                    f"is_raster={f.get('is_raster')}, category={f.get('category')}, "
+                    f"georeferencing={f.get('georeferencing')}, "
+                    f"tiles_available={f.get('tiles_available')}, tiles_status={f.get('tiles_status')}"
+                )
+
+            self.logger.info(
+                f"Found {len(files)} total files, {len(loadable_files)} are loadable "
+                f"(rasters, georeferenced sketches, or XYZ tile layers)"
+            )
+
+            if not loadable_files:
+                self.logger.info(f"No loadable files found for project {project.name}")
+                if progress_callback:
+                    progress_callback(100, "No raster or sketch files found")
+                return {
+                    'pulled': 0,
+                    'model': model_name,
+                    'loaded': 0,
+                    'skipped': len(files),
+                    'errors': []
+                }
+
+            if progress_callback:
+                progress_callback(20, f"Found {len(loadable_files)} loadable files. Downloading...")
+
+            # Initialize raster processor with base URL for local development
+            # (handles relative URLs from local server)
+            base_url = self.config.get('api.base_url') if self.config.get('api.use_local', False) else None
+            raster_processor = RasterProcessor(base_url=base_url)
 
             # Process files - download and load as layers
+            # Pass all files; the processor will skip non-loadable ones
+            # Also pass auth token for XYZ tile layer authentication
             result = raster_processor.process_project_files(
                 project_files=files,
                 project_name=project.name,
                 progress_callback=lambda p, s: progress_callback(
                     20 + int(p * 0.75), s
-                ) if progress_callback else None
+                ) if progress_callback else None,
+                auth_token=self.api_client.token
             )
 
             # Update sync metadata
             self.sync_manager.set_last_sync_time(model_name, datetime.now().isoformat())
 
+            # Get counts (tiled may not be present in older results)
+            loaded_count = result.get('loaded', 0)
+            tiled_count = result.get('tiled', 0)
+            total_loaded = loaded_count + tiled_count
+
             if progress_callback:
-                progress_callback(100, f"Loaded {result['loaded']} raster layers")
+                if tiled_count > 0:
+                    progress_callback(100, f"Loaded {loaded_count} rasters + {tiled_count} XYZ tile layers")
+                else:
+                    progress_callback(100, f"Loaded {total_loaded} raster layers")
 
             self.logger.info(
-                f"Raster pull complete: {result['loaded']} loaded, "
+                f"Raster pull complete: {loaded_count} downloaded, {tiled_count} tiled, "
                 f"{result['skipped']} skipped, {len(result['errors'])} errors"
             )
 
             return {
-                'pulled': len(files),
+                'pulled': len(loadable_files),
                 'model': model_name,
-                'loaded': result['loaded'],
+                'loaded': loaded_count,
+                'tiled': tiled_count,
                 'skipped': result['skipped'],
                 'errors': result['errors'],
                 'layers': result['layers']
@@ -605,6 +908,160 @@ class DataManager:
 
         except Exception as e:
             self.logger.error(f"Failed to pull raster model {model_name}: {e}")
+            raise
+
+    def _pull_fieldnote_model(
+        self,
+        project,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Pull field notes and create two layers:
+        1. FieldNotes - main note layer
+        2. FieldNotePhotos - photo layer with click-to-view
+
+        The photos layer shows photos at their GPS coordinates (which may differ
+        from the field note location) and supports click-to-view functionality.
+
+        Args:
+            project: Active project object
+            progress_callback: Optional callback(progress_percent, status_message)
+
+        Returns:
+            Dictionary with sync results including both layers
+        """
+        self.logger.info("Pulling FieldNote model with two-layer architecture")
+
+        try:
+            if progress_callback:
+                progress_callback(5, "Fetching field notes from server...")
+
+            # Pull data from API
+            features = self.api_client.get_all_paginated(
+                model_name='FieldNote',
+                project_id=project.id,
+                params={},
+                progress_callback=lambda p: progress_callback(
+                    5 + int(p * 0.25), "Downloading field notes..."
+                ) if progress_callback else None
+            )
+
+            if not features:
+                self.logger.info(f"No field notes found for project {project.name}")
+                if progress_callback:
+                    progress_callback(100, "No field notes found")
+                return {
+                    'pulled': 0,
+                    'model': 'FieldNote',
+                    'notes_layer': None,
+                    'photos_layer': None,
+                    'photo_count': 0
+                }
+
+            if progress_callback:
+                progress_callback(30, f"Processing {len(features)} field notes...")
+
+            # Separate notes and photos data
+            notes_features = []
+            photos_features = []
+
+            for note in features:
+                # Count photos for this note
+                images = note.get('images', [])
+                note['photo_count'] = len(images)
+
+                # Add to notes layer
+                notes_features.append(note)
+
+                # Extract photos and add to photos layer
+                for photo in images:
+                    # Use photo's coordinates if available, else note's
+                    photo_lat = photo.get('latitude') or note.get('latitude')
+                    photo_lon = photo.get('longitude') or note.get('longitude')
+                    photo_elev = photo.get('elevation') or note.get('elevation')
+
+                    photo_feature = {
+                        'id': f"{note.get('id')}_{photo.get('id')}",  # Composite ID
+                        'photo_id': photo.get('id'),
+                        'fieldnote_id': note.get('id'),
+                        'fieldnote_uuid': note.get('uuid'),
+                        'fieldnote_name': note.get('name'),
+                        'latitude': photo_lat,
+                        'longitude': photo_lon,
+                        'elevation': photo_elev,
+                        'image_url': photo.get('image_url'),
+                        'thumbnail_url': photo.get('thumbnail_url'),
+                        'original_filename': photo.get('original_filename', ''),
+                        'description': photo.get('description', ''),
+                    }
+                    photos_features.append(photo_feature)
+
+            self.logger.info(
+                f"Processed {len(notes_features)} notes with {len(photos_features)} photos"
+            )
+
+            if progress_callback:
+                progress_callback(40, f"Creating field notes layer ({len(notes_features)} notes)...")
+
+            # Create the main notes layer
+            notes_result = self.sync_manager.sync_pull_to_layer(
+                model_name='FieldNote',
+                features=notes_features,
+                progress_callback=lambda p: progress_callback(
+                    40 + int(p * 0.25), "Creating notes layer..."
+                ) if progress_callback else None,
+                project_name=project.name,
+                company_name=project.company_name,
+                api_client=self.api_client,
+                project_id=project.id,
+                crs_metadata=self._get_coordinate_system_metadata()
+            )
+
+            notes_layer = notes_result.get('layer')
+
+            # Create the photos layer if there are any photos
+            photos_layer = None
+            if photos_features:
+                if progress_callback:
+                    progress_callback(70, f"Creating photos layer ({len(photos_features)} photos)...")
+
+                photos_result = self.sync_manager.sync_pull_to_layer(
+                    model_name='FieldNotePhoto',
+                    features=photos_features,
+                    progress_callback=lambda p: progress_callback(
+                        70 + int(p * 0.25), "Creating photos layer..."
+                    ) if progress_callback else None,
+                    project_name=project.name,
+                    company_name=project.company_name,
+                    api_client=self.api_client,
+                    project_id=project.id,
+                    crs_metadata=self._get_coordinate_system_metadata()
+                )
+                photos_layer = photos_result.get('layer')
+
+            # Update sync metadata
+            self.sync_manager.set_last_sync_time('FieldNote', datetime.now().isoformat())
+
+            if progress_callback:
+                progress_callback(100, f"Loaded {len(notes_features)} notes with {len(photos_features)} photos")
+
+            self.logger.info(
+                f"FieldNote pull complete: {len(notes_features)} notes, {len(photos_features)} photos"
+            )
+
+            return {
+                'pulled': len(notes_features),
+                'model': 'FieldNote',
+                'notes_layer': notes_layer,
+                'photos_layer': photos_layer,
+                'photo_count': len(photos_features),
+                'added': notes_result.get('added', 0),
+                'updated': notes_result.get('updated', 0),
+                'layer': notes_layer  # For compatibility with standard result format
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to pull FieldNote model: {e}")
             raise
 
     def get_available_models(self) -> List[str]:
@@ -875,6 +1332,89 @@ class DataManager:
                 f"lat={lat}, lon={lon}, elev={elev}, epsg={srid}"
             )
 
+    def _cleanup_orphaned_drill_children(
+        self,
+        deleted_collar_ids: List[int],
+        project_name: str
+    ) -> None:
+        """
+        Remove orphaned child records when their parent DrillCollar is deleted.
+
+        When a DrillCollar is soft-deleted on the server, we should also remove
+        all its child records from local layers (lithology, alteration, samples, etc.)
+        to prevent "ghost" data from appearing without their parent.
+
+        Args:
+            deleted_collar_ids: List of deleted DrillCollar server IDs
+            project_name: Project name for finding layers
+        """
+        # Child models that reference DrillCollar via collar_id or collar field
+        DRILL_CHILD_MODELS = [
+            'DrillLithology',
+            'DrillAlteration',
+            'DrillMineralization',
+            'DrillStructure',
+            'DrillSample',
+            'DrillSurvey',
+            'DrillPhoto',
+            'DrillTrace',
+        ]
+
+        if not deleted_collar_ids:
+            return
+
+        self.logger.info(
+            f"Cleaning up orphaned drill children for {len(deleted_collar_ids)} deleted collars"
+        )
+
+        total_removed = 0
+        for child_model in DRILL_CHILD_MODELS:
+            # Find the layer for this child model
+            layer = self.sync_manager._find_layer(child_model, project_name)
+            if not layer:
+                continue
+
+            # Find features that reference the deleted collar IDs
+            # Child models typically have a 'collar' or 'collar_id' field
+            collar_field = None
+            for field_name in ['collar', 'collar_id']:
+                field_idx = layer.fields().indexOf(field_name)
+                if field_idx >= 0:
+                    collar_field = field_name
+                    break
+
+            if not collar_field:
+                self.logger.debug(f"No collar field found in {child_model} layer")
+                continue
+
+            # Build expression to find orphaned features
+            # The collar field might contain an ID (int) or a natural key (dict/string)
+            # For simplicity, we'll iterate and check manually
+            features_to_delete = []
+            for feature in layer.getFeatures():
+                collar_value = feature[collar_field]
+                # Handle both integer ID and potential dict/string representations
+                if collar_value in deleted_collar_ids:
+                    features_to_delete.append(feature.id())
+                elif isinstance(collar_value, str):
+                    # Try to parse as integer
+                    try:
+                        if int(collar_value) in deleted_collar_ids:
+                            features_to_delete.append(feature.id())
+                    except (ValueError, TypeError):
+                        pass
+
+            if features_to_delete:
+                layer.startEditing()
+                layer.deleteFeatures(features_to_delete)
+                layer.commitChanges()
+                total_removed += len(features_to_delete)
+                self.logger.info(
+                    f"Removed {len(features_to_delete)} orphaned {child_model} records"
+                )
+
+        self.logger.info(f"Total orphaned drill children removed: {total_removed}")
+
     # =========================================================================
     # FIELD WORK PLANNING METHODS
     # =========================================================================
@@ -928,12 +1468,15 @@ class DataManager:
                 params['ps_type_id'] = str(ps_type_id)
 
             # Pull data from API
-            features = self.api_client.get_all_paginated(
+            api_response = self.api_client.get_all_paginated(
                 model_name='PointSample',
                 project_id=project.id,
                 params=params,
                 progress_callback=lambda p: progress_callback(10 + int(p * 0.3), "Downloading...") if progress_callback else None
             )
+
+            # Extract results (ignore deleted_ids for field tasks - they're filtered by status)
+            features = api_response.get('results', [])
 
             if progress_callback:
                 progress_callback(40, f"Processing {len(features)} field tasks...")

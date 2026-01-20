@@ -186,7 +186,7 @@ class ProjectManager:
             self.logger.error(f"Failed to select project: {e}")
             raise
 
-    def select_company(self, company: Company) -> bool:
+    def select_company(self, company: Company) -> Optional[Company]:
         """
         Select a company and notify the server.
 
@@ -194,7 +194,7 @@ class ProjectManager:
             company: Company to select
 
         Returns:
-            True if successful
+            Updated Company object with refreshed projects list, or None on failure
         """
         self.logger.info(f"Selecting company: {company}")
 
@@ -203,26 +203,21 @@ class ProjectManager:
             response = self.api_client.set_active_company(company.id)
             user_context = UserContext.from_api_response(response)
 
-            # Update local state
-            self.active_company = company
-            self.user_status = user_context.user_status
-            self.can_create = user_context.can_create
+            # Reload companies from the fresh user context
+            # This ensures we have the correct projects for the selected company
+            self.load_from_user_context(user_context)
 
-            # Update project if set
-            if user_context.active_project:
-                ap = user_context.active_project
-                self.active_project = Project(
-                    id=ap.id,
-                    name=ap.name,
-                    company_id=company.id,
-                    company_name=ap.company,
-                    crs=ap.crs
-                )
-            else:
-                self.active_project = None
+            # Find and return the updated company object
+            for c in self.companies:
+                if c.id == company.id:
+                    self.active_company = c
+                    self.logger.info(
+                        f"Company selected: {c.name} with {len(c.projects)} projects"
+                    )
+                    return c
 
-            self.logger.info(f"Company selected: {company.name}")
-            return True
+            self.logger.warning(f"Company {company.id} not found after reload")
+            return None
 
         except Exception as e:
             self.logger.error(f"Failed to select company: {e}")

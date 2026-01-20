@@ -192,6 +192,9 @@ class Config:
             'landholdings': f"{base}/landholdings/",
             'landholding_types': f"{base}/landholding-types/",
 
+            # Claim stakes (mining claim waypoints/monuments)
+            'claim_stakes': f"{base}/claim-stakes/",
+
             # Point samples
             'point_samples': f"{base}/point-samples/",
 
@@ -208,6 +211,23 @@ class Config:
             # Assay configurations
             'assay_range_configurations': f"{base}/assay-range-configurations/",
             'assay_merge_settings': f"{base}/assay-merge-settings/",
+
+            # Field notes
+            'field_notes': f"{base}/field-notes/",
+
+            # Structures (surface geological structures)
+            'structures': f"{base}/structures/",
+
+            # QClaims - Mining Claims Processing
+            'claims_check_access': f"{base}/claims/check-access/",
+            'claims_tos_status': f"{base}/claims/tos-status/",
+            'claims_accept_tos': f"{base}/claims/accept-tos/",
+            'claims_tos_content': f"{base}/claims/tos-content/",
+            'claims_state_info': f"{base}/claims/state-info/",
+            'claims_process': f"{base}/claims/process/",
+            'claims_submit_order': f"{base}/claims/submit-order/",
+            'claims_orders': f"{base}/claims/orders/",
+            'claims_documents': f"{base}/claims/documents/",
         }
 
     def get_model_endpoint(self, model_name: str) -> str:
@@ -233,9 +253,12 @@ class Config:
             'DrillPhoto': 'drill_photos',
             'DrillTrace': 'drill_traces',
             'LandHolding': 'landholdings',
+            'ClaimStake': 'claim_stakes',
             'PointSample': 'point_samples',
             'Photo': 'photos',
             'ProjectFile': 'project_files',
+            'FieldNote': 'field_notes',
+            'Structure': 'structures',
         }
 
         endpoint_key = model_map.get(model_name)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FGDC Standard Foliation Symbol -->
+<!-- At 0 degrees rotation: strike line points North (vertical), dip tick points East (right-hand rule) -->
+<!-- Has hash marks along strike line to distinguish from bedding -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20">
+  <!-- Strike line (vertical at 0 degrees = pointing North) -->
+  <line x1="10" y1="2" x2="10" y2="18" stroke="#000000" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Main dip tick pointing East -->
+  <line x1="10" y1="10" x2="18" y2="10" stroke="#000000" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Upper hash mark (perpendicular to strike) -->
+  <line x1="8" y1="6" x2="12" y2="6" stroke="#000000" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Lower hash mark (perpendicular to strike) -->
+  <line x1="8" y1="14" x2="12" y2="14" stroke="#000000" stroke-width="1.2" stroke-linecap="round"/>
+</svg>

@@ -2108,21 +2108,389 @@ class SyncManager:
     def set_last_sync_time(self, model_name: str, timestamp: str):
         """
         Set last sync time for model.
-        
+
         Args:
             model_name: Model name
             timestamp: ISO timestamp string
         """
         qgs_project = QgsProject.instance()
-        
+
         qgs_project.writeEntry(
             self.SYNC_VAR_SECTION,
             f"{model_name}_last_sync",
             timestamp
         )
-        
+
         self.logger.debug(f"Set last sync time for {model_name}: {timestamp}")
-    
+
+    def get_sync_timestamp(self, model_name: str) -> Optional[str]:
+        """
+        Get the sync timestamp for incremental deletion sync.
+
+        This is the server-provided timestamp from the last successful sync,
+        used with the deleted_since parameter to get only recent deletions.
+
+        Args:
+            model_name: Model name
+
+        Returns:
+            ISO timestamp string (e.g., "2026-01-12T10:00:00Z") or None
+        """
+        qgs_project = QgsProject.instance()
+
+        value = qgs_project.readEntry(
+            self.SYNC_VAR_SECTION,
+            f"{model_name}_sync_timestamp",
+            ""
+        )[0]
+
+        return value if value else None
+
+    def set_sync_timestamp(self, model_name: str, timestamp: str):
+        """
+        Set the sync timestamp for incremental deletion sync.
+
+        Store the server-provided sync_timestamp for use in the next sync's
+        deleted_since parameter.
+
+        Args:
+            model_name: Model name
+            timestamp: ISO timestamp string from server response
+        """
+        qgs_project = QgsProject.instance()
+
+        qgs_project.writeEntry(
+            self.SYNC_VAR_SECTION,
+            f"{model_name}_sync_timestamp",
+            timestamp
+        )
+
+        self.logger.debug(f"Set sync timestamp for {model_name}: {timestamp}")
+
+    def detect_deletion_conflicts(
+        self,
+        layer,
+        server_ids: List[int],
+        model_name: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Detect conflicts between local changes and server deletions.
+
+        A conflict occurs when:
+        1. A record exists locally with changes (differs from server snapshot)
+        2. That same record has been deleted on the server
+
+        Args:
+            layer: QgsVectorLayer to check
+            server_ids: List of server IDs that were deleted on server
+            model_name: Model name for snapshot lookup
+
+        Returns:
+            List of conflict dicts with 'server_id', 'feature_id', 'name' keys
+        """
+        if not layer or not server_ids:
+            return []
+
+        conflicts = []
+        ids_to_check = set(server_ids)
+
+        # Get the snapshot for this model
+        snapshot = self._get_snapshot(model_name)
+
+        for feature in layer.getFeatures():
+            server_id = feature['id']
+
+            # Normalize server_id to int
+            if isinstance(server_id, str):
+                try:
+                    server_id = int(server_id)
+                except (ValueError, TypeError):
+                    continue
+
+            # Check if this feature is in the deleted list
+            if server_id not in ids_to_check:
+                continue
+
+            # Check if this feature has local changes
+            if snapshot:
+                # Compute current hash
+                feature_dict = {}
+                for field in layer.fields():
+                    field_name = field.name()
+                    if field_name.startswith('image_') or field_name.startswith('document_'):
+                        continue
+                    feature_dict[field_name] = feature.attribute(field_name)
+
+                current_hash = self._compute_feature_hash(feature_dict)
+                original_hash = snapshot.get(server_id)
+
+                # If hashes differ, this is a conflict
+                if original_hash and current_hash != original_hash:
+                    # Get a human-readable name for the record
+                    name = (
+                        feature.attribute('name') or
+                        feature.attribute('hole_id') or
+                        feature.attribute('bhid') or
+                        feature.attribute('sample_name') or
+                        f"{model_name}:{server_id}"
+                    )
+                    conflicts.append({
+                        'server_id': server_id,
+                        'feature_id': feature.id(),
+                        'name': name
+                    })
+
+        return conflicts
+
+    def remove_features_by_server_id(
+        self,
+        layer,
+        server_ids: List[int],
+        skip_ids: Optional[List[int]] = None
+    ) -> int:
+        """
+        Remove features from a layer by their server IDs.
+
+        This is used during deletion sync to remove records that were
+        soft-deleted on the server.
+
+        Args:
+            layer: QgsVectorLayer to remove features from
+            server_ids: List of server record IDs to remove
+            skip_ids: Optional list of server IDs to skip (e.g., conflicting records)
+
+        Returns:
+            Number of features actually removed
+        """
+        if not layer or not server_ids:
+            return 0
+
+        # Find the 'id' field index
+        id_field_idx = layer.fields().indexOf('id')
+        if id_field_idx < 0:
+            self.logger.warning(f"No 'id' field found in layer {layer.name()}")
+            return 0
+
+        # Convert server_ids to set for faster lookup
+        ids_to_remove = set(server_ids)
+
+        # Remove any IDs that should be skipped
+        if skip_ids:
+            ids_to_remove -= set(skip_ids)
+            if skip_ids:
+                self.logger.info(f"Skipping {len(skip_ids)} conflicting records from deletion")
+
+        # Find matching features
+        features_to_delete = []
+        for feature in layer.getFeatures():
+            feature_id = feature['id']
+            # Handle both int and string representations
+            if feature_id in ids_to_remove:
+                features_to_delete.append(feature.id())
+            elif isinstance(feature_id, str):
+                try:
+                    if int(feature_id) in ids_to_remove:
+                        features_to_delete.append(feature.id())
+                except (ValueError, TypeError):
+                    pass
+
+        if not features_to_delete:
+            return 0
+
+        # Delete the features
+        layer.startEditing()
+        success = layer.deleteFeatures(features_to_delete)
+        if success:
+            layer.commitChanges()
+            self.logger.info(
+                f"Removed {len(features_to_delete)} deleted features from {layer.name()}"
+            )
+        else:
+            layer.rollBack()
+            self.logger.error(f"Failed to delete features from {layer.name()}")
+            return 0
+
+        return len(features_to_delete)
+
+    # =========================================================================
+    # Deletion Queue Management
+    # =========================================================================
+
+    def queue_deletion(
+        self,
+        model_name: str,
+        record_id: int,
+        record_name: Optional[str] = None
+    ) -> bool:
+        """
+        Queue a record for deletion during the next sync.
+
+        The deletion queue is stored in QGIS project settings and persisted
+        across sessions. Use this for offline scenarios or batched deletions.
+
+        Args:
+            model_name: Model name
+            record_id: Server ID of the record to delete
+            record_name: Optional human-readable name for logging
+
+        Returns:
+            True if successfully queued
+        """
+        import json
+
+        qgs_project = QgsProject.instance()
+
+        # Read existing queue
+        queue_json = qgs_project.readEntry(
+            self.SYNC_VAR_SECTION,
+            "deletion_queue",
+            "[]"
+        )[0]
+
+        try:
+            queue = json.loads(queue_json)
+        except json.JSONDecodeError:
+            queue = []
+
+        # Check if already queued
+        for item in queue:
+            if item.get('model_name') == model_name and item.get('record_id') == record_id:
+                self.logger.debug(f"Record already queued: {model_name}:{record_id}")
+                return True
+
+        # Add to queue
+        queue.append({
+            'model_name': model_name,
+            'record_id': record_id,
+            'record_name': record_name or f'{model_name}:{record_id}',
+            'queued_at': datetime.now().isoformat()
+        })
+
+        # Save queue
+        qgs_project.writeEntry(
+            self.SYNC_VAR_SECTION,
+            "deletion_queue",
+            json.dumps(queue)
+        )
+
+        self.logger.info(f"Queued deletion: {model_name}:{record_id}")
+        return True
+
+    def get_deletion_queue(
+        self,
+        model_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get the list of records queued for deletion.
+
+        Args:
+            model_name: Optional filter by model name
+
+        Returns:
+            List of queued deletion items
+        """
+        import json
+
+        qgs_project = QgsProject.instance()
+
+        queue_json = qgs_project.readEntry(
+            self.SYNC_VAR_SECTION,
+            "deletion_queue",
+            "[]"
+        )[0]
+
+        try:
+            queue = json.loads(queue_json)
+        except json.JSONDecodeError:
+            queue = []
+
+        if model_name:
+            queue = [item for item in queue if item.get('model_name') == model_name]
+
+        return queue
+
+    def remove_from_deletion_queue(
+        self,
+        model_name: str,
+        record_id: int
+    ) -> bool:
+        """
+        Remove a record from the deletion queue.
+
+        Called after successful deletion on server.
+
+        Args:
+            model_name: Model name
+            record_id: Server ID of the record
+
+        Returns:
+            True if removed, False if not found
+        """
+        import json
+
+        qgs_project = QgsProject.instance()
+
+        queue_json = qgs_project.readEntry(
+            self.SYNC_VAR_SECTION,
+            "deletion_queue",
+            "[]"
+        )[0]
+
+        try:
+            queue = json.loads(queue_json)
+        except json.JSONDecodeError:
+            queue = []
+
+        # Find and remove
+        original_len = len(queue)
+        queue = [
+            item for item in queue
+            if not (item.get('model_name') == model_name and item.get('record_id') == record_id)
+        ]
+
+        if len(queue) < original_len:
+            # Save updated queue
+            qgs_project.writeEntry(
+                self.SYNC_VAR_SECTION,
+                "deletion_queue",
+                json.dumps(queue)
+            )
+            self.logger.debug(f"Removed from deletion queue: {model_name}:{record_id}")
+            return True
+
+        return False
+
+    def clear_deletion_queue(self, model_name: Optional[str] = None):
+        """
+        Clear the deletion queue.
+
+        Args:
+            model_name: Optional filter to clear only one model's deletions.
+                       If None, clears entire queue.
+        """
+        import json
+
+        qgs_project = QgsProject.instance()
+
+        if model_name:
+            # Filter out only the specified model
+            queue = self.get_deletion_queue()
+            queue = [item for item in queue if item.get('model_name') != model_name]
+            qgs_project.writeEntry(
+                self.SYNC_VAR_SECTION,
+                "deletion_queue",
+                json.dumps(queue)
+            )
+            self.logger.info(f"Cleared deletion queue for {model_name}")
+        else:
+            # Clear entire queue
+            qgs_project.writeEntry(
+                self.SYNC_VAR_SECTION,
+                "deletion_queue",
+                "[]"
+            )
+            self.logger.info("Cleared entire deletion queue")
+
     def _extract_field_definitions(self, feature: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract field definitions from feature data.

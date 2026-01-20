@@ -6,7 +6,7 @@ This client implements the RESTful API as documented in COMPLETE_API_REFERENCE.m
 """
 import json
 from typing import Dict, Any, Optional, Callable, List
-from qgis.PyQt.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+from qgis.PyQt.QtNetwork import QNetworkRequest, QNetworkReply
 from qgis.PyQt.QtCore import QUrl, QByteArray, QEventLoop
 from qgis.core import QgsNetworkAccessManager
 
@@ -27,11 +27,11 @@ class APIClient:
     HTTP client for all API communication.
     Handles authentication, retries, and response parsing.
     """
-    
+
     def __init__(self, config: Config, token: Optional[str] = None):
         """
         Initialize API client.
-        
+
         Args:
             config: Configuration instance
             token: Optional authentication token
@@ -125,6 +125,13 @@ class APIClient:
         """Execute single HTTP request synchronously."""
         # Create event loop for synchronous behavior
         loop = QEventLoop()
+        finished = False
+
+        def on_finished():
+            nonlocal finished
+            finished = True
+            if loop.isRunning():
+                loop.quit()
 
         # Make request based on method
         if method == 'GET':
@@ -143,23 +150,27 @@ class APIClient:
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
-        # Wait for completion
-        reply.finished.connect(loop.quit)
-        loop.exec_()
+        # Connect signal before checking if already finished
+        reply.finished.connect(on_finished)
+
+        # Only enter event loop if reply hasn't finished yet
+        # This prevents blocking forever if the reply completed synchronously
+        if not finished and not reply.isFinished():
+            loop.exec_()
 
         # Process response
         return self._process_response(reply)
-    
+
     def _process_response(self, reply: QNetworkReply) -> Dict[str, Any]:
         """
         Process network reply and handle errors.
-        
+
         Args:
             reply: QNetworkReply object
-            
+
         Returns:
             Parsed JSON response
-            
+
         Raises:
             APIException: On error response
         """
@@ -188,7 +199,7 @@ class APIClient:
 
         # Handle HTTP errors
         if status_code and status_code >= 400:
-            error_msg = parsed_data.get('error') or parsed_data.get('detail') or 'Unknown error'
+            error_msg = parsed_data.get('error') or parsed_data.get('detail') or f'HTTP {status_code} error'
 
             # For 400 errors, include full validation details in the message
             if status_code == 400:
@@ -216,10 +227,10 @@ class APIClient:
                 raise ServerError(error_msg, status_code, parsed_data)
             else:
                 raise APIException(error_msg, status_code, parsed_data)
-        
+
         reply.deleteLater()
         return parsed_data
-    
+
     # =========================================================================
     # Authentication Endpoints
     # =========================================================================
@@ -396,19 +407,30 @@ class APIClient:
         model_name: str,
         project_id: int,
         params: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[Callable[[int], None]] = None
-    ) -> List[Dict[str, Any]]:
+        progress_callback: Optional[Callable[[int], None]] = None,
+        include_deletion_metadata: bool = True
+    ) -> Dict[str, Any]:
         """
         Get ALL records of a model type, handling pagination automatically.
+
+        Also captures deletion sync metadata from the API response:
+        - deleted_ids: IDs of soft-deleted records that should be removed locally
+        - sync_timestamp: Timestamp to use for next incremental sync
+        - deleted_since_applied: The deleted_since filter that was applied (if any)
 
         Args:
             model_name: Model name (e.g., 'DrillCollar', 'LandHolding')
             project_id: Project ID to filter by
             params: Optional additional query parameters
             progress_callback: Optional progress callback
+            include_deletion_metadata: If True, return dict with 'results' and deletion
+                metadata. If False, return just the list (backward compatibility).
 
         Returns:
-            Complete list of all records
+            If include_deletion_metadata=True (default):
+                Dict with 'results', 'deleted_ids', 'sync_timestamp', 'deleted_since_applied'
+            If include_deletion_metadata=False:
+                List of all records (backward compatible)
         """
         all_results = []
         endpoint = self.config.get_model_endpoint(model_name)
@@ -421,6 +443,12 @@ class APIClient:
                 url = f"{url}&{key}={value}"
 
         self.logger.info(f"get_all_paginated initial URL: {url}")
+
+        # Deletion sync metadata (captured from first page response)
+        deleted_ids = []
+        sync_timestamp = None
+        deleted_since_applied = None
+        first_page = True
 
         while url:
             response = self._make_request('GET', url, progress_callback=progress_callback)
@@ -435,6 +463,20 @@ class APIClient:
                 results = response.get('results', [])
                 all_results.extend(results)
 
+                # Capture deletion sync metadata from first page only
+                # (these values are consistent across all pages)
+                if first_page:
+                    deleted_ids = response.get('deleted_ids', [])
+                    sync_timestamp = response.get('sync_timestamp')
+                    deleted_since_applied = response.get('deleted_since_applied')
+
+                    if deleted_ids:
+                        self.logger.info(
+                            f"Deletion sync: {len(deleted_ids)} deleted IDs received "
+                            f"(deleted_since_applied={deleted_since_applied})"
+                        )
+                    first_page = False
+
                 # Get next page URL
                 url = response.get('next')
 
@@ -442,7 +484,17 @@ class APIClient:
                     progress = int((len(all_results) / response['count']) * 100)
                     progress_callback(progress)
 
-        return all_results
+        # Return based on include_deletion_metadata flag
+        if include_deletion_metadata:
+            return {
+                'results': all_results,
+                'deleted_ids': deleted_ids,
+                'sync_timestamp': sync_timestamp,
+                'deleted_since_applied': deleted_since_applied
+            }
+        else:
+            # Backward compatibility - just return the list
+            return all_results
 
     def create_record(
         self,
@@ -583,7 +635,8 @@ class APIClient:
     ) -> List[Dict[str, Any]]:
         """Get all drill collars for a project."""
         params = {'merge_assays': 'true'} if merge_assays else None
-        return self.get_all_paginated('DrillCollar', project_id, params=params)
+        result = self.get_all_paginated('DrillCollar', project_id, params=params)
+        return result.get('results', []) if isinstance(result, dict) else result
 
     def get_drill_samples(
         self,
@@ -592,11 +645,13 @@ class APIClient:
     ) -> List[Dict[str, Any]]:
         """Get all drill samples for a project with optional assay merging."""
         params = {'merge_assays': 'true'} if merge_assays else None
-        return self.get_all_paginated('DrillSample', project_id, params=params)
+        result = self.get_all_paginated('DrillSample', project_id, params=params)
+        return result.get('results', []) if isinstance(result, dict) else result
 
     def get_landholdings(self, project_id: int) -> List[Dict[str, Any]]:
         """Get all land holdings for a project."""
-        return self.get_all_paginated('LandHolding', project_id)
+        result = self.get_all_paginated('LandHolding', project_id)
+        return result.get('results', []) if isinstance(result, dict) else result
 
     def get_landholding_types(self, company_id: int) -> List[Dict[str, Any]]:
         """
@@ -662,7 +717,8 @@ class APIClient:
     ) -> List[Dict[str, Any]]:
         """Get all point samples for a project."""
         params = {'merge_assays': 'true'} if merge_assays else None
-        return self.get_all_paginated('PointSample', project_id, params=params)
+        result = self.get_all_paginated('PointSample', project_id, params=params)
+        return result.get('results', []) if isinstance(result, dict) else result
 
     def get_drill_pads(self, project_id: int) -> List[Dict[str, Any]]:
         """
@@ -674,7 +730,8 @@ class APIClient:
         Returns:
             List of drill pad dictionaries with polygon geometry
         """
-        return self.get_all_paginated('DrillPad', project_id)
+        result = self.get_all_paginated('DrillPad', project_id)
+        return result.get('results', []) if isinstance(result, dict) else result
 
     # =========================================================================
     # Lookup Tables (Lithology, Alteration)

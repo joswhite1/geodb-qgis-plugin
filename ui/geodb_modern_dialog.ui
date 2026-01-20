@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1100</width>
-    <height>750</height>
+    <height>700</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -19,223 +19,346 @@
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
    <property name="spacing">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="leftMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="topMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="rightMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
    <property name="bottomMargin">
-    <number>10</number>
+    <number>6</number>
    </property>
-   
-   <!-- AUTHENTICATION PANEL AT TOP -->
+
+   <!-- MAIN TAB WIDGET - NOW CONTAINS ALL CONTENT -->
    <item>
-    <widget class="QGroupBox" name="authGroupBox">
-     <property name="title">
-      <string>Authentication</string>
+    <widget class="QTabWidget" name="mainTabWidget">
+     <property name="currentIndex">
+      <number>0</number>
      </property>
      <property name="styleSheet">
-      <string notr="true">QGroupBox { font-weight: bold; }</string>
+      <string notr="true">QTabBar::tab { padding: 10px 25px; font-weight: bold; min-width: 90px; }
+QTabBar::tab:selected { background-color: #5bbad5; color: white; }
+QTabBar::tab:!selected { background-color: #e5e7eb; color: #374151; }
+QTabWidget::pane { border: 1px solid #d1d5db; border-radius: 4px; }</string>
      </property>
-     <layout class="QVBoxLayout" name="authLayout">
-      
-      <!-- Login Status Row -->
-      <item>
-       <layout class="QHBoxLayout" name="statusLayout">
-        <item>
-         <widget class="QLabel" name="statusLabel">
-          <property name="text">
-           <string>Status:</string>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">font-weight: bold;</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="statusValue">
-          <property name="text">
-           <string>Not logged in</string>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">color: #d32f2f;</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="userLabel">
-          <property name="text">
-           <string>User:</string>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">font-weight: bold;</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="userValue">
-          <property name="text">
-           <string>-</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="horizontalSpacer">
-          <property name="orientation">
-           <enum>Qt::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-        <item>
-         <widget class="QPushButton" name="loginButton">
-          <property name="text">
-           <string>Login</string>
-          </property>
-          <property name="icon">
-           <iconset>
-            <normaloff>../icons/key.png</normaloff>../icons/key.png</iconset>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="logoutButton">
-          <property name="text">
-           <string>Logout</string>
-          </property>
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      
-      <!-- Project Selection Row -->
-      <item>
-       <layout class="QHBoxLayout" name="projectLayout">
-        <item>
-         <widget class="QLabel" name="companyLabel">
-          <property name="text">
-           <string>Company:</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QComboBox" name="companyComboBox">
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-          <property name="minimumWidth">
-           <number>200</number>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="projectLabel">
-          <property name="text">
-           <string>Project:</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QComboBox" name="projectComboBox">
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-          <property name="minimumWidth">
-           <number>200</number>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="permissionLabel">
-          <property name="text">
-           <string>Access:</string>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">font-weight: bold;</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="permissionValue">
-          <property name="text">
-           <string>-</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="horizontalSpacer_2">
-          <property name="orientation">
-           <enum>Qt::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
-      </item>
-      
-      <!-- Development Mode Toggle -->
-      <item>
-       <layout class="QHBoxLayout" name="devModeLayout">
-        <item>
-         <widget class="QCheckBox" name="localModeCheckBox">
-          <property name="text">
-           <string>🔧 Use Local Development Server (http://127.0.0.1:8000)</string>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">color: #ff9800; font-style: italic;</string>
-          </property>
-          <property name="toolTip">
-           <string>Enable this to connect to a local development server instead of production</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="horizontalSpacer_dev">
-          <property name="orientation">
-           <enum>Qt::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   
-   <!-- MAIN CONTENT AREA: MODEL LIST + ACTIONS -->
-   <item>
-    <widget class="QSplitter" name="mainSplitter">
-     <property name="orientation">
-      <enum>Qt::Horizontal</enum>
+     <property name="elideMode">
+      <enum>Qt::ElideNone</enum>
      </property>
-     
-     <!-- LEFT SIDE: MODEL LIST -->
-     <widget class="QGroupBox" name="modelGroupBox">
+
+     <!-- TAB 0: AUTHENTICATION -->
+     <widget class="QWidget" name="authTab">
+      <attribute name="title">
+       <string>Account</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="authTabLayout">
+       <property name="spacing">
+        <number>15</number>
+       </property>
+       <property name="leftMargin">
+        <number>15</number>
+       </property>
+       <property name="topMargin">
+        <number>15</number>
+       </property>
+       <property name="rightMargin">
+        <number>15</number>
+       </property>
+       <property name="bottomMargin">
+        <number>15</number>
+       </property>
+
+       <!-- Authentication Section -->
+       <item>
+        <widget class="QGroupBox" name="authGroupBox">
+         <property name="title">
+          <string>Authentication</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QGroupBox { font-weight: bold; }</string>
+         </property>
+         <layout class="QVBoxLayout" name="authLayout">
+
+          <!-- Login Status Row -->
+          <item>
+           <layout class="QHBoxLayout" name="statusLayout">
+            <item>
+             <widget class="QLabel" name="statusLabel">
+              <property name="text">
+               <string>Status:</string>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">font-weight: bold;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="statusValue">
+              <property name="text">
+               <string>Not logged in</string>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">color: #d32f2f;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="userLabel">
+              <property name="text">
+               <string>User:</string>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">font-weight: bold;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="userValue">
+              <property name="text">
+               <string>-</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="loginButton">
+              <property name="text">
+               <string>Login</string>
+              </property>
+              <property name="icon">
+               <iconset>
+                <normaloff>../icons/key.png</normaloff>../icons/key.png</iconset>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="logoutButton">
+              <property name="text">
+               <string>Logout</string>
+              </property>
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <!-- Project Selection Section -->
+       <item>
+        <widget class="QGroupBox" name="projectGroupBox">
+         <property name="title">
+          <string>Project Selection</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QGroupBox { font-weight: bold; }</string>
+         </property>
+         <layout class="QVBoxLayout" name="projectGroupLayout">
+          <item>
+           <layout class="QHBoxLayout" name="projectLayout">
+            <item>
+             <widget class="QLabel" name="companyLabel">
+              <property name="text">
+               <string>Company:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="companyComboBox">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                <horstretch>1</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="projectLabel">
+              <property name="text">
+               <string>Project:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="projectComboBox">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                <horstretch>1</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="permissionLabel">
+              <property name="text">
+               <string>Access:</string>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">font-weight: bold;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="permissionValue">
+              <property name="text">
+               <string>-</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_2">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="refreshProjectsButton">
+              <property name="text">
+               <string>Refresh</string>
+              </property>
+              <property name="toolTip">
+               <string>Refresh the company and project lists from the server</string>
+              </property>
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="icon">
+               <iconset>
+                <normaloff>../icons/arrow-repeat.svg</normaloff>../icons/arrow-repeat.svg</iconset>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <!-- Development Mode Toggle -->
+       <item>
+        <widget class="QGroupBox" name="devModeGroupBox">
+         <property name="title">
+          <string>Developer Options</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QGroupBox { font-weight: bold; }</string>
+         </property>
+         <layout class="QVBoxLayout" name="devModeGroupLayout">
+          <item>
+           <layout class="QHBoxLayout" name="devModeLayout">
+            <item>
+             <widget class="QCheckBox" name="localModeCheckBox">
+              <property name="text">
+               <string>Use Local Development Server (http://127.0.0.1:8000)</string>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">color: #ff9800; font-style: italic;</string>
+              </property>
+              <property name="toolTip">
+               <string>Enable this to connect to a local development server instead of production</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_dev">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <!-- Spacer to push content up -->
+       <item>
+        <spacer name="authTabSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <!-- END TAB 0: AUTHENTICATION -->
+
+     <!-- TAB 1: DATA SYNC -->
+     <widget class="QWidget" name="dataSyncTab">
+      <attribute name="title">
+       <string>Data Sync</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="dataSyncTabLayout">
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QSplitter" name="mainSplitter">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+
+         <!-- LEFT SIDE: MODEL LIST -->
+         <widget class="QGroupBox" name="modelGroupBox">
       <property name="title">
        <string>Data Models</string>
       </property>
@@ -331,6 +454,24 @@ QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
           <property name="icon">
            <iconset>
             <normaloff>../icons/file-earmark-image.svg</normaloff>../icons/file-earmark-image.svg</iconset>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>FieldNote</string>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>../icons/journal-text.svg</normaloff>../icons/journal-text.svg</iconset>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Structure</string>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>../icons/crosshair2.svg</normaloff>../icons/crosshair2.svg</iconset>
           </property>
          </item>
         </widget>
@@ -592,70 +733,140 @@ Push: Uploads your local changes to server</string>
          </property>
         </widget>
        </item>
-       
+
       </layout>
      </widget>
     </widget>
-   </item>
-   
-   <!-- MESSAGES PANEL AT BOTTOM -->
-   <item>
-    <widget class="QGroupBox" name="messagesGroupBox">
-     <property name="title">
-      <string>Messages &amp; Feedback</string>
-     </property>
-     <property name="minimumHeight">
-      <number>150</number>
-     </property>
-     <property name="maximumHeight">
-      <number>250</number>
-     </property>
-     <layout class="QVBoxLayout" name="messagesLayout">
-      <item>
-       <widget class="QTextBrowser" name="messagesTextBrowser">
-        <property name="html">
-         <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
+       </item>
+      </layout>
+     </widget>
+     <!-- END TAB 1: DATA SYNC -->
+
+     <!-- TAB 2: CLAIMS -->
+     <widget class="QWidget" name="claimsTab">
+      <attribute name="title">
+       <string>Claims</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="claimsTabLayout">
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <!-- ClaimsWizardWidget will be inserted here programmatically -->
+      </layout>
+     </widget>
+     <!-- END TAB 2: CLAIMS -->
+
+     <!-- TAB 3: BASEMAPS -->
+     <widget class="QWidget" name="basemapsTab">
+      <attribute name="title">
+       <string>Basemaps</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="basemapsTabLayout">
+       <property name="spacing">
+        <number>10</number>
+       </property>
+       <property name="leftMargin">
+        <number>10</number>
+       </property>
+       <property name="topMargin">
+        <number>10</number>
+       </property>
+       <property name="rightMargin">
+        <number>10</number>
+       </property>
+       <property name="bottomMargin">
+        <number>10</number>
+       </property>
+       <!-- Basemap content will be added programmatically -->
+      </layout>
+     </widget>
+     <!-- END TAB 3: BASEMAPS -->
+
+     <!-- TAB 4: LOG (Messages & Feedback) -->
+     <widget class="QWidget" name="logTab">
+      <attribute name="title">
+       <string>Log</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="logTabLayout">
+       <property name="spacing">
+        <number>10</number>
+       </property>
+       <property name="leftMargin">
+        <number>10</number>
+       </property>
+       <property name="topMargin">
+        <number>10</number>
+       </property>
+       <property name="rightMargin">
+        <number>10</number>
+       </property>
+       <property name="bottomMargin">
+        <number>10</number>
+       </property>
+
+       <!-- Messages Text Browser -->
+       <item>
+        <widget class="QTextBrowser" name="messagesTextBrowser">
+         <property name="html">
+          <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
 &lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
 p, li { white-space: pre-wrap; }
 &lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'Segoe UI'; font-size:9pt; font-weight:400; font-style:normal;&quot;&gt;
 &lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; color:#5bbad5; font-weight:600;&quot;&gt;Welcome to Geodb.io QGIS Plugin v2.0&lt;/span&gt;&lt;/p&gt;
 &lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
 &lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Please login to begin synchronizing your geospatial data.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-        </property>
-        <property name="openExternalLinks">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="messageButtonLayout">
-        <item>
-         <spacer name="horizontalSpacer_3">
-          <property name="orientation">
-           <enum>Qt::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-        <item>
-         <widget class="QPushButton" name="clearMessagesButton">
-          <property name="text">
-           <string>Clear Messages</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-     </layout>
+         </property>
+         <property name="openExternalLinks">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+
+       <!-- Clear Messages Button -->
+       <item>
+        <layout class="QHBoxLayout" name="messageButtonLayout">
+         <item>
+          <spacer name="horizontalSpacer_3">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="clearMessagesButton">
+           <property name="text">
+            <string>Clear Log</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <!-- END TAB 3: LOG -->
+
     </widget>
    </item>
-   
-   <!-- CLOSE BUTTON -->
+
+   <!-- CLOSE BUTTON ROW -->
    <item>
     <layout class="QHBoxLayout" name="closeButtonLayout">
      <item>
@@ -683,7 +894,7 @@ p, li { white-space: pre-wrap; }
      </item>
     </layout>
    </item>
-   
+
   </layout>
  </widget>
  <resources>

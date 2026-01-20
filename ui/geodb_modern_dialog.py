@@ -10,13 +10,18 @@ import os
 import sys
 from typing import Optional, Callable, List, Dict, Any
 from qgis.PyQt import uic
-from qgis.PyQt.QtCore import Qt, QTimer
+from qgis.PyQt.QtCore import Qt, QTimer, QThread, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDialog, QMessageBox, QLabel, QComboBox, QPushButton,
     QVBoxLayout, QGroupBox, QTableWidget, QTableWidgetItem,
     QHBoxLayout, QHeaderView
 )
 from qgis.PyQt.QtGui import QColor, QTextCursor
+
+try:
+    from qgis.PyQt import sip
+except ImportError:
+    import sip
 
 # Import our new managers
 from ..utils.config import Config, DEV_MODE
@@ -33,12 +38,17 @@ from ..managers.project_manager import ProjectManager
 from ..managers.data_manager import DataManager
 from ..managers.sync_manager import SyncManager
 from ..managers.storage_manager import StorageManager, StorageMode
+from ..managers.claims_manager import ClaimsManager
 from ..models.auth import AuthSession, UserContext
 from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
 from .assay_range_dialog import AssayRangeDialog
 from .storage_dialog import StorageConfigDialog
 from .field_work_dialog import FieldWorkDialog
+from .claims_widget import ClaimsWidget  # Keep for reference, deprecated
+from .claims_wizard_widget import ClaimsWizardWidget
+from .claims_order_widget import ClaimsOrderWidget
+from .basemaps_widget import BasemapsWidget
 
 # Ensure plugin directory is in sys.path for UI resource imports
 plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +60,55 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'geodb_modern_dialog.ui'))
 
 
+class RefreshWorker(QThread):
+    """Background worker thread for refreshing user context from server.
+
+    This avoids the nested QEventLoop crash that occurs when making synchronous
+    HTTP requests from within Qt signal handlers or modal dialogs.
+
+    Uses urllib.request instead of QNetworkAccessManager since Qt network
+    classes must be used from the main thread only.
+    """
+    finished = pyqtSignal(object)  # Dict response or None
+    error = pyqtSignal(str)  # Error message
+
+    def __init__(self, base_url: str, token: str):
+        super().__init__()
+        self.base_url = base_url
+        self.token = token
+
+    def run(self):
+        """Fetch user context in background thread using urllib."""
+        import urllib.request
+        import ssl
+        import json
+
+        try:
+            url = f"{self.base_url}/me/"
+
+            # Create SSL context
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            request = urllib.request.Request(
+                url,
+                headers={
+                    'Authorization': f'Token {self.token}',
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'QGIS-GeodbPlugin/2.0'
+                }
+            )
+
+            with urllib.request.urlopen(request, context=ctx, timeout=30) as response:
+                data = response.read().decode('utf-8')
+                result = json.loads(data)
+                self.finished.emit(result)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class GeodbModernDialog(QDialog, FORM_CLASS):
     """Modern dialog for Geodb.io plugin with clean UI and manager integration."""
     
@@ -57,10 +116,18 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """Initialize the dialog."""
         super(GeodbModernDialog, self).__init__(parent)
         self.setupUi(self)
-        
+
+        # Allow dialog to be resized smaller than content's natural minimum
+        # This lets users shrink the window on smaller screens
+        self.setMinimumSize(400, 300)
+
         # Initialize managers
         self.config = Config()
         self.logger = PluginLogger.get_logger()
+
+        # Register UI handler so logs appear in the Log tab
+        PluginLogger.register_ui_handler(self._log_message)
+
         self.api_client = APIClient(self.config)
         self.auth_manager = AuthManager(self.config, self.api_client)
         self.project_manager = ProjectManager(self.config, self.api_client)
@@ -73,10 +140,21 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.sync_manager
         )
         self.style_processor = StyleProcessor()
+        self.claims_manager = ClaimsManager(self.api_client, self.config)
+
+        # Claims wizard widget (replaces old ClaimsWidget)
+        self.claims_wizard: Optional[ClaimsWizardWidget] = None
+        # Claims order widget for pay-per-claim users
+        self.claims_order_widget: Optional[ClaimsOrderWidget] = None
+        # Keep legacy reference for backward compatibility
+        self.claims_widget: Optional[ClaimsWidget] = None
+        # Basemaps widget
+        self.basemaps_widget: Optional[BasemapsWidget] = None
 
         # Current state
         self.current_session: Optional[AuthSession] = None
         self.current_model: Optional[str] = None
+        self._local_mode_changing = False  # Guard against rapid toggles
         self.current_assay_config: Optional[dict] = None  # Selected AssayRangeConfiguration
         self.assay_config_is_none: bool = False  # True when "None (Gray circles)" is selected
         self.assay_configurations: List[Dict[str, Any]] = []  # Loaded configurations
@@ -96,11 +174,20 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Add ProjectFile options UI
         self._add_projectfile_options_ui()
 
+        # Add Claims to model list and set up claims UI
+        self._setup_claims_ui()
+
+        # Set up basemaps UI
+        self._setup_basemaps_ui()
+
         # Connect signals
         self._connect_signals()
 
         # Initialize UI state
         self._initialize_ui()
+
+        # Add context header showing company/project
+        self._setup_context_header()
 
         # Try to restore session
         self._try_restore_session()
@@ -115,6 +202,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Project selection
         self.companyComboBox.currentIndexChanged.connect(self._on_company_changed)
         self.projectComboBox.currentIndexChanged.connect(self._on_project_changed)
+        self.refreshProjectsButton.clicked.connect(self._on_refresh_projects_clicked)
         
         # Model selection
         self.modelListWidget.currentItemChanged.connect(self._on_model_selected)
@@ -135,19 +223,121 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.modelListWidget.setCurrentRow(0)
         self._update_auth_status(False)
 
-        # Hide local mode checkbox unless in dev mode
+        # Hide developer options group box unless in dev mode
         if not DEV_MODE:
+            if hasattr(self, 'devModeGroupBox'):
+                self.devModeGroupBox.setVisible(False)
             self.localModeCheckBox.setVisible(False)
 
         # Set local mode checkbox from config
+        # Block signals to prevent triggering _on_local_mode_changed during init
         is_local = self.config.get('api.use_local', False)
+        self.localModeCheckBox.blockSignals(True)
         self.localModeCheckBox.setChecked(is_local)
-        
+        self.localModeCheckBox.blockSignals(False)
+
+        # Start on the Data Sync tab (index 1) since Account tab is for settings
+        if hasattr(self, 'mainTabWidget'):
+            self.mainTabWidget.setCurrentIndex(1)
+
         self._log_message("Welcome to Geodb.io QGIS Plugin v2.0", "info")
         self._log_message("Please login to begin synchronizing your geospatial data.", "info")
         if is_local:
-            self._log_message("⚠️ LOCAL DEVELOPMENT MODE ENABLED", "warning")
-    
+            self._log_message("LOCAL DEVELOPMENT MODE ENABLED", "warning")
+
+    def _setup_context_header(self):
+        """Set up the context header showing current company and project."""
+        from qgis.PyQt.QtWidgets import QFrame, QHBoxLayout
+        from qgis.PyQt.QtCore import Qt
+
+        # Create the header widget
+        self.context_header = QFrame()
+        self.context_header.setObjectName("contextHeader")
+        self.context_header.setStyleSheet("""
+            QFrame#contextHeader {
+                background-color: #f0f9ff;
+                border: 1px solid #bae6fd;
+                border-radius: 6px;
+                padding: 4px 8px;
+                margin: 4px 8px 0px 8px;
+            }
+        """)
+
+        header_layout = QHBoxLayout(self.context_header)
+        header_layout.setContentsMargins(12, 6, 12, 6)
+        header_layout.setSpacing(8)
+
+        # Company label
+        self.context_company_label = QLabel("Company:")
+        self.context_company_label.setStyleSheet(
+            "color: #64748b; font-size: 12px; font-weight: normal;"
+        )
+        header_layout.addWidget(self.context_company_label)
+
+        self.context_company_value = QLabel("Not selected")
+        self.context_company_value.setStyleSheet(
+            "color: #0369a1; font-size: 12px; font-weight: bold;"
+        )
+        header_layout.addWidget(self.context_company_value)
+
+        # Separator
+        separator = QLabel("|")
+        separator.setStyleSheet("color: #cbd5e1; font-size: 12px;")
+        header_layout.addWidget(separator)
+
+        # Project label
+        self.context_project_label = QLabel("Project:")
+        self.context_project_label.setStyleSheet(
+            "color: #64748b; font-size: 12px; font-weight: normal;"
+        )
+        header_layout.addWidget(self.context_project_label)
+
+        self.context_project_value = QLabel("Not selected")
+        self.context_project_value.setStyleSheet(
+            "color: #0369a1; font-size: 12px; font-weight: bold;"
+        )
+        header_layout.addWidget(self.context_project_value)
+
+        # Stretch to push content to the left
+        header_layout.addStretch()
+
+        # Insert the header above the tab widget
+        # Find the main layout and insert at position 0
+        if self.layout():
+            self.layout().insertWidget(0, self.context_header)
+
+        # Initially hidden until logged in
+        self.context_header.setVisible(False)
+
+    def _update_context_header(self):
+        """Update the context header with current company and project names."""
+        if not hasattr(self, 'context_header'):
+            return
+
+        # Guard against deleted widgets
+        try:
+            if sip.isdeleted(self.context_header):
+                return
+        except (RuntimeError, ReferenceError):
+            return
+
+        company = self.project_manager.active_company
+        project = self.project_manager.active_project
+
+        if company:
+            self.context_company_value.setText(company.name)
+        else:
+            self.context_company_value.setText("Not selected")
+
+        if project:
+            self.context_project_value.setText(project.name)
+        else:
+            self.context_project_value.setText("Not selected")
+
+        # Show header only when logged in
+        is_logged_in = self.current_session is not None
+        self.context_header.setVisible(is_logged_in)
+
     def _try_restore_session(self):
         """Try to restore previous session."""
         try:
@@ -169,6 +359,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 if session.has_active_project():
                     project = session.user_context.active_project
                     self._log_message(f"Active project: {project.name}", "info")
+
+                # Update context header
+                self._update_context_header()
 
         except Exception as e:
             self.logger.error(f"Failed to restore session: {e}")
@@ -216,9 +409,35 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 project = self.current_session.user_context.active_project
                 self._log_message(f"Active project: {project.name}", "info")
 
+            # Check QClaims access level and update claims tab
+            self._check_claims_access_and_update_tab()
+
+            # Update context header
+            self._update_context_header()
+
         except Exception as e:
             self.logger.exception("Error after login")
             self._log_message(f"Error after login: {e}", "error")
+
+    def _check_claims_access_and_update_tab(self):
+        """Check QClaims access level and show appropriate claims widget."""
+        try:
+            access_info = self.claims_manager.check_access()
+            self._update_claims_tab_for_access(access_info)
+
+            # Log access level
+            access_type = access_info.get('access_type', 'unknown')
+            can_process = access_info.get('can_process_immediately', False)
+
+            if can_process:
+                self._log_message(f"QClaims access: {access_type} (full processing)", "info")
+            else:
+                self._log_message(f"QClaims access: {access_type} (pay-per-claim)", "info")
+
+        except Exception as e:
+            self.logger.warning(f"Could not check QClaims access: {e}")
+            # Default to wizard if access check fails
+            self._show_claims_wizard()
     
     def _on_logout_clicked(self):
         """Handle logout button click."""
@@ -226,40 +445,58 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._log_message("Logging out...", "info")
             self.auth_manager.logout()
             self.current_session = None
-            
+
+            # Clear claims manager cache (tokens are now invalid)
+            self.claims_manager.clear_cache()
+
             # Update UI
             self._update_auth_status(False)
             self._clear_projects()
+            self._update_context_header()
             self._log_message("Logged out successfully.", "success")
-            
+
         except Exception as e:
             self.logger.exception("Logout error")
             self._log_message(f"Logout error: {e}", "error")
     
     def _on_local_mode_changed(self, state):
         """Handle local development mode toggle."""
-        is_enabled = bool(state)
-        
-        # Update configuration
-        self.config.toggle_local_mode(is_enabled)
-        
-        # Update API client with new base URL
-        self.api_client = APIClient(self.config, self.api_client.token)
-        
-        # Update all managers with new API client
-        self.auth_manager.api_client = self.api_client
-        self.project_manager.api_client = self.api_client
-        self.data_manager.api_client = self.api_client
-        
-        # Log the change
-        mode = "LOCAL DEVELOPMENT" if is_enabled else "PRODUCTION"
-        url = self.config.base_url
-        self._log_message(f"⚙️ Switched to {mode} mode: {url}", "warning")
-        
-        # Warn if logged in
-        if self.current_session:
-            self._log_message("⚠️ You may need to log out and log in again", "warning")
-    
+        # Guard against rapid repeated calls (can happen during checkbox state changes)
+        if self._local_mode_changing:
+            return
+        self._local_mode_changing = True
+
+        try:
+            is_enabled = bool(state)
+
+            # Update configuration
+            self.config.toggle_local_mode(is_enabled)
+
+            # Update API client with new base URL (but clear the token - it's not valid for the new server)
+            self.api_client = APIClient(self.config, token=None)
+
+            # Update all managers with new API client
+            self.auth_manager.api_client = self.api_client
+            self.project_manager.api_client = self.api_client
+            self.data_manager.api_client = self.api_client
+            self.claims_manager.api = self.api_client
+            self.claims_manager.clear_cache()
+
+            # Log the change
+            mode = "LOCAL DEVELOPMENT" if is_enabled else "PRODUCTION"
+            url = self.config.base_url
+            self._log_message(f"Switched to {mode} mode: {url}", "warning")
+
+            # Force logout since tokens are server-specific
+            if self.current_session:
+                self._log_message("Logging out - tokens are server-specific", "warning")
+                self.auth_manager.logout()
+                self.current_session = None
+                self._update_auth_status(False)
+                self._clear_projects()
+        finally:
+            self._local_mode_changing = False
+
     def _update_auth_status(self, logged_in: bool):
         """Update authentication status in UI."""
         if logged_in and self.current_session:
@@ -269,6 +506,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.loginButton.setEnabled(False)
             self.logoutButton.setEnabled(True)
             self.companyComboBox.setEnabled(True)
+            self.refreshProjectsButton.setEnabled(True)
         else:
             self.statusValue.setText("✗ Not logged in")
             self.statusValue.setStyleSheet("color: #d32f2f; font-weight: bold;")
@@ -279,6 +517,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.projectComboBox.setEnabled(False)
             self.pullButton.setEnabled(False)
             self.pushButton.setEnabled(False)
+            self.refreshProjectsButton.setEnabled(False)
 
         # Update field work button state
         self._update_field_work_button_state()
@@ -363,25 +602,112 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.companyComboBox.clear()
         self.projectComboBox.clear()
         self.permissionValue.setText("-")
-    
+
+    def _on_refresh_projects_clicked(self):
+        """Handle refresh projects button click.
+
+        Uses a background QThread to fetch fresh user context from server,
+        avoiding the nested QEventLoop crash that occurs when making synchronous
+        HTTP requests from within modal dialogs.
+        """
+        if not self.auth_manager.is_authenticated():
+            self._log_message("Not logged in - cannot refresh", "error")
+            return
+
+        self._log_message("Refreshing company and project lists...", "info")
+        self.refreshProjectsButton.setEnabled(False)
+
+        # Get the base URL and token for the worker thread
+        base_url = self.config.base_url
+        token = self.api_client.token
+
+        # Use a worker thread to avoid nested event loop crash
+        self._refresh_worker = RefreshWorker(base_url, token)
+        self._refresh_worker.finished.connect(self._on_refresh_finished)
+        self._refresh_worker.error.connect(self._on_refresh_error)
+        self._refresh_worker.start()
+
+    def _on_refresh_finished(self, context_response):
+        """Handle successful refresh from worker thread."""
+        self.refreshProjectsButton.setEnabled(True)
+
+        if not context_response:
+            self._log_message("Failed to refresh: Could not get user context", "error")
+            return
+
+        try:
+            # Convert API response to UserContext
+            user_context = UserContext.from_api_response(context_response)
+
+            # Update auth manager session
+            if self.auth_manager.current_session:
+                self.auth_manager.current_session.user_context = user_context
+                self.auth_manager.current_session.user = user_context.user
+
+            # Update project manager with fresh context
+            self.project_manager.load_from_user_context(user_context)
+
+            # Update UI with fresh data
+            self._load_projects_from_context()
+
+            self._log_message("Company and project lists refreshed.", "success")
+        except Exception as e:
+            self.logger.exception("Failed to process refresh response")
+            self._log_message(f"Failed to refresh: {e}", "error")
+
+    def _on_refresh_error(self, error_message):
+        """Handle refresh error from worker thread."""
+        self.refreshProjectsButton.setEnabled(True)
+        self.logger.error(f"Failed to refresh projects: {error_message}")
+        self._log_message(f"Failed to refresh: {error_message}", "error")
+
     def _on_company_changed(self, index: int):
-        """Handle company selection change."""
+        """Handle company selection change.
+
+        Uses QTimer.singleShot to defer the API call, avoiding nested event loop
+        crashes when making synchronous HTTP requests from within Qt signal handlers.
+        """
         if index < 0:
             return
-        
+
         company = self.companyComboBox.itemData(index)
         if not company:
             return
-        
-        # Populate projects
+
+        # Defer the API call to avoid nested event loop crash
+        # (QEventLoop.exec_() inside a combo box signal handler causes Qt crash)
+        QTimer.singleShot(0, lambda: self._do_company_change(company))
+
+    def _do_company_change(self, company):
+        """Actually perform the company change after signal handler completes."""
+        try:
+            # Notify server and get updated company with fresh projects list
+            updated_company = self.project_manager.select_company(company)
+            if not updated_company:
+                self._log_message(f"Failed to select company: {company.name}", "error")
+                return
+            self._log_message(f"Selected company: {updated_company.name}", "info")
+        except Exception as e:
+            self.logger.exception("Failed to select company")
+            self._log_message(f"Failed to select company: {e}", "error")
+            return
+
+        # Populate projects using the updated company's projects list
         self.projectComboBox.clear()
-        for project in company.projects:
+        for project in updated_company.projects:
             self.projectComboBox.addItem(project.name, project)
-        
-        self.projectComboBox.setEnabled(True)
+
+        self.projectComboBox.setEnabled(len(updated_company.projects) > 0)
+
+        # Update context header (project will update when project is selected)
+        self._update_context_header()
     
     def _on_project_changed(self, index: int):
-        """Handle project selection change."""
+        """Handle project selection change.
+
+        Uses QTimer.singleShot to defer the API call, avoiding nested event loop
+        crashes when making synchronous HTTP requests from within Qt signal handlers.
+        """
         if index < 0:
             self.pullButton.setEnabled(False)
             self.pushButton.setEnabled(False)
@@ -393,6 +719,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         if not project:
             return
 
+        # Defer the API call to avoid nested event loop crash
+        QTimer.singleShot(0, lambda: self._do_project_change(project))
+
+    def _do_project_change(self, project):
+        """Actually perform the project change after signal handler completes."""
         try:
             # Check if this project is already the active one (skip API call if so)
             current_active = self.project_manager.active_project
@@ -434,6 +765,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Update field work button state
             self._update_field_work_button_state()
 
+            # Update context header
+            self._update_context_header()
+
         except Exception as e:
             self.logger.exception("Failed to select project")
             self._log_message(f"Failed to select project: {e}", "error")
@@ -460,6 +794,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         if hasattr(self, 'projectFileGroupBox'):
             self.projectFileGroupBox.setVisible(False)
 
+        # Note: Claims is now in a separate tab, not in the model list
+
         if model_name == "LandHolding":
             self.includeCompanyLandCheckBox.setVisible(True)
             self.pushButton.setEnabled(self.project_manager.can_edit())
@@ -480,6 +816,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 # Load available files
                 self._load_project_files()
             # Disable push for ProjectFile (read-only in QGIS plugin)
+            self.pushButton.setEnabled(False)
+        elif model_name == "FieldNote":
+            # FieldNote is pull-only (no push from QGIS)
             self.pushButton.setEnabled(False)
         else:
             self.pushButton.setEnabled(self.project_manager.can_edit())
@@ -823,6 +1162,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                     # Apply assay color-coded styling
                     self._apply_assay_styling(self.current_assay_config, layer_name_suffix=suffix)
 
+            # Apply styling for FieldNote (two layers: notes + photos)
+            elif self.current_model == "FieldNote":
+                self._apply_fieldnote_styling(result)
+
+            # Apply styling for Structure (FGDC geological symbols)
+            elif self.current_model == "Structure":
+                self._apply_structure_styling(result)
+
         except APIPermissionError as e:
             self._log_message(f"Permission denied: {e}", "error")
             QMessageBox.critical(self, "Permission Denied", str(e))
@@ -863,18 +1210,31 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             raster_processor = RasterProcessor(base_url=base_url)
 
             # Download and load the single file
+            # Pass auth token for XYZ tile layer authentication
             result = raster_processor.process_project_files(
                 project_files=[pf],  # Single file as list
                 project_name=project.name,
-                progress_callback=self._on_progress
+                progress_callback=self._on_progress,
+                auth_token=self.api_client.token
             )
 
-            if result['loaded'] > 0:
+            # Count both downloaded and tiled layers
+            loaded_count = result.get('loaded', 0)
+            tiled_count = result.get('tiled', 0)
+            total_loaded = loaded_count + tiled_count
+
+            if total_loaded > 0:
                 layer_name = result['layers'][0] if result['layers'] else file_name
-                self._log_message(
-                    f"Raster layer '{layer_name}' added to QGIS",
-                    "success"
-                )
+                if tiled_count > 0:
+                    self._log_message(
+                        f"XYZ tile layer '{layer_name}' added to QGIS (streaming from server)",
+                        "success"
+                    )
+                else:
+                    self._log_message(
+                        f"Raster layer '{layer_name}' added to QGIS",
+                        "success"
+                    )
             elif result['errors']:
                 for error in result['errors']:
                     self._log_message(f"Error: {error}", "error")
@@ -1019,20 +1379,96 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.logger.exception("Failed to apply simple gray styling")
             self._log_message(f"Failed to apply gray style: {e}", "warning")
 
+    def _apply_fieldnote_styling(self, result: dict):
+        """Apply styling to FieldNote layers (notes and photos)."""
+        try:
+            # Style the notes layer
+            notes_layer = result.get('notes_layer')
+            if notes_layer:
+                success = self.style_processor.apply_fieldnote_style(notes_layer)
+                if success:
+                    self._log_message(
+                        "✓ Applied field note styling (blue markers)",
+                        "success"
+                    )
+
+            # Style the photos layer
+            photos_layer = result.get('photos_layer')
+            if photos_layer:
+                success = self.style_processor.apply_fieldnote_photo_style(photos_layer)
+                if success:
+                    photo_count = result.get('photo_count', 0)
+                    self._log_message(
+                        f"✓ Applied photo styling ({photo_count} photos with click-to-view)",
+                        "success"
+                    )
+
+        except Exception as e:
+            self.logger.exception("Failed to apply field note styling")
+            self._log_message(f"Failed to apply styling: {e}", "warning")
+
+    def _apply_structure_styling(self, result: dict):
+        """Apply FGDC-standard geological structure styling to the pulled layer."""
+        try:
+            # Get layer directly from result (most reliable)
+            layer = result.get('layer') if isinstance(result, dict) else None
+
+            # Fallback: find by name
+            if not layer:
+                project = self.project_manager.active_project
+                if project:
+                    layer_name = f"{project.name}_Structure"
+                else:
+                    layer_name = "Structure"
+
+                layer = self.sync_manager.layer_processor.find_layer_by_name(layer_name)
+                if not layer:
+                    # Try without project prefix
+                    layer = self.sync_manager.layer_processor.find_layer_by_name("Structure")
+
+            if not layer:
+                self._log_message(
+                    "Could not find Structure layer for styling",
+                    "warning"
+                )
+                return
+
+            self.logger.info(f"Applying structure styling to layer: {layer.name()}")
+            self.logger.info(f"Layer has {layer.featureCount()} features")
+            self.logger.info(f"Layer fields: {[f.name() for f in layer.fields()]}")
+
+            # Apply FGDC structure styling
+            success = self.style_processor.apply_structure_style(layer)
+
+            if success:
+                self._log_message(
+                    "✓ Applied FGDC geological structure symbology with dip labels",
+                    "success"
+                )
+            else:
+                self._log_message(
+                    "Could not apply structure styling - using default style",
+                    "warning"
+                )
+
+        except Exception as e:
+            self.logger.exception("Failed to apply structure styling")
+            self._log_message(f"Failed to apply structure styling: {e}", "warning")
+
     def _on_push_clicked(self):
         """Handle push button click."""
         if not self.current_model:
             QMessageBox.warning(self, "No Model", "Please select a model first.")
             return
-        
+
         if not self.project_manager.active_project:
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
-        
+
         # Confirm
         reply = QMessageBox.question(
-            self, 
-            "Confirm Push", 
+            self,
+            "Confirm Push",
             f"Are you sure you want to push {self.current_model} data to the server?\n\n"
             "This will upload your local changes.",
             QMessageBox.Yes | QMessageBox.No,
@@ -1124,8 +1560,15 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     
     # ==================== MESSAGES ====================
     
-    def _log_message(self, message: str, level: str = "info"):
-        """Add message to the message browser."""
+    def _log_message(self, message: str, level: str = "info", _from_logger: bool = False):
+        """Add message to the message browser.
+
+        Args:
+            message: The message text to display
+            level: Message level ('info', 'success', 'warning', 'error')
+            _from_logger: Internal flag - True when called from UILogHandler to prevent
+                         feedback loop. Don't set this manually.
+        """
         # Color coding
         colors = {
             "info": "#666666",
@@ -1134,27 +1577,72 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             "error": "#d32f2f"
         }
         color = colors.get(level, "#000000")
-        
+
         # Format message
         html = f'<span style="color: {color};">{message}</span>'
-        
+
         # Append to browser
         cursor = self.messagesTextBrowser.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.messagesTextBrowser.setTextCursor(cursor)
         self.messagesTextBrowser.insertHtml(html + "<br>")
-        
+
         # Scroll to bottom
         scrollbar = self.messagesTextBrowser.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
-        
-        # Also log to file
+
+        # Highlight Log tab if not currently visible and message is important
+        if level in ("error", "warning") and hasattr(self, 'mainTabWidget'):
+            self._highlight_log_tab(level)
+
+        # Also log to file - BUT NOT if this message came from the logger
+        # (to avoid infinite feedback loop: logger -> UIHandler -> _log_message -> logger)
+        if not _from_logger:
+            if level == "error":
+                self.logger.error(message)
+            elif level == "warning":
+                self.logger.warning(message)
+            else:
+                self.logger.info(message)
+
+    def _highlight_log_tab(self, level: str = "warning"):
+        """Highlight the Log tab to indicate new important messages."""
+        if not hasattr(self, 'mainTabWidget'):
+            return
+
+        # Find the log tab index
+        log_tab_index = -1
+        for i in range(self.mainTabWidget.count()):
+            if self.mainTabWidget.widget(i).objectName() == 'logTab':
+                log_tab_index = i
+                break
+
+        if log_tab_index < 0:
+            return
+
+        # Only highlight if we're not already on the log tab
+        if self.mainTabWidget.currentIndex() == log_tab_index:
+            return
+
+        # Set tab text color based on level
+        tab_bar = self.mainTabWidget.tabBar()
         if level == "error":
-            self.logger.error(message)
-        elif level == "warning":
-            self.logger.warning(message)
+            tab_bar.setTabTextColor(log_tab_index, QColor("#d32f2f"))
         else:
-            self.logger.info(message)
+            tab_bar.setTabTextColor(log_tab_index, QColor("#ff9800"))
+
+    def _reset_log_tab_highlight(self):
+        """Reset the Log tab highlight when it's viewed."""
+        if not hasattr(self, 'mainTabWidget'):
+            return
+
+        # Find the log tab index
+        for i in range(self.mainTabWidget.count()):
+            if self.mainTabWidget.widget(i).objectName() == 'logTab':
+                tab_bar = self.mainTabWidget.tabBar()
+                # Reset to default color (empty QColor uses default)
+                tab_bar.setTabTextColor(i, QColor())
+                break
     
     def _clear_messages(self):
         """Clear the messages browser."""
@@ -1164,7 +1652,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     # ==================== STORAGE MANAGEMENT ====================
 
     def _add_storage_button(self):
-        """Add storage configuration button to the project row."""
+        """Add storage configuration button to the project selection section."""
         from qgis.PyQt.QtWidgets import QPushButton, QLabel
 
         # Create storage status label
@@ -1181,7 +1669,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.storageButton.clicked.connect(self._on_storage_clicked)
 
         # Find the project layout and insert our widgets before the spacer
-        # The project layout is in authGroupBox -> authLayout -> projectLayout
+        # The project layout is inside projectGroupBox -> projectGroupLayout -> projectLayout
         project_layout = self.projectLayout
 
         # Insert before the last spacer (position count - 1)
@@ -1326,11 +1814,18 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Fetch all project files (both raster and non-raster for selection)
             # Filter to rasters on API side
             params = {'is_raster': 'true'}
-            files = self.api_client.get_all_paginated(
+            response = self.api_client.get_all_paginated(
                 model_name='ProjectFile',
                 project_id=project.id,
-                params=params
+                params=params,
+                include_deletion_metadata=False  # Just need the list
             )
+
+            # Handle both dict (with 'results' key) and list responses for backwards compatibility
+            if isinstance(response, dict):
+                files = response.get('results', [])
+            else:
+                files = response if response else []
 
             self.project_files = files
 
@@ -1346,7 +1841,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             for pf in files:
                 name = pf.get('name', 'Unnamed')
                 category = pf.get('category_display', pf.get('category', ''))
-                file_size = pf.get('file_size', 0)
+                file_size = pf.get('file_size') or 0  # Handle None values
+                tiles_available = pf.get('tiles_available', False)
+                tiles_status = pf.get('tiles_status', 'none')
 
                 # Format file size
                 if file_size > 1024 * 1024 * 1024:
@@ -1358,7 +1855,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 else:
                     size_str = f"{file_size} bytes"
 
-                display_text = f"{name} [{category}] ({size_str})"
+                # Add tile indicator for files with XYZ tiles available
+                if tiles_available and tiles_status == 'completed':
+                    display_text = f"{name} [{category}] (XYZ tiles)"
+                else:
+                    display_text = f"{name} [{category}] ({size_str})"
                 self.projectFileComboBox.addItem(display_text, pf.get('id'))
 
             self._log_message(f"Loaded {len(files)} raster file(s)", "success")
@@ -1396,10 +1897,18 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         name = pf.get('name', 'Unknown')
         category = pf.get('category_display', pf.get('category', 'N/A'))
         description = pf.get('description', '') or 'No description'
-        file_size = pf.get('file_size', 0)
-        crs = pf.get('crs', 'Not specified')
+        file_size = pf.get('file_size') or 0  # Handle None values
+        # Prefer numeric epsg (new), fall back to crs string (legacy)
+        epsg = pf.get('epsg')
+        crs = f"EPSG:{epsg}" if epsg else (pf.get('crs') or 'Not specified')
         resolution = pf.get('resolution')
         bounds = pf.get('bounds')
+
+        # XYZ tile information
+        tiles_available = pf.get('tiles_available', False)
+        tiles_status = pf.get('tiles_status', 'none')
+        tile_min_zoom = pf.get('tile_min_zoom')
+        tile_max_zoom = pf.get('tile_max_zoom')
 
         # Format file size
         if file_size > 1024 * 1024 * 1024:
@@ -1422,11 +1931,27 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Format resolution
         res_str = f"{resolution:.2f} units" if resolution else "Not specified"
 
+        # Format tile info
+        if tiles_available and tiles_status == 'completed':
+            tile_info = f"<span style='color:green;'>XYZ Tiles (zoom {tile_min_zoom}-{tile_max_zoom})</span>"
+            delivery_method = "Streaming (tiles)"
+        elif tiles_status == 'processing':
+            tile_info = "<span style='color:orange;'>Processing tiles...</span>"
+            delivery_method = "Download (file)"
+        elif tiles_status == 'queued':
+            tile_info = "<span style='color:gray;'>Tile generation queued</span>"
+            delivery_method = "Download (file)"
+        else:
+            tile_info = "Not available"
+            delivery_method = "Download (file)"
+
         html = f"""
         <table style="width:100%">
             <tr><td><b>Name:</b></td><td>{name}</td></tr>
             <tr><td><b>Category:</b></td><td>{category}</td></tr>
             <tr><td><b>Size:</b></td><td>{size_str}</td></tr>
+            <tr><td><b>Delivery:</b></td><td>{delivery_method}</td></tr>
+            <tr><td><b>XYZ Tiles:</b></td><td>{tile_info}</td></tr>
             <tr><td><b>CRS:</b></td><td>{crs}</td></tr>
             <tr><td><b>Resolution:</b></td><td>{res_str}</td></tr>
             <tr><td><b>Bounds:</b></td><td style="font-size:9pt">{bounds_str}</td></tr>
@@ -1435,7 +1960,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """
 
         self.projectFileMetadata.setHtml(html)
-        self._log_message(f"Selected: {name} ({size_str})", "info")
+
+        # Log with delivery method info
+        if tiles_available and tiles_status == 'completed':
+            self._log_message(f"Selected: {name} (XYZ tiles, zoom {tile_min_zoom}-{tile_max_zoom})", "info")
+        else:
+            self._log_message(f"Selected: {name} ({size_str})", "info")
 
     def _on_storage_clicked(self):
         """Handle storage configuration button click."""
@@ -1762,3 +2292,285 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 self.project_manager.can_view()
             )
             self.pullFieldTasksButton.setEnabled(can_view)
+
+    # ==================== CLAIMS MANAGEMENT ====================
+
+    def _setup_claims_ui(self):
+        """Set up the Claims widget in the Claims tab.
+
+        Initially sets up the claims wizard. The widget will be swapped
+        to ClaimsOrderWidget for pay-per-claim users when their access
+        level is determined after login.
+        """
+        # Create claims wizard widget (default for staff/enterprise users)
+        self.claims_wizard = ClaimsWizardWidget(self.claims_manager, self)
+
+        # Connect signals
+        self.claims_wizard.status_message.connect(self._on_claims_status)
+        self.claims_wizard.claims_processed.connect(self._on_claims_processed)
+        self.claims_wizard.wizard_completed.connect(self._on_wizard_completed)
+
+        # Add to the claims tab layout (defined in .ui file)
+        if hasattr(self, 'claimsTabLayout'):
+            self.claimsTabLayout.addWidget(self.claims_wizard)
+
+        # Connect tab change signal to update wizard when Claims tab is selected
+        if hasattr(self, 'mainTabWidget'):
+            self.mainTabWidget.currentChanged.connect(self._on_tab_changed)
+
+    def _setup_basemaps_ui(self):
+        """Set up the Basemaps widget in the Basemaps tab."""
+        # Create basemaps widget
+        self.basemaps_widget = BasemapsWidget(self)
+
+        # Connect signals
+        self.basemaps_widget.basemap_added.connect(self._on_basemap_added)
+
+        # Add to the basemaps tab layout (defined in .ui file)
+        if hasattr(self, 'basemapsTabLayout'):
+            self.basemapsTabLayout.addWidget(self.basemaps_widget)
+
+    def _on_basemap_added(self, layer_name: str):
+        """Handle basemap added signal."""
+        self._log_message(f"Added basemap: {layer_name}", "success")
+
+    def _on_tab_changed(self, index: int):
+        """Handle main tab change."""
+        if not hasattr(self, 'mainTabWidget'):
+            return
+
+        tab_widget = self.mainTabWidget.widget(index)
+        if not tab_widget:
+            return
+
+        tab_name = tab_widget.objectName()
+
+        if tab_name == 'claimsTab':
+            # Claims tab selected - update wizard with project context
+            self._update_claims_wizard_context()
+            self._log_message("Claims Wizard - Create and manage US lode mining claims", "info")
+        elif tab_name == 'logTab':
+            # Log tab selected - scroll to bottom to show latest messages
+            scrollbar = self.messagesTextBrowser.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+            # Reset any highlight on the tab
+            self._reset_log_tab_highlight()
+
+    def _update_claims_wizard_context(self):
+        """Update the claims widget with current project context."""
+        if not self.project_manager.active_project or not self.project_manager.active_company:
+            return
+
+        project_id = self.project_manager.active_project.id
+        company_id = self.project_manager.active_company.id
+
+        # Update whichever widget is currently active
+        # Use try/except to guard against deleted C++ objects
+        try:
+            if self.claims_wizard and not sip.isdeleted(self.claims_wizard):
+                self.claims_wizard.set_project(project_id, company_id)
+        except (RuntimeError, ReferenceError):
+            pass
+
+        try:
+            if self.claims_order_widget and not sip.isdeleted(self.claims_order_widget):
+                self.claims_order_widget.set_project(project_id, company_id)
+        except (RuntimeError, ReferenceError):
+            pass
+
+    def _update_claims_tab_for_access(self, access_info: dict):
+        """
+        Show appropriate claims widget based on access level.
+
+        For staff/enterprise users: Show ClaimsWizardWidget (full processing)
+        For pay-per-claim users: Show ClaimsOrderWidget (simplified ordering)
+
+        Args:
+            access_info: Dict from claims_manager.check_access() containing:
+                - can_process_immediately: bool
+                - is_staff: bool
+                - access_type: str
+        """
+        can_process = access_info.get('can_process_immediately', False)
+        is_staff = access_info.get('is_staff', False)
+
+        if can_process or is_staff:
+            # Full access - show wizard (already the default)
+            self._show_claims_wizard()
+        else:
+            # Pay-per-claim - show order widget
+            self._show_claims_order_widget()
+
+    def _show_claims_wizard(self):
+        """Show the full ClaimsWizardWidget for staff/enterprise users."""
+        if not hasattr(self, 'claimsTabLayout'):
+            return
+
+        # If order widget is showing, hide it
+        if self.claims_order_widget:
+            self.claims_order_widget.hide()
+
+        # Create wizard if not exists
+        if not self.claims_wizard:
+            self.claims_wizard = ClaimsWizardWidget(self.claims_manager, self)
+            self.claims_wizard.status_message.connect(self._on_claims_status)
+            self.claims_wizard.claims_processed.connect(self._on_claims_processed)
+            self.claims_wizard.wizard_completed.connect(self._on_wizard_completed)
+            self.claimsTabLayout.addWidget(self.claims_wizard)
+
+        # Show wizard
+        self.claims_wizard.show()
+
+        # Update context
+        self._update_claims_wizard_context()
+
+    def _show_claims_order_widget(self):
+        """Show the ClaimsOrderWidget for pay-per-claim users."""
+        if not hasattr(self, 'claimsTabLayout'):
+            return
+
+        # If wizard is showing, hide it
+        if self.claims_wizard:
+            self.claims_wizard.hide()
+
+        # Create order widget if not exists
+        if not self.claims_order_widget:
+            self.claims_order_widget = ClaimsOrderWidget(self.claims_manager, self)
+            self.claims_order_widget.status_message.connect(self._on_claims_status)
+            self.claims_order_widget.order_submitted.connect(self._on_order_submitted)
+            self.claimsTabLayout.addWidget(self.claims_order_widget)
+
+        # Show order widget
+        self.claims_order_widget.show()
+
+        # Update context
+        self._update_claims_wizard_context()
+
+    def _on_wizard_completed(self):
+        """Handle claims wizard completion."""
+        self._log_message("Claims workflow completed successfully!", "success")
+
+    def _show_claims_ui(self):
+        """Switch to claims tab."""
+        if hasattr(self, 'mainTabWidget'):
+            for i in range(self.mainTabWidget.count()):
+                if self.mainTabWidget.widget(i).objectName() == 'claimsTab':
+                    self.mainTabWidget.setCurrentIndex(i)
+                    break
+
+    def _hide_claims_ui(self):
+        """Switch to data sync tab."""
+        if hasattr(self, 'mainTabWidget'):
+            for i in range(self.mainTabWidget.count()):
+                if self.mainTabWidget.widget(i).objectName() == 'dataSyncTab':
+                    self.mainTabWidget.setCurrentIndex(i)
+                    break
+
+    def _show_log_tab(self):
+        """Switch to log tab to show messages."""
+        if hasattr(self, 'mainTabWidget'):
+            for i in range(self.mainTabWidget.count()):
+                if self.mainTabWidget.widget(i).objectName() == 'logTab':
+                    self.mainTabWidget.setCurrentIndex(i)
+                    break
+
+    def _on_claims_status(self, message: str, level: str):
+        """Handle status messages from claims widget."""
+        self._log_message(message, level)
+
+    def _on_claims_processed(self, result: dict):
+        """Handle claims processing completion."""
+        claims_count = len(result.get('claims', []))
+        waypoints_count = len(result.get('waypoints', []))
+
+        self._log_message(
+            f"Claims processed: {claims_count} claims, {waypoints_count} waypoints",
+            "success"
+        )
+
+    def _on_order_submitted(self, order: dict):
+        """Handle order submission."""
+        order_id = order.get('order_id')
+        status = order.get('status', 'unknown')
+
+        self._log_message(
+            f"Order #{order_id} submitted (status: {status})",
+            "info"
+        )
+
+        # Show order status dialog
+        from .claims_order_dialog import ClaimsOrderDialog
+        dialog = ClaimsOrderDialog(self.claims_manager, order_id, self)
+        dialog.exec_()
+
+    def cleanup(self):
+        """Clean up resources before plugin unload to prevent crashes.
+
+        This method is called by plugin.unload() to properly release
+        all resources before the plugin is reloaded.
+        """
+        # Reset the logger completely to prevent stale handlers across reloads
+        PluginLogger.reset()
+
+        # Stop any running refresh worker thread
+        if hasattr(self, '_refresh_worker') and self._refresh_worker is not None:
+            try:
+                self._refresh_worker.finished.disconnect()
+                self._refresh_worker.error.disconnect()
+                if self._refresh_worker.isRunning():
+                    self._refresh_worker.quit()
+                    self._refresh_worker.wait(1000)  # Wait up to 1 second
+                    if self._refresh_worker.isRunning():
+                        self._refresh_worker.terminate()
+            except Exception:
+                pass
+            self._refresh_worker = None
+
+        # Clean up claims wizard widget
+        if self.claims_wizard is not None:
+            try:
+                # Call cleanup first to prevent deferred callbacks from crashing
+                self.claims_wizard.cleanup()
+            except Exception:
+                pass
+            try:
+                self.claims_wizard.status_message.disconnect()
+                self.claims_wizard.claims_processed.disconnect()
+                self.claims_wizard.wizard_completed.disconnect()
+            except Exception:
+                pass
+            try:
+                self.claims_wizard.deleteLater()
+            except Exception:
+                pass
+            self.claims_wizard = None
+
+        # Clean up claims order widget
+        if self.claims_order_widget is not None:
+            try:
+                self.claims_order_widget.status_message.disconnect()
+                self.claims_order_widget.order_submitted.disconnect()
+            except Exception:
+                pass
+            try:
+                self.claims_order_widget.deleteLater()
+            except Exception:
+                pass
+            self.claims_order_widget = None
+
+        # Clean up basemaps widget
+        if self.basemaps_widget is not None:
+            try:
+                self.basemaps_widget.basemap_added.disconnect()
+            except Exception:
+                pass
+            try:
+                self.basemaps_widget.deleteLater()
+            except Exception:
+                pass
+            self.basemaps_widget = None
+
+    def closeEvent(self, event):
+        """Handle dialog close - cleanup UI log handler."""
+        PluginLogger.unregister_ui_handler()
+        super().closeEvent(event)

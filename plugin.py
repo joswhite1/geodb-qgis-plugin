@@ -186,6 +186,19 @@ class GeodbIO:
         except (TypeError, RuntimeError):
             pass  # Already disconnected or never connected
 
+        # Clean up the dialog to prevent crashes on plugin reload
+        if self.modern_dialog is not None:
+            try:
+                self.modern_dialog.cleanup()
+            except Exception:
+                pass
+            try:
+                self.modern_dialog.close()
+                self.modern_dialog.deleteLater()
+            except Exception:
+                pass
+            self.modern_dialog = None
+
     def run_modern(self):
         """Run the modern v2.0+ dialog with new architecture."""
         if self.modern_dialog is None:
