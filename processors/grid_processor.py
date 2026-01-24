@@ -441,17 +441,278 @@ class GridProcessor:
             'estimated_orientation': orientation
         }
 
+    def reset_fid_to_match_manual_fid(
+        self,
+        layer: QgsVectorLayer
+    ) -> int:
+        """
+        Reset the feature FIDs to match the Manual_FID order.
+
+        This is critical for claim document generation - documents are created
+        in FID order, so FIDs must match the logical claim numbering.
+
+        For GeoPackage layers, this rewrites the features in Manual_FID order,
+        which causes FIDs to be reassigned sequentially.
+
+        For memory layers, the features are reordered in place.
+
+        Args:
+            layer: Vector layer with Manual_FID field
+
+        Returns:
+            Number of features reordered
+
+        Raises:
+            ValueError: If layer is invalid or missing Manual_FID field
+        """
+        if not layer or not layer.isValid():
+            raise ValueError("Invalid layer")
+
+        field_idx = layer.fields().indexOf(self.MANUAL_FID_FIELD)
+        if field_idx < 0:
+            raise ValueError(
+                f"Layer does not have {self.MANUAL_FID_FIELD} field. "
+                "Run autopopulate_manual_fid first."
+            )
+
+        # Check for GeoPackage layer
+        source = layer.source()
+        is_geopackage = '|layername=' in source and source.endswith('.gpkg|layername=' + source.split('|layername=')[-1])
+
+        # For GeoPackage layers, we need to rewrite the entire table
+        if layer.dataProvider().name() == 'ogr' and '.gpkg' in source:
+            return self._reset_fid_geopackage(layer)
+        else:
+            # For memory layers, reorder in place
+            return self._reset_fid_memory(layer)
+
+    def _reset_fid_geopackage(self, layer: QgsVectorLayer) -> int:
+        """
+        Reset FIDs for a GeoPackage layer by completely rewriting the table.
+
+        GeoPackage uses auto-increment FIDs that don't reset when you delete rows.
+        The only way to truly reset FIDs is to drop and recreate the table.
+
+        This removes the layer from QGIS, drops the table using SQLite,
+        recreates it with fresh FIDs, then reloads the layer.
+
+        Args:
+            layer: GeoPackage vector layer
+
+        Returns:
+            Number of features reordered
+        """
+        import sqlite3
+        from qgis.core import QgsVectorFileWriter, QgsProject
+
+        # Ensure any pending edits are committed before we read
+        if layer.isEditable():
+            layer.commitChanges()
+
+        # Force data provider to reload from disk to get latest data
+        layer.dataProvider().reloadData()
+        layer.updateFields()
+
+        # Get all features sorted by Manual_FID BEFORE we mess with the layer
+        features = list(layer.getFeatures())
+        features.sort(key=lambda f: f.attribute(self.MANUAL_FID_FIELD) or 0)
+
+        if not features:
+            return 0
+
+        # Parse the layer source to get gpkg path and table name
+        source = layer.source()
+        if '|layername=' not in source:
+            raise ValueError("Cannot determine GeoPackage table name from layer source")
+
+        gpkg_path = source.split('|layername=')[0]
+        table_name = source.split('|layername=')[1]
+
+        # Store layer properties before removing
+        layer_name = layer.name()
+        layer_id = layer.id()
+        crs = layer.crs()
+        fields = layer.fields()
+        geom_type = QgsWkbTypes.displayString(layer.wkbType())
+
+        # Create sorted features list with fresh QgsFeature objects
+        sorted_features = []
+        for feature in features:
+            new_feature = QgsFeature(fields)
+            new_feature.setGeometry(QgsGeometry(feature.geometry()))
+            for field in fields:
+                new_feature.setAttribute(field.name(), feature.attribute(field.name()))
+            sorted_features.append(new_feature)
+
+        # Remove the layer from QGIS project to release file lock
+        project = QgsProject.instance()
+        project.removeMapLayer(layer_id)
+
+        self.logger.debug(f"[GRID PROCESSOR] Removed layer '{layer_name}' to release file lock")
+
+        # Now drop the table using SQLite
+        conn = sqlite3.connect(gpkg_path)
+        cursor = conn.cursor()
+
+        # Drop the table
+        cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+
+        # Clean up GeoPackage metadata tables
+        cursor.execute(
+            'DELETE FROM gpkg_contents WHERE table_name = ?',
+            (table_name,)
+        )
+        cursor.execute(
+            'DELETE FROM gpkg_geometry_columns WHERE table_name = ?',
+            (table_name,)
+        )
+
+        # Also reset the sqlite_sequence if it exists (for auto-increment)
+        try:
+            cursor.execute(
+                'DELETE FROM sqlite_sequence WHERE name = ?',
+                (table_name,)
+            )
+        except sqlite3.OperationalError:
+            pass  # sqlite_sequence may not exist
+
+        conn.commit()
+        conn.close()
+
+        self.logger.debug(f"[GRID PROCESSOR] Dropped table '{table_name}' from GeoPackage")
+
+        # Use OGR directly to write features - this gives us full control over FIDs
+        from osgeo import ogr, osr
+
+        # Open the GeoPackage
+        driver = ogr.GetDriverByName('GPKG')
+        ds = driver.Open(gpkg_path, 1)  # 1 = update mode
+
+        if ds is None:
+            raise Exception(f"Failed to open GeoPackage: {gpkg_path}")
+
+        # Create spatial reference
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(int(crs.authid().split(':')[1]))
+
+        # Map QGIS geometry type to OGR
+        geom_type_map = {
+            'Polygon': ogr.wkbPolygon,
+            'MultiPolygon': ogr.wkbMultiPolygon,
+            'Point': ogr.wkbPoint,
+            'MultiPoint': ogr.wkbMultiPoint,
+            'LineString': ogr.wkbLineString,
+            'MultiLineString': ogr.wkbMultiLineString,
+        }
+        ogr_geom_type = geom_type_map.get(geom_type, ogr.wkbPolygon)
+
+        # Create the layer
+        ogr_layer = ds.CreateLayer(table_name, srs, ogr_geom_type)
+
+        if ogr_layer is None:
+            ds = None
+            raise Exception(f"Failed to create layer: {table_name}")
+
+        # Add fields (skip 'fid' as it's automatic)
+        for field in fields:
+            field_name = field.name()
+            if field_name.lower() == 'fid':
+                continue
+
+            field_type = field.type()
+            if field_type == QVariant.String:
+                ogr_field = ogr.FieldDefn(field_name, ogr.OFTString)
+                ogr_field.SetWidth(field.length() if field.length() > 0 else 255)
+            elif field_type == QVariant.Int:
+                ogr_field = ogr.FieldDefn(field_name, ogr.OFTInteger)
+            elif field_type == QVariant.Double:
+                ogr_field = ogr.FieldDefn(field_name, ogr.OFTReal)
+            else:
+                ogr_field = ogr.FieldDefn(field_name, ogr.OFTString)
+                ogr_field.SetWidth(255)
+
+            ogr_layer.CreateField(ogr_field)
+
+        # Add features in sorted order - FIDs will be 1, 2, 3, ...
+        layer_defn = ogr_layer.GetLayerDefn()
+        for qgs_feature in sorted_features:
+            ogr_feature = ogr.Feature(layer_defn)
+
+            # Set geometry
+            geom_wkt = qgs_feature.geometry().asWkt()
+            ogr_geom = ogr.CreateGeometryFromWkt(geom_wkt)
+            ogr_feature.SetGeometry(ogr_geom)
+
+            # Set attributes (skip fid)
+            for field in fields:
+                field_name = field.name()
+                if field_name.lower() == 'fid':
+                    continue
+                field_idx = layer_defn.GetFieldIndex(field_name)
+                if field_idx >= 0:
+                    value = qgs_feature.attribute(field_name)
+                    if value is not None:
+                        ogr_feature.SetField(field_idx, value)
+
+            ogr_layer.CreateFeature(ogr_feature)
+            ogr_feature = None
+
+        # Close the dataset to flush to disk
+        ds = None
+
+        self.logger.info(f"[GRID PROCESSOR] Wrote {len(sorted_features)} features using OGR")
+
+        # Reload the layer into QGIS
+        new_layer = QgsVectorLayer(source, layer_name, "ogr")
+        if not new_layer.isValid():
+            raise Exception(f"Failed to reload layer after FID reset")
+
+        # Add back to project in Claims Workflow group
+        root = project.layerTreeRoot()
+        group = root.findGroup("Claims Workflow")
+        if group:
+            project.addMapLayer(new_layer, False)
+            group.addLayer(new_layer)
+        else:
+            project.addMapLayer(new_layer)
+
+        self.logger.info(
+            f"[GRID PROCESSOR] Reset FIDs for {len(sorted_features)} features "
+            f"to match {self.MANUAL_FID_FIELD} order (rewrote table '{table_name}')"
+        )
+
+        return len(sorted_features)
+
+    def _reset_fid_memory(self, layer: QgsVectorLayer) -> int:
+        """
+        Reset FIDs for a memory layer by recreating it.
+
+        Memory layer FIDs can't be directly changed, but since they're
+        ephemeral, we can delete and re-add features.
+
+        Args:
+            layer: Memory vector layer
+
+        Returns:
+            Number of features reordered
+        """
+        # Same approach as GeoPackage - delete and re-add in order
+        return self._reset_fid_geopackage(layer)
+
     def reorder_by_manual_fid(
         self,
         layer: QgsVectorLayer,
         geopackage_path: Optional[str] = None
     ) -> QgsVectorLayer:
         """
-        Reorder features by Manual FID.
+        Reorder features by Manual FID (creates a new layer).
 
         Creates a new layer with features ordered by their Manual_FID values.
         If a GeoPackage path is provided, saves to GeoPackage; otherwise creates
         a memory layer.
+
+        NOTE: For most use cases, prefer reset_fid_to_match_manual_fid() which
+        modifies the layer in place rather than creating a new one.
 
         Args:
             layer: Source layer with Manual_FID field

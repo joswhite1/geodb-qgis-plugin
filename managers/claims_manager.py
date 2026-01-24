@@ -660,7 +660,8 @@ class ClaimsManager:
         claims: List[Dict[str, Any]],
         stakes: List[Dict[str, Any]],
         project_id: int,
-        epsg: int = None
+        epsg: int = None,
+        claim_package_id: int = None
     ) -> Dict[str, Any]:
         """
         Push processed claims to server as LandHoldings + ClaimStakes.
@@ -672,6 +673,10 @@ class ClaimsManager:
             stakes: List of waypoint/stake data
             project_id: Target project ID
             epsg: EPSG code for UTM coordinates (e.g., 26911 for UTM Zone 11N)
+            claim_package_id: Optional ClaimPackage ID to link claims to.
+                When provided, the server links LandHoldings to this existing
+                package instead of creating a new one. This prevents duplicate
+                packages when documents are generated before claims are pushed.
 
         Returns:
             Dict with:
@@ -683,12 +688,12 @@ class ClaimsManager:
             print(f"[QCLAIMS] push_to_server: {len(claims)} claims, {len(stakes)} stakes, project_id={project_id}")
             self.logger.info(
                 f"[QCLAIMS] push_to_server: {len(claims)} claims, {len(stakes)} stakes, "
-                f"project_id={project_id}, epsg={epsg}"
+                f"project_id={project_id}, epsg={epsg}, claim_package_id={claim_package_id}"
             )
 
             # Format claims as LandHolding records
             landholding_records = [
-                self._format_landholding(claim, project_id, epsg)
+                self._format_landholding(claim, project_id, epsg, claim_package_id)
                 for claim in claims
             ]
 
@@ -739,13 +744,20 @@ class ClaimsManager:
             self.logger.error(f"[QCLAIMS] Push to server failed: {e}")
             raise
 
-    def _format_landholding(self, claim: Dict[str, Any], project_id: int, epsg: int = None) -> Dict[str, Any]:
+    def _format_landholding(
+        self,
+        claim: Dict[str, Any],
+        project_id: int,
+        epsg: int = None,
+        claim_package_id: int = None
+    ) -> Dict[str, Any]:
         """Format processed claim for LandHolding bulk upsert.
 
         Args:
             claim: Processed claim data from server
             project_id: Target project ID
             epsg: EPSG code for UTM coordinates (e.g., 26911 for UTM Zone 11N)
+            claim_package_id: Optional ClaimPackage ID to link this claim to
         """
         # Get WGS84 geometry for the geometry field (stored in DB as WGS84)
         geometry = claim.get('geometry') or claim.get('rotated_geometry')
@@ -775,6 +787,25 @@ class ClaimsManager:
                 coord_str = ', '.join([f"{c[0]} {c[1]}" for c in coords])
                 manual_geometry = f"POLYGON(({coord_str}))"
 
+        # Build qclaims_data with all processing info
+        qclaims_data = {
+            'processing_id': claim.get('session_id'),
+            'processed_at': claim.get('processed_at'),
+            'plss': claim.get('plss'),
+            'corners': claim.get('corners'),
+            'discovery_monument': claim.get('discovery_monument'),
+            'sideline_monuments': claim.get('sideline_monuments', []),
+            'endline_monuments': claim.get('endline_monuments', []),
+            'calculated_acreage': claim.get('calculated_acreage'),
+            'deadlines': claim.get('deadlines'),
+            'state_requirements_snapshot': claim.get('state_requirements'),
+        }
+
+        # Include claim_package_id if provided - this links the LandHolding
+        # to an existing ClaimPackage instead of letting server create a new one
+        if claim_package_id:
+            qclaims_data['claim_package_id'] = claim_package_id
+
         return {
             'name': claim.get('name'),
             'geometry': geometry,
@@ -785,18 +816,7 @@ class ClaimsManager:
             'claim_status': 'PL',  # Planned
             'state': claim.get('state'),
             'county': claim.get('county'),
-            'qclaims_data': {
-                'processing_id': claim.get('session_id'),
-                'processed_at': claim.get('processed_at'),
-                'plss': claim.get('plss'),
-                'corners': claim.get('corners'),
-                'discovery_monument': claim.get('discovery_monument'),
-                'sideline_monuments': claim.get('sideline_monuments', []),
-                'endline_monuments': claim.get('endline_monuments', []),
-                'calculated_acreage': claim.get('calculated_acreage'),
-                'deadlines': claim.get('deadlines'),
-                'state_requirements_snapshot': claim.get('state_requirements'),
-            }
+            'qclaims_data': qclaims_data
         }
 
     def _format_stake(self, stake: Dict[str, Any], project_id: int) -> Dict[str, Any]:

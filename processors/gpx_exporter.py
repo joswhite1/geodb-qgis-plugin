@@ -150,6 +150,12 @@ class GPXExporter:
             name_text = wpt_data.get('name', f"{claim_name} Witness")
         elif wpt_type == 'location_monument':
             name_text = f"{claim_name} LM"
+        elif wpt_type == 'sideline':
+            # Sideline monuments (Wyoming) - midpoint of 1500' sides
+            name_text = wpt_data.get('name', f"{claim_name} SL")
+        elif wpt_type == 'endline':
+            # Endline monuments (Arizona) - midpoint of 600' sides
+            name_text = wpt_data.get('name', f"{claim_name} EL")
         else:
             name_text = wpt_data.get('name', f"{claim_name} WPT")
 
@@ -167,6 +173,10 @@ class GPXExporter:
             desc_parts.append("Witness Point - placed on accessible public land")
         elif wpt_type == 'location_monument':
             desc_parts.append("Location Monument")
+        elif wpt_type == 'sideline':
+            desc_parts.append("Sideline Monument - midpoint of 1500' sides (Wyoming)")
+        elif wpt_type == 'endline':
+            desc_parts.append("Endline Monument - midpoint of 600' sides (Arizona)")
         desc.text = ', '.join(desc_parts)
 
         # Symbol - use custom symbol if provided, otherwise look up by type
@@ -213,6 +223,10 @@ class GPXExporter:
                 name_text = wpt_data.get('name', f"{claim_name} Witness")
             elif wpt_type == 'location_monument':
                 name_text = f"{claim_name} LM"
+            elif wpt_type == 'sideline':
+                name_text = wpt_data.get('name', f"{claim_name} SL")
+            elif wpt_type == 'endline':
+                name_text = wpt_data.get('name', f"{claim_name} EL")
             else:
                 name_text = wpt_data.get('name', f"{claim_name} WPT")
 

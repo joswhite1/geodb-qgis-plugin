@@ -403,7 +403,7 @@ class FieldWorkDialog(QDialog):
         """Handle progress updates."""
         self.progress_bar.setValue(percent)
         self._log_message(message)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
     def _log_message(self, message: str):
         """Add message to browser."""

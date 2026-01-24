@@ -7,6 +7,7 @@ Provides a clean, user-friendly login interface with:
 - Remember me option
 - Loading state during authentication
 - Clear error messages
+- Two-factor authentication (2FA) support
 """
 from typing import Optional, Tuple
 from qgis.PyQt.QtWidgets import (
@@ -16,6 +17,8 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QPixmap, QIcon
+
+from .two_factor_dialog import TwoFactorDialog
 
 
 class LoginDialog(QDialog):
@@ -262,7 +265,7 @@ class LoginDialog(QDialog):
 
         if loading:
             self.login_button.setText("Signing in...")
-            QApplication.processEvents()
+            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
         else:
             self.login_button.setText("Sign In")
 
@@ -329,6 +332,10 @@ class LoginDialog(QDialog):
                     user_context = result.get('user_context', {})
                     self.login_successful.emit(token, user_context)
                     self.accept()
+                elif result.get('requires_2fa', False):
+                    # 2FA required - show 2FA dialog
+                    self._set_loading(False)
+                    self._handle_2fa_required(result)
                 else:
                     error_msg = result.get('error', 'Login failed. Please try again.')
                     self._show_error(error_msg)
@@ -340,6 +347,50 @@ class LoginDialog(QDialog):
 
         finally:
             self._set_loading(False)
+
+    def _handle_2fa_required(self, login_result: dict):
+        """
+        Handle 2FA requirement by showing the 2FA dialog.
+
+        Args:
+            login_result: Dict containing session_token, user_id, has_recovery_email
+        """
+        session_token = login_result.get('session_token', '')
+        user_id = login_result.get('user_id', 0)
+        has_recovery_email = login_result.get('has_recovery_email', False)
+        username = login_result.get('username', '')
+        save_password = login_result.get('save_password', False)
+
+        # Get API client from auth manager
+        api_client = self.auth_manager.api_client if self.auth_manager else None
+
+        # Show 2FA dialog
+        tfa_success, token, expiry = TwoFactorDialog.verify(
+            parent=self,
+            api_client=api_client,
+            session_token=session_token,
+            user_id=user_id,
+            has_recovery_email=has_recovery_email
+        )
+
+        if tfa_success and token:
+            # Complete the login with the token from 2FA
+            success, result = self.auth_manager.complete_2fa_login(
+                token=token,
+                username=username,
+                save_password=save_password
+            )
+
+            if success:
+                user_context = result.get('user_context', {})
+                self.login_successful.emit(token, user_context)
+                self.accept()
+            else:
+                error_msg = result.get('error', 'Failed to complete login after 2FA.')
+                self._show_error(error_msg)
+        else:
+            # User cancelled 2FA or verification failed
+            self._show_error("Two-factor authentication was cancelled or failed.")
 
     def _on_cancel_clicked(self):
         """Handle cancel button click."""

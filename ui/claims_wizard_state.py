@@ -61,6 +61,7 @@ class ClaimsWizardState:
     processed_waypoints: List[Dict[str, Any]] = field(default_factory=list)
     generated_documents: List[Dict[str, Any]] = field(default_factory=list)
     package_info: Optional[Dict[str, Any]] = None  # ClaimPackage info from server
+    claim_package_id: Optional[int] = None  # ClaimPackage ID for linking claims to package
 
     # License/TOS state (cached from server)
     access_info: Optional[Dict[str, Any]] = None
@@ -348,6 +349,7 @@ class ClaimsWizardState:
         self.processed_waypoints = []
         self.generated_documents = []
         self.package_info = None
+        self.claim_package_id = None
         self.completed_steps = []
         self.initial_layout_layer_id = None
         self.processed_claims_layer_id = None

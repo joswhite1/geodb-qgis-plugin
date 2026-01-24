@@ -429,18 +429,18 @@ class ClaimsStep6Widget(ClaimsStepBase):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.process_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(20)
             self.emit_status("Sending claims to server for processing...", "info")
-            QApplication.processEvents()
+            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             result = self.claims_manager.process_claims(claims, self.state.project_id)
 
             self.progress_bar.setValue(50)
             self.emit_status("Creating QGIS layers...", "info")
-            QApplication.processEvents()
+            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             # Store results
             self.state.processed_claims = result.get('claims', [])
@@ -494,7 +494,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
         self.progress_bar.show()
         self.progress_bar.setValue(25)
         self.process_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             # Step 1: Submit the order
@@ -506,7 +506,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             )
 
             self.progress_bar.setValue(50)
-            QApplication.processEvents()
+            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             order_id = result.get('order_id')
             status = result.get('status', 'unknown')
@@ -515,7 +515,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             # Step 2: If order is approved (or auto-approved), create checkout and open browser
             if status == 'approved':
                 self.progress_bar.setValue(75)
-                QApplication.processEvents()
+                # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
                 try:
                     # Get checkout URL from server
@@ -903,7 +903,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.generate_docs_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(30)
@@ -932,6 +932,8 @@ class ClaimsStep6Widget(ClaimsStepBase):
                 save_to_project=True,  # Save documents to project for permanent access
                 claimant_info=claimant_info,
                 claim_prefix=self.state.grid_name_prefix,  # Prefix filenames with claim name prefix
+                order_id=self.state.fulfillment_order_id,  # Link to existing order/package if in fulfillment mode
+                order_type=self.state.fulfillment_order_type,  # 'claim_purchase' or 'claim_order'
                 reference_points=self.state.reference_points  # For bearing/distance tie-in
             )
 
@@ -946,6 +948,15 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
             # Store package info for download in Step 7
             self.state.package_info = result.get('package')
+
+            # Extract and store claim_package_id for use when pushing claims
+            # This ensures claims are linked to the same package as documents
+            if self.state.package_info:
+                self.state.claim_package_id = self.state.package_info.get('id')
+                self.logger.info(
+                    f"[QCLAIMS] Stored claim_package_id={self.state.claim_package_id} "
+                    f"for linking during push"
+                )
 
             if documents:
                 package_info = self.state.package_info

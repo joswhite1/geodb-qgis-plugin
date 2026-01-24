@@ -478,7 +478,8 @@ class ClaimsStep2Widget(ClaimsStepBase):
                 self,
                 "Auto-Number Complete",
                 f"Assigned Manual FID to {count} claims.\n\n"
-                "Claims are numbered west-to-east, north-to-south."
+                "Claims are numbered west-to-east, north-to-south.\n\n"
+                "Click 'Rename Claims' to apply names and reset FIDs to match."
             )
 
             self.emit_status(f"Auto-numbered {count} claims", "success")
@@ -487,7 +488,7 @@ class ClaimsStep2Widget(ClaimsStepBase):
             QMessageBox.critical(self, "Error", str(e))
 
     def _rename_claims(self):
-        """Rename claims using the name prefix."""
+        """Rename claims using the name prefix and reset FIDs to match."""
         layer = self._get_selected_layer()
         if not layer:
             QMessageBox.warning(self, "No Layer", "Please select a claims layer first.")
@@ -495,20 +496,41 @@ class ClaimsStep2Widget(ClaimsStepBase):
 
         base_name = self.name_prefix_edit.text().strip() or "GE"
 
+        # Store layer name BEFORE any operations that might invalidate the layer
+        original_layer_name = layer.name()
+
         try:
             processor = self._get_grid_processor()
             count = processor.rename_claims(layer, base_name, use_manual_fid=True)
 
+            # Reset FIDs to match Manual_FID order
+            # This is critical - claim documents are generated in FID order,
+            # so FIDs must match the logical claim numbering
+            # NOTE: This removes and re-adds the layer, so our layer reference becomes invalid
+            processor.reset_fid_to_match_manual_fid(layer)
+
+            # Refresh the layer list since the layer was removed and re-added
+            self._refresh_layers()
+
+            # Try to select the layer with the same name (use stored name, not layer.name())
+            for i in range(self.layer_combo.count()):
+                if self.layer_combo.itemText(i) == original_layer_name:
+                    self.layer_combo.setCurrentIndex(i)
+                    break
+
+            # Refresh the canvas
+            from qgis.utils import iface
+            if iface and iface.mapCanvas():
+                iface.mapCanvas().refresh()
+
             QMessageBox.information(
                 self,
                 "Rename Complete",
-                f"Renamed {count} claims using prefix '{base_name}'."
+                f"Renamed {count} claims using prefix '{base_name}'.\n\n"
+                "FIDs have been reset to match the claim numbering order."
             )
 
-            self.emit_status(f"Renamed {count} claims", "success")
-
-            # Refresh layer display
-            layer.triggerRepaint()
+            self.emit_status(f"Renamed {count} claims and reset FIDs", "success")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))

@@ -48,10 +48,11 @@ class AuthManager:
         Authenticate user and create session.
 
         This method:
-        1. Authenticates with /api/v1/api-token-auth/
-        2. Fetches user context from /api/v1/me/
-        3. Stores credentials securely (token always, password optionally)
-        4. Creates session with full context
+        1. Authenticates with /api/v2/api-token-auth/
+        2. If 2FA required, returns requires_2fa=True with session info
+        3. If no 2FA, fetches user context from /api/v2/me/
+        4. Stores credentials securely (token always, password optionally)
+        5. Creates session with full context
 
         Args:
             username: User's email/username
@@ -60,14 +61,30 @@ class AuthManager:
 
         Returns:
             Tuple of (success: bool, result: dict)
-            On success: (True, {'token': str, 'user_context': dict})
+            On success (no 2FA): (True, {'token': str, 'user_context': dict})
+            On 2FA required: (False, {'requires_2fa': True, 'session_token': str,
+                                      'user_id': int, 'has_recovery_email': bool,
+                                      'username': str, 'save_password': bool})
             On failure: (False, {'error': str})
         """
         self.logger.info(f"Attempting login for user: {username}")
 
         try:
-            # Step 1: Authenticate and get token
+            # Step 1: Authenticate and get token (or 2FA challenge)
             response = self.api_client.login(username, password)
+
+            # Check if 2FA is required
+            if response.get('requires_2fa', False):
+                self.logger.info(f"2FA required for user: {username}")
+                return (False, {
+                    'requires_2fa': True,
+                    'session_token': response.get('session_token', ''),
+                    'user_id': response.get('user_id', 0),
+                    'has_recovery_email': response.get('has_recovery_email', False),
+                    # Pass through for use after 2FA verification
+                    'username': username,
+                    'save_password': save_password
+                })
 
             token = response.get('token')
             user_data = response.get('user', {})
@@ -75,44 +92,8 @@ class AuthManager:
             if not token:
                 return (False, {'error': 'No token received from server'})
 
-            # Set token in API client for subsequent requests
-            self.api_client.set_token(token)
-
-            # Step 2: Fetch user context (critical step per API docs!)
-            try:
-                context_response = self.api_client.get_user_context()
-                user_context = UserContext.from_api_response(context_response)
-            except Exception as e:
-                self.logger.warning(f"Failed to fetch user context: {e}")
-                # Create minimal user context from login response
-                user_context = UserContext(
-                    user=UserInfo(
-                        user_id=user_data.get('id', 0),
-                        username=user_data.get('username', username),
-                        email=user_data.get('email', username),
-                        first_name=user_data.get('first_name', ''),
-                        last_name=user_data.get('last_name', '')
-                    )
-                )
-
-            # Step 3: Store credentials in QGIS Auth Manager
-            auth_config_id = self._store_credentials(username, token, password if save_password else None)
-
-            # Step 4: Create session with full context
-            self.current_session = AuthSession(
-                token=token,
-                user=user_context.user,
-                auth_config_id=auth_config_id,
-                user_context=user_context
-            )
-
-            self.logger.info(f"Login successful for user: {username}")
-
-            # Return success with context
-            return (True, {
-                'token': token,
-                'user_context': user_context.to_dict()
-            })
+            # Complete login with token
+            return self._complete_login(username, token, user_data, save_password)
 
         except AuthenticationError as e:
             self.logger.error(f"Authentication failed: {e}")
@@ -120,6 +101,97 @@ class AuthManager:
         except Exception as e:
             self.logger.error(f"Login failed: {e}")
             return (False, {'error': f"Login failed: {e}"})
+
+    def complete_2fa_login(
+        self,
+        token: str,
+        username: str,
+        save_password: bool = False
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Complete login after successful 2FA verification.
+
+        Called after TwoFactorDialog successfully verifies the code and receives a token.
+
+        Args:
+            token: Knox token from 2FA verification
+            username: User's email/username (for credential storage)
+            save_password: Whether to save password in QGIS Auth Manager
+
+        Returns:
+            Tuple of (success: bool, result: dict)
+            On success: (True, {'token': str, 'user_context': dict})
+            On failure: (False, {'error': str})
+        """
+        self.logger.info(f"Completing 2FA login for user: {username}")
+
+        try:
+            return self._complete_login(username, token, {}, save_password)
+        except Exception as e:
+            self.logger.error(f"Failed to complete 2FA login: {e}")
+            return (False, {'error': f"Failed to complete login: {e}"})
+
+    def _complete_login(
+        self,
+        username: str,
+        token: str,
+        user_data: Dict[str, Any],
+        save_password: bool
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Complete the login process after obtaining a token.
+
+        Internal method used by both regular login and 2FA login.
+
+        Args:
+            username: User's email/username
+            token: Knox authentication token
+            user_data: User data from login response (may be empty for 2FA)
+            save_password: Whether to save password
+
+        Returns:
+            Tuple of (success: bool, result: dict)
+        """
+        # Set token in API client for subsequent requests
+        self.api_client.set_token(token)
+
+        # Fetch user context (critical step per API docs!)
+        try:
+            context_response = self.api_client.get_user_context()
+            user_context = UserContext.from_api_response(context_response)
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch user context: {e}")
+            # Create minimal user context from login response
+            user_context = UserContext(
+                user=UserInfo(
+                    user_id=user_data.get('id', 0),
+                    username=user_data.get('username', username),
+                    email=user_data.get('email', username),
+                    first_name=user_data.get('first_name', ''),
+                    last_name=user_data.get('last_name', '')
+                )
+            )
+
+        # Store credentials in QGIS Auth Manager
+        # Note: For 2FA users, we don't save password (they'll need to re-auth anyway)
+        password_to_save = None  # Password not available after 2FA flow
+        auth_config_id = self._store_credentials(username, token, password_to_save)
+
+        # Create session with full context
+        self.current_session = AuthSession(
+            token=token,
+            user=user_context.user,
+            auth_config_id=auth_config_id,
+            user_context=user_context
+        )
+
+        self.logger.info(f"Login successful for user: {username}")
+
+        # Return success with context
+        return (True, {
+            'token': token,
+            'user_context': user_context.to_dict()
+        })
     
     def logout(self) -> bool:
         """

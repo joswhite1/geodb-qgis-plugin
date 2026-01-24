@@ -470,8 +470,8 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         # Update status to show we're fetching from server
         self.status_label.setText("Generating layers from server...")
         self.status_detail.setText("Contacting geodb.io API for layer calculations...")
-        from qgis.PyQt.QtWidgets import QApplication
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
+        # The UI will update after the blocking network request completes
 
         # Generate layers via server API (server-only - no local fallback)
         try:
@@ -584,8 +584,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         # Update status
         self.status_label.setText("Applying LM corner changes...")
         self.status_detail.setText("Sending changes to server and regenerating layers...")
-        from qgis.PyQt.QtWidgets import QApplication
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         # Update LM corners via server API using BATCH method (single API call)
         # This is much more efficient than calling one at a time
@@ -670,8 +669,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         # Update status
         self.status_label.setText("Applying changes...")
         self.status_detail.setText("Recalculating layers based on your modifications...")
-        from qgis.PyQt.QtWidgets import QApplication
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         # Configure generator
         self.layer_generator.set_monument_inset(self.state.monument_inset_ft)

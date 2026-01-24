@@ -473,9 +473,10 @@ class LayerProcessor:
 
         if existing_layer:
             QgsProject.instance().removeMapLayer(existing_layer.id())
-            # Process events to ensure layer is fully released before GeoPackage operations
-            # This prevents "Opening of data source in update mode failed" errors
-            QCoreApplication.processEvents()
+            # Note: Removed QCoreApplication.processEvents() to prevent heap corruption crashes
+            # The layer removal should complete without event processing.
+            # If "Opening of data source in update mode failed" errors occur, consider
+            # using QTimer.singleShot() to defer the GeoPackage operation instead.
 
         # Delete from GeoPackage if using GeoPackage
         if self.is_using_geopackage():

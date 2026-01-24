@@ -322,7 +322,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.push_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(30)
@@ -343,7 +343,8 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 self.state.processed_claims,
                 self.state.processed_waypoints,
                 self.state.project_id,
-                self.state.project_epsg  # Pass EPSG for UTM coordinate preservation
+                self.state.project_epsg,  # Pass EPSG for UTM coordinate preservation
+                self.state.claim_package_id  # Link claims to existing package from document generation
             )
 
             self.progress_bar.setValue(70)

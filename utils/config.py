@@ -167,6 +167,12 @@ class Config:
             'logout': f"{base}/api-logout/",
             'check_token': f"{base}/check-token/",
 
+            # Two-Factor Authentication (2FA)
+            # Note: 2FA endpoints use v1 API path as per server implementation
+            'verify_2fa': f"{base.replace('/v2', '/v1')}/auth/verify-2fa/",
+            'request_2fa_recovery': f"{base.replace('/v2', '/v1')}/auth/request-2fa-recovery/",
+            'verify_2fa_recovery': f"{base.replace('/v2', '/v1')}/auth/verify-2fa-recovery/",
+
             # User context (critical - must call after login)
             'me': f"{base}/me/",
             'set_active_company': f"{base}/me/set-active-company/",

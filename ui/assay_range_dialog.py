@@ -324,7 +324,7 @@ class AssayRangeDialog(QDialog):
         self.configurations = []
         self.merge_settings_map = {}
         self.pull_button.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             # Fetch AssayMergeSettings for the company first
@@ -526,7 +526,7 @@ class AssayRangeDialog(QDialog):
         self.progress_bar.setValue(value)
         if message:
             self.status_label.setText(message)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
     def hide_progress(self):
         """Hide progress bar."""

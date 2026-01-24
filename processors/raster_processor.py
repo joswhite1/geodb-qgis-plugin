@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Optional, Callable, Dict, Any, List, Tuple
 from urllib.parse import urlparse, urljoin
 
-from qgis.PyQt.QtCore import QUrl, QEventLoop, QByteArray, QFile, QIODevice
+from qgis.PyQt.QtCore import QUrl, QByteArray, QFile, QIODevice
 from qgis.PyQt.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from qgis.core import (
     QgsProject,
     QgsRasterLayer,
     QgsCoordinateReferenceSystem,
     QgsNetworkAccessManager,
+    QgsBlockingNetworkRequest,
     QgsRectangle,
 )
 
@@ -372,31 +373,23 @@ class RasterProcessor:
                 QNetworkRequest.NoLessSafeRedirectPolicy
             )
 
-            # Execute download synchronously
-            loop = QEventLoop()
-            reply = self.network_manager.get(request)
+            # Execute download synchronously using QgsBlockingNetworkRequest
+            # This avoids the heap corruption crashes caused by QEventLoop.exec_()
+            blocking_request = QgsBlockingNetworkRequest()
+            error_code = blocking_request.get(request, forceRefresh=True)
 
-            # Track download progress
-            if progress_callback:
-                def on_progress(received, total):
-                    if total > 0:
-                        progress = int((received / total) * 100)
-                        progress_callback(progress)
-                reply.downloadProgress.connect(on_progress)
-
-            reply.finished.connect(loop.quit)
-            loop.exec_()
+            # Note: Progress callback not supported with QgsBlockingNetworkRequest
+            # as it doesn't process events during the download
 
             # Check for errors
-            if reply.error() != QNetworkReply.NoError:
-                error_msg = reply.errorString()
+            if error_code != QgsBlockingNetworkRequest.NoError:
+                error_msg = blocking_request.errorMessage()
                 self.logger.error(f"Download failed: {error_msg}")
-                reply.deleteLater()
                 return None
 
-            # Write to file
-            data = reply.readAll()
-            reply.deleteLater()
+            # Get response content
+            reply = blocking_request.reply()
+            data = reply.content()
 
             # Ensure parent directory exists
             cache_path.parent.mkdir(parents=True, exist_ok=True)

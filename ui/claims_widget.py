@@ -1302,7 +1302,7 @@ class ClaimsWidget(QWidget):
         self.license_details_label.setText("")
         self.tos_status_label.setText("Terms of Service: Checking...")
         self.accept_tos_btn.hide()
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             # Check access
@@ -1729,12 +1729,12 @@ class ClaimsWidget(QWidget):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.process_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(20)
             self.status_message.emit("Sending claims to server for processing...", "info")
-            QApplication.processEvents()
+            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             # Note: reference_points and epsg will be passed when server endpoint supports them
             # For now, just log them
@@ -1749,7 +1749,7 @@ class ClaimsWidget(QWidget):
 
             self.progress_bar.setValue(50)
             self.status_message.emit("Creating QGIS layers...", "info")
-            QApplication.processEvents()
+            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             # Store results
             self._processed_claims = result.get('claims', [])
@@ -1808,7 +1808,7 @@ class ClaimsWidget(QWidget):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.process_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(50)
@@ -1887,7 +1887,7 @@ class ClaimsWidget(QWidget):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.generate_docs_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(30)
@@ -2005,7 +2005,7 @@ class ClaimsWidget(QWidget):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.push_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(30)
@@ -2476,7 +2476,7 @@ class ClaimsWidget(QWidget):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.download_docs_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         downloaded = 0
         errors = []
@@ -2500,7 +2500,7 @@ class ClaimsWidget(QWidget):
                     errors.append(f"{filename}: {e}")
 
                 self.progress_bar.setValue(int((i + 1) / total * 100))
-                QApplication.processEvents()
+                # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             # Show result
             if errors:
@@ -2577,7 +2577,7 @@ class ClaimsWidget(QWidget):
         self.progress_bar.show()
         self.progress_bar.setValue(0)
         self.export_gpx_btn.setEnabled(False)
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self.progress_bar.setValue(50)

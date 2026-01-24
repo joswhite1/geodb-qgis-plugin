@@ -181,7 +181,7 @@ class StaffOrdersDialog(QDialog):
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("Loading...")
         self.status_label.setText("Loading orders...")
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             result = self.claims_manager.get_staff_pending_orders()

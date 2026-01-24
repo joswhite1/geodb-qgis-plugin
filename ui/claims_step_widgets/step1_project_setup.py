@@ -320,7 +320,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             self.license_details_label.setText("")
             self.tos_status_label.setText("Terms of Service: Checking...")
             self.accept_tos_btn.hide()
-            QApplication.processEvents()
+            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             # Check access
             access_info = self.claims_manager.check_access(force_refresh=True)

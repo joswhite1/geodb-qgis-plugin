@@ -3,12 +3,17 @@
 HTTP client for geodb.io API v1 communication.
 
 This client implements the RESTful API as documented in COMPLETE_API_REFERENCE.md
+
+IMPORTANT: This client uses QgsBlockingNetworkRequest instead of QEventLoop
+to avoid heap corruption crashes. QEventLoop.exec_() processes all Qt events
+which can cause reentrancy issues when combined with QApplication.processEvents()
+calls elsewhere in the codebase.
 """
 import json
 from typing import Dict, Any, Optional, Callable, List
 from qgis.PyQt.QtNetwork import QNetworkRequest, QNetworkReply
-from qgis.PyQt.QtCore import QUrl, QByteArray, QEventLoop
-from qgis.core import QgsNetworkAccessManager
+from qgis.PyQt.QtCore import QUrl, QByteArray
+from qgis.core import QgsNetworkAccessManager, QgsBlockingNetworkRequest
 
 from .exceptions import (
     NetworkError,
@@ -122,44 +127,135 @@ class APIClient:
         request: QNetworkRequest,
         data: Optional[QByteArray]
     ) -> Dict[str, Any]:
-        """Execute single HTTP request synchronously."""
-        # Create event loop for synchronous behavior
-        loop = QEventLoop()
-        finished = False
+        """
+        Execute single HTTP request synchronously using QgsBlockingNetworkRequest.
 
-        def on_finished():
-            nonlocal finished
-            finished = True
-            if loop.isRunning():
-                loop.quit()
+        This method uses QgsBlockingNetworkRequest instead of QEventLoop to avoid
+        heap corruption crashes. QgsBlockingNetworkRequest is thread-safe and
+        doesn't process other Qt events while waiting, preventing reentrancy issues.
+        """
+        blocking_request = QgsBlockingNetworkRequest()
 
-        # Make request based on method
+        # Execute request based on method
         if method == 'GET':
-            reply = self.network_manager.get(request)
+            error_code = blocking_request.get(request, forceRefresh=True)
         elif method == 'POST':
-            reply = self.network_manager.post(request, data or QByteArray())
+            error_code = blocking_request.post(request, data or QByteArray(), forceRefresh=True)
         elif method == 'PUT':
-            reply = self.network_manager.put(request, data or QByteArray())
-        elif method == 'PATCH':
-            # PATCH is used for partial updates
-            reply = self.network_manager.sendCustomRequest(
-                request, QByteArray(b'PATCH'), data or QByteArray()
-            )
+            error_code = blocking_request.put(request, data or QByteArray())
         elif method == 'DELETE':
-            reply = self.network_manager.deleteResource(request)
+            error_code = blocking_request.deleteResource(request)
+        elif method == 'PATCH':
+            # QgsBlockingNetworkRequest doesn't have native PATCH support
+            # Use HEAD to check, then fall back to custom implementation
+            # For now, we'll use a workaround with sendCustomRequest via QNetworkAccessManager
+            return self._execute_patch_request(request, data)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
-        # Connect signal before checking if already finished
-        reply.finished.connect(on_finished)
-
-        # Only enter event loop if reply hasn't finished yet
-        # This prevents blocking forever if the reply completed synchronously
-        if not finished and not reply.isFinished():
-            loop.exec_()
+        # Check for network-level errors
+        if error_code != QgsBlockingNetworkRequest.NoError:
+            error_msg = blocking_request.errorMessage()
+            self.logger.error(f"Network error ({error_code}): {error_msg}")
+            raise NetworkError(f"Network error: {error_msg}")
 
         # Process response
+        return self._process_blocking_response(blocking_request.reply())
+
+    def _execute_patch_request(
+        self,
+        request: QNetworkRequest,
+        data: Optional[QByteArray]
+    ) -> Dict[str, Any]:
+        """
+        Execute PATCH request using QNetworkAccessManager with minimal event processing.
+
+        QgsBlockingNetworkRequest doesn't support PATCH natively, so we use
+        QNetworkAccessManager.sendCustomRequest() with a simple wait loop.
+        This is only used for PATCH requests (partial updates).
+        """
+        from qgis.PyQt.QtCore import QEventLoop, QTimer
+
+        reply = self.network_manager.sendCustomRequest(
+            request, QByteArray(b'PATCH'), data or QByteArray()
+        )
+
+        # Use a simple blocking wait with timeout instead of event loop
+        # This minimizes the window for reentrancy issues
+        loop = QEventLoop()
+        reply.finished.connect(loop.quit)
+
+        # Add timeout to prevent infinite blocking
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+        timer.start(30000)  # 30 second timeout
+
+        if not reply.isFinished():
+            loop.exec_()
+
+        timer.stop()
+
+        if not reply.isFinished():
+            reply.abort()
+            raise NetworkError("PATCH request timed out")
+
         return self._process_response(reply)
+
+    def _process_blocking_response(self, reply) -> Dict[str, Any]:
+        """
+        Process QgsNetworkReplyContent from QgsBlockingNetworkRequest.
+
+        Args:
+            reply: QgsNetworkReplyContent object (different from QNetworkReply)
+
+        Returns:
+            Parsed JSON response
+
+        Raises:
+            APIException: On error response
+        """
+        status_code = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
+        response_data = bytes(reply.content()).decode('utf-8')
+
+        # Parse JSON response first (even for errors, to get validation messages)
+        parsed_data = {}
+        try:
+            parsed_data = json.loads(response_data) if response_data else {}
+        except json.JSONDecodeError:
+            pass  # Will handle below
+
+        # Check for HTTP errors
+        if status_code and status_code >= 400:
+            error_msg = parsed_data.get('error') or parsed_data.get('detail') or f'HTTP {status_code} error'
+
+            # For 400 errors, include full validation details in the message
+            if status_code == 400:
+                # DRF returns field errors as dict: {"field_name": ["error message"]}
+                validation_details = []
+                for field, errors in parsed_data.items():
+                    if field not in ('error', 'detail'):
+                        if isinstance(errors, list):
+                            validation_details.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                        else:
+                            validation_details.append(f"{field}: {errors}")
+                if validation_details:
+                    error_msg = f"Validation failed - {'; '.join(validation_details)}"
+                self.logger.error(f"[API 400] Validation error: {error_msg}")
+                self.logger.error(f"[API 400] Full response: {parsed_data}")
+                print(f"\n[API 400] Validation error: {error_msg}")
+                print(f"[API 400] Full response: {parsed_data}\n")
+                raise ValidationError(error_msg, status_code, parsed_data)
+            elif status_code == 401:
+                raise AuthenticationError(error_msg, status_code, parsed_data)
+            elif status_code == 403:
+                raise PermissionError(error_msg, status_code, parsed_data)
+            elif status_code >= 500:
+                raise ServerError(error_msg, status_code, parsed_data)
+            else:
+                raise APIException(error_msg, status_code, parsed_data)
+
+        return parsed_data
 
     def _process_response(self, reply: QNetworkReply) -> Dict[str, Any]:
         """
@@ -277,6 +373,63 @@ class APIClient:
         """Logout and invalidate current token."""
         url = self.config.endpoints['logout']
         self._make_request('POST', url)
+
+    # =========================================================================
+    # Two-Factor Authentication (2FA) Endpoints
+    # =========================================================================
+
+    def verify_2fa(self, session_token: str, code: str) -> Dict[str, Any]:
+        """
+        Verify 2FA code and get Knox token.
+
+        Args:
+            session_token: Temporary session token from login response
+            code: 6-digit TOTP code or backup code
+
+        Returns:
+            Dict with 'token' and 'expiry' on success
+
+        Raises:
+            AuthenticationError: If code is invalid or too many attempts
+        """
+        url = self.config.endpoints['verify_2fa']
+        data = {'session_token': session_token, 'code': code}
+        return self._make_request('POST', url, data=data)
+
+    def request_2fa_recovery(self, session_token: str) -> Dict[str, Any]:
+        """
+        Request 2FA recovery code to be sent to recovery email.
+
+        Args:
+            session_token: Temporary session token from login response
+
+        Returns:
+            Dict with 'message' and 'recovery_email_masked'
+
+        Raises:
+            APIException: If no recovery email or rate limited
+        """
+        url = self.config.endpoints['request_2fa_recovery']
+        data = {'session_token': session_token}
+        return self._make_request('POST', url, data=data)
+
+    def verify_2fa_recovery(self, session_token: str, recovery_code: str) -> Dict[str, Any]:
+        """
+        Verify 2FA recovery code and get Knox token.
+
+        Args:
+            session_token: Temporary session token from login response
+            recovery_code: 6-digit recovery code sent to email
+
+        Returns:
+            Dict with 'token' and 'expiry' on success
+
+        Raises:
+            AuthenticationError: If recovery code is invalid
+        """
+        url = self.config.endpoints['verify_2fa_recovery']
+        data = {'session_token': session_token, 'recovery_code': recovery_code}
+        return self._make_request('POST', url, data=data)
 
     # =========================================================================
     # User Context Endpoints (Critical - call after login!)

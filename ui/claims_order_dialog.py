@@ -203,7 +203,7 @@ class ClaimsOrderDialog(QDialog):
         """Refresh order status."""
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("Refreshing...")
-        QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
             self._load_order()
