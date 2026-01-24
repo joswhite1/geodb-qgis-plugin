@@ -6,11 +6,11 @@
 name=geodb.io
 qgisMinimumVersion=3.0
 description=Connects to spatial data from geodb.io via api
-version=2.0.0
+version=2.1.0
 author=geodb.io
 email=admin@geodb.io
 
-about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.0 features a complete architectural rebuild with improved reliability, error handling, and maintainability.
+about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.1 adds BC mineral claims workflow, two-factor authentication, photo viewing, and many other improvements.
 
 tracker=https://github.com/joswhite1/geodb-qgis-plugin/issues
 repository=https://github.com/joswhite1/geodb-qgis-plugin
@@ -23,6 +23,16 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.1.0 - Major feature release
+        - BC mineral claims workflow with 7-step wizard
+        - Two-factor authentication (2FA) support
+        - Photo viewer for drill photos and field notes
+        - Staff order management interface
+        - Basemaps widget for quick layer access
+        - Structure model with geological symbology
+        - GPX export for GPS devices
+        - Fixed heap corruption crashes (QgsBlockingNetworkRequest)
+        - Improved cross-platform compatibility
     2.0.0 - Major architectural rebuild
         - Modular design with separation of concerns
         - Improved error handling and logging
