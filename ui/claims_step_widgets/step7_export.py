@@ -7,7 +7,7 @@ Handles:
 - Update waypoint table
 - Push to server
 """
-from typing import List
+from typing import List, Dict, Any
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -17,8 +17,13 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QDesktopServices
+from qgis.core import (
+    QgsProject, QgsVectorLayer, QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform
+)
 
 from .step_base import ClaimsStepBase
+from ...utils.logger import PluginLogger
 
 
 class ClaimsStep7Widget(ClaimsStepBase):
@@ -40,6 +45,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
     def __init__(self, state, claims_manager, parent=None):
         super().__init__(state, claims_manager, parent)
+        self.logger = PluginLogger.get_logger()
         self._setup_ui()
 
     def _setup_ui(self):
@@ -117,8 +123,8 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Buttons
         btn_layout = QHBoxLayout()
 
-        self.add_witness_btn = QPushButton("Add Witness Waypoint")
-        self.add_witness_btn.setToolTip("Add a custom witness or reference waypoint")
+        self.add_witness_btn = QPushButton("Instructions")
+        self.add_witness_btn.setToolTip("How to add a witness waypoint")
         self.add_witness_btn.setStyleSheet(self._get_secondary_button_style())
         self.add_witness_btn.clicked.connect(self._add_witness_waypoint)
         btn_layout.addWidget(self.add_witness_btn)
@@ -234,14 +240,25 @@ class ClaimsStep7Widget(ClaimsStepBase):
     # =========================================================================
 
     def _refresh_waypoints_table(self):
-        """Refresh the waypoints table from state."""
+        """Refresh the waypoints table from QGIS layer and state.
+
+        This method auto-populates attributes for any manually-added waypoints
+        (e.g. witness points), then syncs from the QGIS layer into state and
+        updates the table widget.
+        """
+        # Auto-populate fields for manually-added waypoints (QClaims pattern)
+        self._auto_populate_layer_attributes()
+
+        # Sync waypoints from QGIS layer to state (picks up user-added WIT points)
+        self._sync_waypoints_from_layer()
+
         waypoints = self.state.processed_waypoints
 
         self.waypoints_table.setRowCount(len(waypoints))
 
         for row, wp in enumerate(waypoints):
-            # Name
-            name_item = QTableWidgetItem(wp.get('name', ''))
+            # Name (sequence_number field, e.g., "WP 1", "LM 3", "WIT")
+            name_item = QTableWidgetItem(wp.get('sequence_number', wp.get('name', '')))
             self.waypoints_table.setItem(row, 0, name_item)
 
             # Type
@@ -249,20 +266,237 @@ class ClaimsStep7Widget(ClaimsStepBase):
             self.waypoints_table.setItem(row, 1, type_item)
 
             # Claim
-            claim_item = QTableWidgetItem(wp.get('claim_name', ''))
+            claim_item = QTableWidgetItem(wp.get('claim_name', wp.get('claim', '')))
             self.waypoints_table.setItem(row, 2, claim_item)
 
-            # Latitude
-            lat = wp.get('latitude', wp.get('northing', 0))
+            # Latitude - use lat (WGS84) first, fallback to northing (UTM)
+            lat = wp.get('lat', wp.get('latitude', wp.get('northing', 0)))
             lat_item = QTableWidgetItem(f"{lat:.6f}" if lat else "")
             self.waypoints_table.setItem(row, 3, lat_item)
 
-            # Longitude
-            lon = wp.get('longitude', wp.get('easting', 0))
+            # Longitude - use lon (WGS84) first, fallback to easting (UTM)
+            lon = wp.get('lon', wp.get('longitude', wp.get('easting', 0)))
             lon_item = QTableWidgetItem(f"{lon:.6f}" if lon else "")
             self.waypoints_table.setItem(row, 4, lon_item)
 
         self.waypoint_count_label.setText(f"{len(waypoints)} waypoint(s)")
+
+    def _auto_populate_layer_attributes(self):
+        """Auto-populate attributes for manually-added waypoints in the layer.
+
+        Detects features with NULL/missing Latitude (manually-added rows) and
+        fills in Latitude, Longitude, Altitude, Symbol, Date, Time, No, and
+        waypoint_type from the feature geometry and reference values.
+
+        This mirrors the QClaims update_waypoints_table() pattern: the user
+        adds a point and a Name, then this populates everything else.
+        """
+        waypoints_layer = self._get_waypoints_layer()
+        if not waypoints_layer or not waypoints_layer.isValid():
+            return
+
+        # Get source CRS for coordinate transforms
+        source_crs = waypoints_layer.crs()
+        wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
+        transform = None
+        if source_crs and source_crs != wgs84:
+            transform = QgsCoordinateTransform(source_crs, wgs84, QgsProject.instance())
+
+        field_names = waypoints_layer.fields().names()
+
+        # Find features that need auto-population (NULL Latitude = manually added)
+        features_to_update = []
+        reference_feature = None
+        total_features = 0
+
+        for feature in waypoints_layer.getFeatures():
+            total_features += 1
+            lat_val = feature['Latitude'] if 'Latitude' in field_names else None
+
+            # Check if Latitude is NULL or missing (manually-added row)
+            is_null = (lat_val is None
+                       or (hasattr(lat_val, 'isNull') and lat_val.isNull())
+                       or lat_val == 0)
+
+            if is_null:
+                # Validate that Name is filled in
+                name_val = feature['Name'] if 'Name' in field_names else None
+                has_name = (name_val is not None
+                            and not (hasattr(name_val, 'isNull') and name_val.isNull())
+                            and str(name_val).strip() != '')
+                if has_name and not feature.geometry().isEmpty():
+                    features_to_update.append(feature)
+            elif reference_feature is None:
+                # Use first complete feature as reference for Date/Time/Altitude
+                reference_feature = feature
+
+        if not features_to_update:
+            return
+
+        # Get reference values from existing complete feature
+        if reference_feature:
+            def _val(val, default):
+                if val is None or (hasattr(val, 'isNull') and val.isNull()):
+                    return default
+                return val
+
+            ref_date = str(_val(reference_feature['Date'], '')) if 'Date' in field_names else ''
+            ref_time = str(_val(reference_feature['Time'], '00:00:00')) if 'Time' in field_names else '00:00:00'
+            ref_altitude = _val(reference_feature['Altitude'], 0) if 'Altitude' in field_names else 0
+        else:
+            from datetime import datetime
+            now = datetime.now()
+            ref_date = f"{now.month}/{now.day}/{now.year}"
+            ref_time = '00:00:00'
+            ref_altitude = 0
+
+        # Update features in the layer
+        was_editing = waypoints_layer.isEditable()
+        if not was_editing:
+            waypoints_layer.startEditing()
+
+        updated_count = 0
+        for feature in features_to_update:
+            fid = feature.id()
+            point = feature.geometry().asPoint()
+
+            # Convert to WGS84
+            if transform:
+                wgs84_point = transform.transform(point)
+                lat = wgs84_point.y()
+                lon = wgs84_point.x()
+            else:
+                lat = point.y()
+                lon = point.x()
+
+            # Build attribute updates
+            attr_map = {}
+            for field_name, value in [
+                ('Latitude', round(lat, 7)),
+                ('Longitude', round(lon, 7)),
+                ('Altitude', ref_altitude),
+                ('Symbol', 'Navaid, White'),
+                ('Date', ref_date),
+                ('Time', ref_time),
+                ('waypoint_type', 'witness'),
+                ('No', total_features - len(features_to_update) + updated_count + 1),
+            ]:
+                idx = waypoints_layer.fields().indexOf(field_name)
+                if idx >= 0:
+                    attr_map[idx] = value
+
+            waypoints_layer.changeAttributeValues(fid, attr_map)
+            updated_count += 1
+
+        if not was_editing:
+            waypoints_layer.commitChanges()
+        else:
+            waypoints_layer.triggerRepaint()
+
+        if updated_count > 0:
+            self.logger.info(
+                f"[CLAIMS] Auto-populated {updated_count} manually-added waypoint(s)"
+            )
+            self.emit_status(
+                f"Updated {updated_count} waypoint(s) with coordinates and metadata",
+                "success"
+            )
+
+    def _sync_waypoints_from_layer(self):
+        """Sync waypoints from QGIS layer back to state.
+
+        Reads waypoints from the Claims Waypoints layer, including any
+        user-added witness points (WIT). Updates state.processed_waypoints
+        with the current layer contents.
+        """
+        # Find the waypoints layer by ID or by name pattern
+        waypoints_layer = self._get_waypoints_layer()
+        if not waypoints_layer or not waypoints_layer.isValid():
+            self.logger.debug("[CLAIMS] No valid waypoints layer found for sync")
+            return
+
+        # Get source CRS for coordinate transforms
+        source_crs = waypoints_layer.crs()
+        wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
+        transform = None
+        if source_crs and source_crs != wgs84:
+            transform = QgsCoordinateTransform(source_crs, wgs84, QgsProject.instance())
+
+        # Read all features from layer
+        new_waypoints: List[Dict[str, Any]] = []
+        for feature in waypoints_layer.getFeatures():
+            geom = feature.geometry()
+            if geom.isEmpty():
+                continue
+
+            point = geom.asPoint()
+            easting = point.x()
+            northing = point.y()
+
+            # Transform to WGS84 for lat/lon
+            if transform:
+                wgs84_point = transform.transform(point)
+                lat = wgs84_point.y()
+                lon = wgs84_point.x()
+            else:
+                lat = northing
+                lon = easting
+
+            # Read attributes from layer
+            # NOTE: GeoPackage layers may return QVariant (including NULL QVariant)
+            # for attribute values. Convert to plain Python types to avoid
+            # QVariant errors downstream (e.g., QTableWidgetItem constructor).
+            def _str(val, default=''):
+                """Convert a QVariant or any value to a plain Python string."""
+                if val is None or (hasattr(val, 'isNull') and val.isNull()):
+                    return default
+                s = str(val)
+                return s if s else default
+
+            name = _str(feature['Name']) if 'Name' in feature.fields().names() else ''
+            wp_type = _str(feature['waypoint_type'], 'witness') if 'waypoint_type' in feature.fields().names() else 'witness'
+            claim = _str(feature['claim']) if 'claim' in feature.fields().names() else ''
+            symbol = _str(feature['Symbol'], 'City (Medium)') if 'Symbol' in feature.fields().names() else 'City (Medium)'
+
+            wp_data = {
+                'sequence_number': name,
+                'name': name,  # Fallback field
+                'type': wp_type,
+                'claim': claim,
+                'claim_name': claim,
+                'easting': round(easting, 8),
+                'northing': round(northing, 8),
+                'lat': round(lat, 7),
+                'lon': round(lon, 7),
+                'latitude': round(lat, 7),  # Fallback field
+                'longitude': round(lon, 7),  # Fallback field
+                'symbol': symbol,
+            }
+            new_waypoints.append(wp_data)
+
+        if new_waypoints:
+            self.state.processed_waypoints = new_waypoints
+            self.logger.info(f"[CLAIMS] Synced {len(new_waypoints)} waypoints from layer")
+
+    def _get_waypoints_layer(self) -> QgsVectorLayer:
+        """Find the Claims Waypoints layer.
+
+        Returns:
+            The waypoints layer, or None if not found.
+        """
+        # First try by stored layer ID
+        if self.state.waypoints_layer_id:
+            layer = QgsProject.instance().mapLayer(self.state.waypoints_layer_id)
+            if layer and layer.isValid():
+                return layer
+
+        # Fallback: search by name pattern
+        for layer in QgsProject.instance().mapLayers().values():
+            if isinstance(layer, QgsVectorLayer):
+                if layer.name().startswith("Claims Waypoints"):
+                    return layer
+
+        return None
 
     def _add_witness_waypoint(self):
         """Add a custom witness waypoint."""
@@ -332,12 +566,19 @@ class ClaimsStep7Widget(ClaimsStepBase):
             logger = PluginLogger.get_logger()
             logger.info(
                 f"[PUSH] Pushing {len(self.state.processed_claims)} claims, "
-                f"{len(self.state.processed_waypoints)} waypoints to project {self.state.project_id}"
+                f"{len(self.state.processed_waypoints)} waypoints to project {self.state.project_id}, "
+                f"claim_package_id={self.state.claim_package_id}"
             )
             if self.state.processed_waypoints:
                 first_wp = self.state.processed_waypoints[0]
                 logger.info(f"[PUSH] First waypoint keys: {list(first_wp.keys())}")
                 logger.info(f"[PUSH] First waypoint: {first_wp}")
+
+            if not self.state.claim_package_id:
+                logger.warning(
+                    "[PUSH] claim_package_id is None! This will cause a duplicate "
+                    "ClaimPackage on the server. Was 'Generate Documents' run in Step 6?"
+                )
 
             result = self.claims_manager.push_to_server(
                 self.state.processed_claims,
@@ -373,19 +614,31 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
             self.progress_bar.setValue(100)
 
+            # Build summary strings showing both created and updated counts
+            lh_created = lh_summary.get('created', 0)
+            lh_updated = lh_summary.get('updated', 0)
+            st_created = st_summary.get('created', 0)
+            st_updated = st_summary.get('updated', 0)
+            st_orphans = result.get('stakes', {}).get('orphan_stakes_deleted', 0)
+
+            lh_str = f"{lh_created} created" + (f", {lh_updated} updated" if lh_updated else "")
+            st_str = f"{st_created} created" + (f", {st_updated} updated" if st_updated else "")
+            if st_orphans:
+                st_str += f", {st_orphans} orphans removed"
+
             self.push_status_label.setText(
-                f"Pushed: {lh_summary.get('created', 0)} LandHoldings, "
-                f"{st_summary.get('created', 0)} ClaimStakes"
+                f"Pushed: {lh_str} LandHoldings, {st_str} ClaimStakes"
                 + (f", {docs_linked} docs linked" if docs_linked else "")
             )
             self.push_status_label.setStyleSheet(self._get_success_label_style())
 
             doc_msg = f"\nDocuments: {docs_linked} linked to claims" if docs_linked else ""
+            orphan_msg = f"\n{st_orphans} orphan stakes cleaned up" if st_orphans else ""
             QMessageBox.information(
                 self,
                 "Push Complete",
-                f"LandHoldings: {lh_summary.get('created', 0)} created\n"
-                f"ClaimStakes: {st_summary.get('created', 0)} created{doc_msg}\n\n"
+                f"LandHoldings: {lh_str}\n"
+                f"ClaimStakes: {st_str}{orphan_msg}{doc_msg}\n\n"
                 "Your claims are now available on geodb.io and the mobile app."
             )
 

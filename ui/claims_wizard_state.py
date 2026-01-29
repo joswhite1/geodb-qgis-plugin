@@ -49,6 +49,11 @@ class ClaimsWizardState:
     processed_claims_layer_id: Optional[str] = None
     waypoints_layer_id: Optional[str] = None
 
+    # Monument layer IDs (for tracking user-adjusted monument positions in Step 5)
+    monuments_layer_id: Optional[str] = None
+    sideline_monuments_layer_id: Optional[str] = None
+    endline_monuments_layer_id: Optional[str] = None
+
     # Step 3: Reference Points
     reference_points: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -94,6 +99,36 @@ class ClaimsWizardState:
             self.claims_layer_id = layer.id()
         else:
             self.claims_layer_id = None
+
+    @property
+    def monuments_layer(self) -> Optional[QgsVectorLayer]:
+        """Get the discovery monuments layer from QGIS project."""
+        if not self.monuments_layer_id:
+            return None
+        layer = QgsProject.instance().mapLayer(self.monuments_layer_id)
+        if isinstance(layer, QgsVectorLayer):
+            return layer
+        return None
+
+    @property
+    def sideline_monuments_layer(self) -> Optional[QgsVectorLayer]:
+        """Get the sideline monuments layer (Wyoming) from QGIS project."""
+        if not self.sideline_monuments_layer_id:
+            return None
+        layer = QgsProject.instance().mapLayer(self.sideline_monuments_layer_id)
+        if isinstance(layer, QgsVectorLayer):
+            return layer
+        return None
+
+    @property
+    def endline_monuments_layer(self) -> Optional[QgsVectorLayer]:
+        """Get the endline monuments layer (Arizona) from QGIS project."""
+        if not self.endline_monuments_layer_id:
+            return None
+        layer = QgsProject.instance().mapLayer(self.endline_monuments_layer_id)
+        if isinstance(layer, QgsVectorLayer):
+            return layer
+        return None
 
     def get_claimant_address_lines(self) -> List[str]:
         """Get non-empty address lines as a list."""
@@ -217,6 +252,7 @@ class ClaimsWizardState:
                 'lm_corner': str(self.lm_corner),
                 'reference_points': json.dumps(self.reference_points),
                 'completed_steps': json.dumps(self.completed_steps),
+                'claim_package_id': str(self.claim_package_id) if self.claim_package_id else '',
             }
 
             for key, value in metadata.items():
@@ -292,6 +328,9 @@ class ClaimsWizardState:
             completed_json = metadata.get('completed_steps', '[]')
             self.completed_steps = json.loads(completed_json)
 
+            pkg_id_str = metadata.get('claim_package_id', '')
+            self.claim_package_id = int(pkg_id_str) if pkg_id_str else None
+
             return True
 
         except Exception as e:
@@ -306,6 +345,10 @@ class ClaimsWizardState:
             project.writeEntry('geodb', 'claims/geopackage_path', self.geopackage_path)
         if self.claims_layer_id:
             project.writeEntry('geodb', 'claims/claims_layer_id', self.claims_layer_id)
+        # NOTE: claim_package_id is intentionally NOT saved to QGIS project settings.
+        # It is stored in the GeoPackage metadata (save_to_geopackage) so that each
+        # GeoPackage carries its own package ID. Storing it in the project file caused
+        # stale IDs to leak across sessions when a GeoPackage was deleted and recreated.
 
         project.writeEntry('geodb', 'claims/completed_steps', json.dumps(self.completed_steps))
 
@@ -326,6 +369,9 @@ class ClaimsWizardState:
             self.completed_steps = json.loads(completed_json)
         except json.JSONDecodeError:
             self.completed_steps = []
+
+        # NOTE: claim_package_id is loaded from the GeoPackage (load_from_geopackage),
+        # not from QGIS project settings. See save_to_qgis_project for rationale.
 
     def reset(self):
         """Reset state to defaults (for starting a new claims project)."""
@@ -354,6 +400,10 @@ class ClaimsWizardState:
         self.initial_layout_layer_id = None
         self.processed_claims_layer_id = None
         self.waypoints_layer_id = None
+        # Clear monument layer references
+        self.monuments_layer_id = None
+        self.sideline_monuments_layer_id = None
+        self.endline_monuments_layer_id = None
         # Clear staff fulfillment context
         self.fulfillment_order_id = None
         self.fulfillment_order_type = None
@@ -385,6 +435,13 @@ class ClaimsWizardState:
                 self.address_line3 = claimant_info['address_3']
             if claimant_info.get('district'):
                 self.mining_district = claimant_info['district']
+
+    def clear_fulfillment_context(self):
+        """Clear staff fulfillment context (when loading proposed claims instead of orders)."""
+        self.fulfillment_order_id = None
+        self.fulfillment_order_type = None
+        self.fulfillment_order_number = None
+        self.fulfillment_claimant_info = None
 
     @property
     def is_fulfillment_mode(self) -> bool:

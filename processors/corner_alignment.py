@@ -24,7 +24,7 @@ from qgis.core import (
     QgsField, QgsFields, QgsCoordinateReferenceSystem,
     QgsProject
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 
 from ..utils.logger import PluginLogger
 
@@ -490,12 +490,12 @@ class CornerAlignmentProcessor:
 
         # Define fields
         fields = QgsFields()
-        fields.append(QgsField("distance_m", QVariant.Double))
-        fields.append(QgsField("feature1_name", QVariant.String, len=100))
-        fields.append(QgsField("corner1_num", QVariant.Int))
-        fields.append(QgsField("feature2_name", QVariant.String, len=100))
-        fields.append(QgsField("corner2_num", QVariant.Int))
-        fields.append(QgsField("description", QVariant.String, len=255))
+        fields.append(QgsField("distance_m", QMetaType.Type.Double))
+        fields.append(QgsField("feature1_name", QMetaType.Type.QString, len=100))
+        fields.append(QgsField("corner1_num", QMetaType.Type.Int))
+        fields.append(QgsField("feature2_name", QMetaType.Type.QString, len=100))
+        fields.append(QgsField("corner2_num", QMetaType.Type.Int))
+        fields.append(QgsField("description", QMetaType.Type.QString, len=255))
 
         layer.dataProvider().addAttributes(fields)
         layer.updateFields()

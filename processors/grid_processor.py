@@ -26,7 +26,7 @@ from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
     QgsField, QgsFields, QgsProject, QgsWkbTypes
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType, QVariant
 
 from ..utils.logger import PluginLogger
 
@@ -197,7 +197,7 @@ class GridProcessor:
             was_editing = layer.isEditable()
             if not was_editing:
                 layer.startEditing()
-            layer.addAttribute(QgsField(name_field, QVariant.String, len=100))
+            layer.addAttribute(QgsField(name_field, QMetaType.Type.QString, len=100))
             layer.updateFields()
             name_idx = layer.fields().indexOf(name_field)
             if name_idx < 0:
@@ -874,7 +874,7 @@ class GridProcessor:
             if not was_editing:
                 layer.startEditing()
 
-            field = QgsField(self.MANUAL_FID_FIELD, QVariant.Int)
+            field = QgsField(self.MANUAL_FID_FIELD, QMetaType.Type.Int)
             layer.dataProvider().addAttributes([field])
             layer.updateFields()
 

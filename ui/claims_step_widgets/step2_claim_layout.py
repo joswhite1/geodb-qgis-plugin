@@ -8,6 +8,7 @@ Handles:
 - Renumber claims (auto-number)
 - Rename claim layout
 """
+import os
 from typing import List, Optional
 
 from qgis.PyQt.QtWidgets import (
@@ -368,15 +369,33 @@ class ClaimsStep2Widget(ClaimsStepBase):
     # =========================================================================
 
     def _refresh_layers(self):
-        """Refresh the layer combo box."""
+        """Refresh the layer combo box with layers from the workflow GeoPackage.
+
+        When a GeoPackage is configured, only polygon layers sourced from that
+        GeoPackage are shown. This prevents accidental selection of external
+        layers (KML, shapefiles, etc.) which could have wrong names or CRS.
+        Falls back to showing all polygon layers if no GeoPackage is set.
+        """
         current_id = self.layer_combo.currentData()
         self.layer_combo.clear()
 
-        # Find polygon layers
+        gpkg_path = self.state.geopackage_path
+
         for layer_id, layer in QgsProject.instance().mapLayers().items():
-            if isinstance(layer, QgsVectorLayer):
-                if layer.geometryType() == 2:  # Polygon
-                    self.layer_combo.addItem(layer.name(), layer_id)
+            if not isinstance(layer, QgsVectorLayer):
+                continue
+            if layer.geometryType() != 2:  # Polygon only
+                continue
+
+            if gpkg_path:
+                # Only show layers from the workflow GeoPackage
+                source = layer.source()
+                gpkg_norm = os.path.normpath(gpkg_path)
+                source_path = os.path.normpath(source.split('|')[0])
+                if source_path != gpkg_norm:
+                    continue
+
+            self.layer_combo.addItem(layer.name(), layer_id)
 
         # Restore selection if possible
         if current_id:
@@ -386,7 +405,10 @@ class ClaimsStep2Widget(ClaimsStepBase):
                     break
 
         if self.layer_combo.count() == 0:
-            self.layer_info_label.setText("No polygon layers found. Generate a grid above.")
+            if gpkg_path:
+                self.layer_info_label.setText("No polygon layers found in GeoPackage. Generate a grid above.")
+            else:
+                self.layer_info_label.setText("No polygon layers found. Generate a grid above.")
         else:
             self._on_layer_changed(self.layer_combo.currentIndex())
 

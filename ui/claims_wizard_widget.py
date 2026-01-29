@@ -184,6 +184,9 @@ class ClaimsWizardWidget(QWidget):
     status_message = pyqtSignal(str, str)
     claims_processed = pyqtSignal(dict)
     wizard_completed = pyqtSignal()
+    # Signal emitted when project context changes (for main dialog to update dropdowns)
+    # Emits: (company_id: int, project_id: int)
+    project_context_switched = pyqtSignal(int, int)
 
     STEP_NAMES = [
         "Setup",
@@ -371,6 +374,7 @@ class ClaimsWizardWidget(QWidget):
             step = StepClass(self.state, self.claims_manager, self)
             step.status_message.connect(self._on_step_status)
             step.validation_changed.connect(self._update_navigation_buttons)
+            step.project_context_switched.connect(self._on_project_context_switched)
             self.step_widgets.append(step)
             self.stack.addWidget(step)
 
@@ -381,6 +385,10 @@ class ClaimsWizardWidget(QWidget):
     def _on_step_status(self, message: str, level: str):
         """Forward status messages from step widgets."""
         self.status_message.emit(message, level)
+
+    def _on_project_context_switched(self, company_id: int, project_id: int):
+        """Forward project context switch signal from step widgets."""
+        self.project_context_switched.emit(company_id, project_id)
 
     def _update_from_state(self):
         """Update UI from state (after loading from project)."""

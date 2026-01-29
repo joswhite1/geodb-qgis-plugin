@@ -500,6 +500,122 @@ class ClaimsManager:
             raise
 
     # =========================================================================
+    # Proposed Claims (Admin-uploaded claims for staff workflow)
+    # =========================================================================
+
+    def get_projects_with_proposed_claims(
+        self,
+        approved_only: bool = False,
+        pending_only: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Get list of projects that have proposed claims (staff only).
+
+        Returns projects with admin-uploaded ProposedMiningClaim records
+        that need processing by staff.
+
+        Args:
+            approved_only: If True, only include claims that have been user-approved
+            pending_only: If True, only include claims that are pending approval
+
+        Returns:
+            List of project dicts with:
+                - id: int
+                - name: str
+                - company_id: int
+                - company_name: str
+                - total_claims: int
+                - approved_claims: int
+                - pending_claims: int
+
+        Raises:
+            PermissionError: If user is not staff
+            APIException: If API call fails
+        """
+        # Check if user is staff
+        access = self.check_access()
+        if not access.get('is_staff'):
+            raise PermissionError("Staff access required to view proposed claims projects")
+
+        try:
+            # Build URL with query parameters
+            params = []
+            if approved_only:
+                params.append('approved_only=true')
+            elif pending_only:
+                params.append('pending_only=true')
+
+            # Use services URL path (not claims API)
+            base = self.config.base_url
+            # Strip /api/v2 or /api/v1 to get base domain
+            if '/api/' in base:
+                base = base[:base.index('/api/')]
+            url = f"{base}/services/api/projects-with-proposed-claims/"
+            if params:
+                url += '?' + '&'.join(params)
+
+            result = self.api._make_request('GET', url)
+
+            if result.get('success'):
+                projects = result.get('projects', [])
+                self.logger.info(
+                    f"[QCLAIMS] Found {len(projects)} projects with proposed claims"
+                )
+                return projects
+            else:
+                raise APIException(result.get('error', 'Unknown error'))
+
+        except APIException as e:
+            self.logger.error(f"[QCLAIMS] Get projects with proposed claims failed: {e}")
+            raise
+
+    def get_proposed_claims(self, project_id: int) -> Dict[str, Any]:
+        """
+        Get proposed claims for a specific project (staff only).
+
+        Returns ProposedMiningClaim records as GeoJSON features.
+
+        Args:
+            project_id: Project ID to get proposed claims for
+
+        Returns:
+            Dict with:
+                - project: dict with id, name, company_id, company_name
+                - proposed_claims: list of GeoJSON Feature dicts with:
+                    - type: 'Feature'
+                    - id: int
+                    - properties: dict with claim_name, claim_type, acreage, etc.
+                    - geometry: GeoJSON geometry
+                - counts: dict with total, approved, pending
+
+        Raises:
+            PermissionError: If user is not staff and doesn't have project access
+            APIException: If API call fails
+        """
+        try:
+            # Use services URL path (not claims API)
+            base = self.config.base_url
+            # Strip /api/v2 or /api/v1 to get base domain
+            if '/api/' in base:
+                base = base[:base.index('/api/')]
+            url = f"{base}/services/api/project-proposed-claims/{project_id}/"
+
+            result = self.api._make_request('GET', url)
+
+            if result.get('success'):
+                claims = result.get('proposed_claims', [])
+                self.logger.info(
+                    f"[QCLAIMS] Retrieved {len(claims)} proposed claims for project {project_id}"
+                )
+                return result
+            else:
+                raise APIException(result.get('error', 'Unknown error'))
+
+        except APIException as e:
+            self.logger.error(f"[QCLAIMS] Get proposed claims failed for project {project_id}: {e}")
+            raise
+
+    # =========================================================================
     # Document Generation
     # =========================================================================
 
@@ -514,7 +630,8 @@ class ClaimsManager:
         claim_prefix: Optional[str] = None,
         order_id: Optional[int] = None,
         order_type: Optional[str] = None,
-        reference_points: Optional[List[Dict[str, Any]]] = None
+        reference_points: Optional[List[Dict[str, Any]]] = None,
+        claim_package_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Request document generation for processed claims.
@@ -551,6 +668,10 @@ class ClaimsManager:
                 - name: str (e.g., "Road Junction", "Section Corner")
                 - easting: float (UTM easting in meters)
                 - northing: float (UTM northing in meters)
+            claim_package_id: Optional ID of an existing ClaimPackage to add documents to.
+                When provided, documents are added to this package instead of creating
+                a new one. Use this to prevent duplicate packages when regenerating
+                documents (e.g., when the user goes back in the wizard and regenerates).
 
         Returns:
             Dict with:
@@ -595,6 +716,15 @@ class ClaimsManager:
                 self.logger.info(
                     f"[QCLAIMS] Generating documents for order fulfillment: "
                     f"{order_type} #{order_id}"
+                )
+
+            # Include existing claim_package_id to prevent duplicate packages
+            # when regenerating documents (e.g., user goes back in wizard)
+            if claim_package_id:
+                data['claim_package_id'] = claim_package_id
+                self.logger.info(
+                    f"[QCLAIMS] Using existing claim_package_id={claim_package_id} "
+                    f"to prevent duplicate package creation"
                 )
 
             result = self.api._make_request('POST', url, data=data)
@@ -699,7 +829,7 @@ class ClaimsManager:
 
             # Format waypoints as ClaimStake records
             stake_records = [
-                self._format_stake(stake, project_id)
+                self._format_stake(stake, project_id, claim_package_id)
                 for stake in stakes
             ]
 
@@ -718,10 +848,33 @@ class ClaimsManager:
 
             if stake_records:
                 # Push stakes FIRST so they exist when LandHoldings are created
-                stakes_result = self._push_stakes_individually(stake_records)
-                self.logger.info(
-                    f"[QCLAIMS] Pushed {len(stake_records)} ClaimStakes"
+                # Use bulk upsert endpoint which includes orphan cleanup logic:
+                # when claims are re-processed, sequence numbers may change due to
+                # nearest-neighbor sorting. The server's _bulk_upsert override
+                # detects and removes orphan stakes (Planned status only) that are
+                # no longer in the incoming batch.
+
+                # Debug: Log first stake record to verify format
+                if stake_records:
+                    first_stake = stake_records[0]
+                    print(f"[QCLAIMS] First stake record: {first_stake}")
+                    self.logger.info(f"[QCLAIMS] First stake: seq={first_stake.get('sequence_number')}, "
+                                     f"project={first_stake.get('project')}, "
+                                     f"claim_package={first_stake.get('claim_package')}")
+
+                stakes_result = self.api.bulk_upsert_records(
+                    'ClaimStake',
+                    stake_records
                 )
+                self.logger.info(
+                    f"[QCLAIMS] Pushed {len(stake_records)} ClaimStakes via bulk upsert"
+                )
+
+                # Debug: Log upsert result summary
+                summary = stakes_result.get('summary', {})
+                print(f"[QCLAIMS] Stakes result: created={summary.get('created')}, "
+                      f"updated={summary.get('updated')}, errors={summary.get('errors')}, "
+                      f"orphans_deleted={stakes_result.get('orphan_stakes_deleted', 0)}")
             else:
                 self.logger.warning("[QCLAIMS] No stake_records to push")
 
@@ -788,14 +941,15 @@ class ClaimsManager:
                 manual_geometry = f"POLYGON(({coord_str}))"
 
         # Build qclaims_data with all processing info
+        # Use empty lists as defaults for list fields to avoid null values
         qclaims_data = {
             'processing_id': claim.get('session_id'),
             'processed_at': claim.get('processed_at'),
             'plss': claim.get('plss'),
-            'corners': claim.get('corners'),
+            'corners': claim.get('corners') or [],
             'discovery_monument': claim.get('discovery_monument'),
-            'sideline_monuments': claim.get('sideline_monuments', []),
-            'endline_monuments': claim.get('endline_monuments', []),
+            'sideline_monuments': claim.get('sideline_monuments') or [],
+            'endline_monuments': claim.get('endline_monuments') or [],
             'calculated_acreage': claim.get('calculated_acreage'),
             'deadlines': claim.get('deadlines'),
             'state_requirements_snapshot': claim.get('state_requirements'),
@@ -819,7 +973,8 @@ class ClaimsManager:
             'qclaims_data': qclaims_data
         }
 
-    def _format_stake(self, stake: Dict[str, Any], project_id: int) -> Dict[str, Any]:
+    def _format_stake(self, stake: Dict[str, Any], project_id: int,
+                      claim_package_id: int = None) -> Dict[str, Any]:
         """Format waypoint for ClaimStake upsert.
 
         Server waypoint format (from _deduplicate_waypoints):
@@ -839,14 +994,18 @@ class ClaimsManager:
 
         ClaimStake model requires:
         - sequence_number: Waypoint reference ID (e.g., "WP 1", "LM 3")
-        - stake_type: 'WP' (corner) or 'LM' (location monument)
+        - stake_type: 'WP' (corner/witness), 'LM' (location monument), 'SL' (sideline), 'EL' (endline)
         - target_latitude, target_longitude: Planned coordinates
         """
         stake_type_value = stake.get('type', 'corner')
-        if stake_type_value in ('discovery', 'sideline', 'endline'):
+        if stake_type_value == 'discovery':
             stake_type = 'LM'  # Location Monument
+        elif stake_type_value == 'sideline':
+            stake_type = 'SL'  # Sideline Monument (Wyoming)
+        elif stake_type_value == 'endline':
+            stake_type = 'EL'  # Endline Monument (Arizona)
         else:
-            stake_type = 'WP'  # Corner Waypoint
+            stake_type = 'WP'  # Corner Waypoint (also used for witness points)
 
         # Get sequence number - server returns 'sequence_number' from _deduplicate_waypoints
         # Fall back to 'name' for backward compatibility, then construct if needed
@@ -860,7 +1019,7 @@ class ClaimsManager:
                 corner_num = stake.get('corner_number', '1')
                 sequence_number = f"WP {corner_num}"
 
-        return {
+        record = {
             'project': project_id,
             'sequence_number': sequence_number,
             'stake_type': stake_type,
@@ -873,8 +1032,25 @@ class ClaimsManager:
             # Note: ClaimStake has no 'name' field - the sequence_number IS the identifier
         }
 
+        # Scope to claim_package so multiple claim groups can coexist
+        if claim_package_id is not None:
+            record['claim_package'] = claim_package_id
+
+        return record
+
     def _push_stakes_individually(self, stake_records: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Push stakes individually (fallback if bulk doesn't exist)."""
+        """Push stakes individually (DEPRECATED - use bulk_upsert_records instead).
+
+        Note: This method does NOT trigger orphan cleanup. When claims are
+        re-processed, sequence numbers may change and this method will create
+        duplicate stakes instead of updating existing ones.
+
+        The bulk upsert endpoint (api.bulk_upsert_records('ClaimStake', ...))
+        includes orphan cleanup logic that handles this correctly.
+
+        This method is kept for backward compatibility but should not be used
+        for normal operations.
+        """
         print(f"[QCLAIMS] _push_stakes_individually called with {len(stake_records)} records")
         self.logger.info(f"[QCLAIMS] Pushing {len(stake_records)} ClaimStakes individually")
 
@@ -1056,6 +1232,78 @@ class ClaimsManager:
         except APIException as e:
             self.logger.error(f"[QCLAIMS] Update monument position failed: {e}")
             raise
+
+    # =========================================================================
+    # ClaimPackage Validation
+    # =========================================================================
+
+    def get_package_status(self, package_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Check if a ClaimPackage exists on the server and get its status.
+
+        Used to validate that a stored claim_package_id is still valid before
+        trying to reuse it. Returns package info including soft-delete status.
+
+        Args:
+            package_id: ClaimPackage ID to check
+
+        Returns:
+            Dict with package info if found:
+                - exists: True
+                - mark_deleted: bool (True if soft-deleted)
+                - package_number: str
+                - name: str
+            None if package not found (hard deleted or never existed)
+        """
+        if not package_id:
+            return None
+
+        try:
+            # Use the packages detail endpoint - include deleted packages
+            url = self._get_claims_endpoint(f'packages/{package_id}/?include_deleted=true')
+            result = self.api._make_request('GET', url)
+
+            package_info = {
+                'exists': True,
+                'mark_deleted': result.get('mark_deleted', False),
+                'package_number': result.get('package_number', ''),
+                'name': result.get('name', ''),
+            }
+            self.logger.info(
+                f"[QCLAIMS] Package {package_id} found: "
+                f"mark_deleted={package_info['mark_deleted']}"
+            )
+            return package_info
+
+        except APIException as e:
+            # 404 means package doesn't exist (hard deleted)
+            self.logger.info(
+                f"[QCLAIMS] Package {package_id} not found on server: {e}"
+            )
+            return None
+
+    def restore_package(self, package_id: int) -> bool:
+        """
+        Restore a soft-deleted ClaimPackage on the server.
+
+        Args:
+            package_id: ClaimPackage ID to restore
+
+        Returns:
+            True if restored successfully, False otherwise
+        """
+        if not package_id:
+            return False
+
+        try:
+            url = self._get_claims_endpoint(f'packages/{package_id}/restore/')
+            self.api._make_request('POST', url)
+            self.logger.info(f"[QCLAIMS] Restored package {package_id}")
+            return True
+
+        except APIException as e:
+            self.logger.error(f"[QCLAIMS] Failed to restore package {package_id}: {e}")
+            return False
 
     # =========================================================================
     # Staff ClaimPackage Pull (for incomplete packages)

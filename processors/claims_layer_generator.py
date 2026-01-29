@@ -27,7 +27,7 @@ from qgis.core import (
     QgsSimpleLineSymbolLayer, QgsPalLayerSettings, QgsTextFormat,
     QgsVectorLayerSimpleLabeling, QgsMessageLog, Qgis
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor, QFont
 
 from ..utils.logger import PluginLogger
@@ -180,9 +180,10 @@ class ClaimsLayerGenerator:
 
             server_claims.append({
                 'name': claim['name'],
-                'geometry_wkt': geometry_wkt,  # WKT with 2 decimal precision
+                'geometry_wkt': geometry_wkt,  # WKT with 8 decimal precision
                 'epsg': epsg,  # Explicit EPSG for coordinate interpretation
-                'lm_corner': claim.get('lm_corner', 1)
+                'lm_corner': claim.get('lm_corner', 1),
+                'notes': claim.get('notes', '')  # Per-claim notes for location notices
             })
 
         # Call server API
@@ -238,16 +239,16 @@ class ClaimsLayerGenerator:
                     self.LODE_CLAIMS_LAYER,
                     crs,
                     [
-                        ("FID", QVariant.Int),
-                        ("Name", QVariant.String),
-                        ("LM Corner", QVariant.Int),
-                        ("Manual FID", QVariant.Int),
-                        ("Notes", QVariant.String),
-                        ("Lode_Azimuth", QVariant.Double),
-                        ("Dimensions", QVariant.String),
-                        ("Corner 1", QVariant.String),
-                        ("State", QVariant.String),
-                        ("County", QVariant.String),
+                        ("FID", QMetaType.Type.Int),
+                        ("Name", QMetaType.Type.QString),
+                        ("LM Corner", QMetaType.Type.Int),
+                        ("Manual FID", QMetaType.Type.Int),
+                        ("Notes", QMetaType.Type.QString),
+                        ("Lode_Azimuth", QMetaType.Type.Double),
+                        ("Dimensions", QMetaType.Type.QString),
+                        ("Corner 1", QMetaType.Type.QString),
+                        ("State", QMetaType.Type.QString),
+                        ("County", QMetaType.Type.QString),
                     ]
                 )
                 if layer:
@@ -309,10 +310,10 @@ class ClaimsLayerGenerator:
                     self.CORNER_POINTS_LAYER,
                     crs,
                     [
-                        ("Corner #", QVariant.Int),
-                        ("Claim", QVariant.String),
-                        ("Easting", QVariant.Double),
-                        ("Northing", QVariant.Double),
+                        ("Corner #", QMetaType.Type.Int),
+                        ("Claim", QMetaType.Type.QString),
+                        ("Easting", QMetaType.Type.Double),
+                        ("Northing", QMetaType.Type.Double),
                     ]
                 )
                 if layer:
@@ -353,10 +354,10 @@ class ClaimsLayerGenerator:
                     self.LM_CORNERS_LAYER,
                     crs,
                     [
-                        ("Corner #", QVariant.Int),
-                        ("Claim", QVariant.String),
-                        ("Easting", QVariant.Double),
-                        ("Northing", QVariant.Double),
+                        ("Corner #", QMetaType.Type.Int),
+                        ("Claim", QMetaType.Type.QString),
+                        ("Easting", QMetaType.Type.Double),
+                        ("Northing", QMetaType.Type.Double),
                     ]
                 )
                 if layer:
@@ -394,7 +395,7 @@ class ClaimsLayerGenerator:
                 layer = self._create_line_layer(
                     self.CENTERLINES_LAYER,
                     crs,
-                    [("Name", QVariant.String)]
+                    [("Name", QMetaType.Type.QString)]
                 )
                 if layer:
                     features = []
@@ -433,10 +434,10 @@ class ClaimsLayerGenerator:
                     self.MONUMENTS_LAYER,
                     crs,
                     [
-                        ("Claim", QVariant.String),
-                        ("Name", QVariant.String),
-                        ("Easting", QVariant.Double),
-                        ("Northing", QVariant.Double),
+                        ("Claim", QMetaType.Type.QString),
+                        ("Name", QMetaType.Type.QString),
+                        ("Easting", QMetaType.Type.Double),
+                        ("Northing", QMetaType.Type.Double),
                     ]
                 )
                 if layer:
@@ -474,10 +475,10 @@ class ClaimsLayerGenerator:
                     self.SIDELINE_MONUMENTS_LAYER,
                     crs,
                     [
-                        ("Claim", QVariant.String),
-                        ("Name", QVariant.String),
-                        ("Easting", QVariant.Double),
-                        ("Northing", QVariant.Double),
+                        ("Claim", QMetaType.Type.QString),
+                        ("Name", QMetaType.Type.QString),
+                        ("Easting", QMetaType.Type.Double),
+                        ("Northing", QMetaType.Type.Double),
                     ]
                 )
                 if layer:
@@ -515,10 +516,10 @@ class ClaimsLayerGenerator:
                     self.ENDLINE_MONUMENTS_LAYER,
                     crs,
                     [
-                        ("Claim", QVariant.String),
-                        ("Name", QVariant.String),
-                        ("Easting", QVariant.Double),
-                        ("Northing", QVariant.Double),
+                        ("Claim", QMetaType.Type.QString),
+                        ("Name", QMetaType.Type.QString),
+                        ("Easting", QMetaType.Type.Double),
+                        ("Northing", QMetaType.Type.Double),
                     ]
                 )
                 if layer:
@@ -607,9 +608,10 @@ class ClaimsLayerGenerator:
 
             server_claims.append({
                 'name': claim['name'],
-                'geometry_wkt': geometry_wkt,  # WKT with 2 decimal precision
+                'geometry_wkt': geometry_wkt,  # WKT with 8 decimal precision
                 'epsg': epsg,  # Explicit EPSG for coordinate interpretation
-                'lm_corner': lm_corner
+                'lm_corner': lm_corner,
+                'notes': claim.get('notes', '')  # Per-claim notes for location notices
             })
             self.logger.debug(f"[CLAIMS DEBUG] Claim '{claim['name']}': lm_corner={lm_corner}, wkt_len={len(geometry_wkt)}")
 
@@ -730,7 +732,8 @@ class ClaimsLayerGenerator:
                 'name': claim['name'],
                 'geometry_wkt': geometry_wkt,
                 'epsg': epsg,
-                'lm_corner': lm_corner
+                'lm_corner': lm_corner,
+                'notes': claim.get('notes', '')  # Per-claim notes for location notices
             })
 
         self.logger.info(f"[CLAIMS DEBUG] Sending {len(server_claims)} claims to server (batch), monument_inset_ft={self.monument_inset_ft}")
@@ -1007,13 +1010,22 @@ class ClaimsLayerGenerator:
             elif claims_layer.fields().indexOf('State') >= 0:
                 state = feature.attribute('State')
 
+            # Get notes if available (for location notices)
+            notes = None
+            for field_name in ['notes', 'Notes', 'NOTES']:
+                idx = claims_layer.fields().indexOf(field_name)
+                if idx >= 0:
+                    notes = feature.attribute(idx)
+                    break
+
             claims_data.append({
                 'name': name,
                 'corners': corners[:4],  # Only first 4 corners
                 'lm_corner': int(lm_corner),
                 'geometry': geom,
                 'state': state,
-                'feature_id': feature.id()
+                'feature_id': feature.id(),
+                'notes': str(notes) if notes else ''  # Per-claim notes for location notices
             })
 
         return claims_data
@@ -1033,7 +1045,7 @@ class ClaimsLayerGenerator:
         self,
         name: str,
         crs: QgsCoordinateReferenceSystem,
-        fields: List[Tuple[str, QVariant.Type]]
+        fields: List[Tuple[str, QMetaType.Type]]
     ) -> Optional[QgsVectorLayer]:
         """Create a point layer with the given fields."""
         qgs_fields = QgsFields()
@@ -1067,7 +1079,7 @@ class ClaimsLayerGenerator:
         self,
         name: str,
         crs: QgsCoordinateReferenceSystem,
-        fields: List[Tuple[str, QVariant.Type]]
+        fields: List[Tuple[str, QMetaType.Type]]
     ) -> Optional[QgsVectorLayer]:
         """Create a line layer with the given fields."""
         qgs_fields = QgsFields()
@@ -1101,7 +1113,7 @@ class ClaimsLayerGenerator:
         self,
         name: str,
         crs: QgsCoordinateReferenceSystem,
-        fields: List[Tuple[str, QVariant.Type]]
+        fields: List[Tuple[str, QMetaType.Type]]
     ) -> Optional[QgsVectorLayer]:
         """
         Create a polygon layer with the given fields.

@@ -37,6 +37,9 @@ class ClaimsStepBase(QWidget):
     validation_changed = pyqtSignal()
     step_completed = pyqtSignal()
     status_message = pyqtSignal(str, str)  # (message, level: 'info'/'warning'/'error')
+    # Signal emitted when project context changes (for main dialog to update dropdowns)
+    # Emits: (company_id: int, project_id: int)
+    project_context_switched = pyqtSignal(int, int)
 
     def __init__(
         self,

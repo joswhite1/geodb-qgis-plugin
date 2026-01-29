@@ -280,35 +280,13 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         return group
 
     def _create_action_buttons(self) -> QWidget:
-        """Create the action buttons for applying changes and resetting layers."""
+        """Create the action buttons for resetting layers."""
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 16, 0, 0)
         layout.setSpacing(12)
 
         layout.addStretch()
-
-        # Apply Changes button (blue) - recalculates based on user modifications
-        self.apply_changes_btn = QPushButton("Apply Changes")
-        self.apply_changes_btn.setToolTip(
-            "Recalculate all layers based on your current modifications.\n"
-            "This preserves your LM corner selections and monument adjustments."
-        )
-        self.apply_changes_btn.setStyleSheet("""
-            QPushButton {
-                padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-        """)
-        self.apply_changes_btn.clicked.connect(self._on_apply_changes_clicked)
-        layout.addWidget(self.apply_changes_btn)
 
         # Reset All Layers button (red) - resets to original defaults
         self.reset_btn = QPushButton("Reset All Layers")
@@ -356,7 +334,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
                 "2. The centerline layer shows the valid range for monument placement\n"
                 "3. For Wyoming: sideline monuments are at the center of the long sides\n"
                 "4. For Arizona: endline monuments are at the center of the short sides\n\n"
-                "After adjusting, click 'Apply Changes' to recalculate dependent layers.\n"
+                "Your adjusted monument positions will be used when generating documents in Step 6.\n"
                 "Use 'Reset All Layers' only if you want to discard all changes and start over."
             )
             self.lm_corner_group.setVisible(False)
@@ -501,6 +479,9 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
                 "You can now adjust monument positions in the map view."
             )
 
+            # Store monument layer IDs in state for reading in Step 6
+            self._store_monument_layer_references()
+
             # Re-detect state from generated Lode Claims layer (has State field from server)
             lode_claims = self.generated_layers.get(ClaimsLayerGenerator.LODE_CLAIMS_LAYER)
             if _is_layer_valid(lode_claims):
@@ -525,6 +506,34 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             if state:
                 return state
         return None
+
+    def _store_monument_layer_references(self):
+        """
+        Store monument layer IDs in state for later reading in Step 6.
+
+        This allows Step 6 (Finalize) to read user-adjusted monument positions
+        from the QGIS layers and merge them into the document generation request.
+        """
+        if not self.generated_layers:
+            return
+
+        # Store discovery monuments layer
+        monuments = self.generated_layers.get(ClaimsLayerGenerator.MONUMENTS_LAYER)
+        if monuments and _is_layer_valid(monuments):
+            self.state.monuments_layer_id = monuments.id()
+            self.logger.info(f"[CLAIMS] Stored monuments_layer_id: {monuments.id()}")
+
+        # Store sideline monuments layer (Wyoming)
+        sideline = self.generated_layers.get(ClaimsLayerGenerator.SIDELINE_MONUMENTS_LAYER)
+        if sideline and _is_layer_valid(sideline):
+            self.state.sideline_monuments_layer_id = sideline.id()
+            self.logger.info(f"[CLAIMS] Stored sideline_monuments_layer_id: {sideline.id()}")
+
+        # Store endline monuments layer (Arizona)
+        endline = self.generated_layers.get(ClaimsLayerGenerator.ENDLINE_MONUMENTS_LAYER)
+        if endline and _is_layer_valid(endline):
+            self.state.endline_monuments_layer_id = endline.id()
+            self.logger.info(f"[CLAIMS] Stored endline_monuments_layer_id: {endline.id()}")
 
     def _on_apply_lm_corners(self):
         """Apply LM corner changes via server API."""
@@ -648,94 +657,6 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
                 "Update Failed",
                 "Failed to apply LM corner changes. Please try again."
             )
-
-    def _on_apply_changes_clicked(self):
-        """
-        Apply user changes by recalculating layers based on current modifications.
-
-        This reads the current LM corner values from the claims layer and
-        regenerates all derived layers (corners, centerlines, monuments) while
-        preserving the user's adjustments.
-        """
-        claims_layer = self.state.claims_layer
-        if not claims_layer:
-            QMessageBox.warning(
-                self,
-                "No Claims Layer",
-                "No claims layer found. Please go back to Step 2."
-            )
-            return
-
-        # Update status
-        self.status_label.setText("Applying changes...")
-        self.status_detail.setText("Recalculating layers based on your modifications...")
-        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
-
-        # Configure generator
-        self.layer_generator.set_monument_inset(self.state.monument_inset_ft)
-        self.layer_generator.set_claims_manager(self.claims_manager)
-
-        if self.state.geopackage_path:
-            self.layer_generator.set_geopackage_path(self.state.geopackage_path)
-
-        # Extract project name from claims layer for layer naming
-        project_name = None
-        layer_name = claims_layer.name()
-        if '[' in layer_name and ']' in layer_name:
-            start = layer_name.find('[') + 1
-            end = layer_name.find(']')
-            project_name = layer_name[start:end]
-        self.layer_generator.set_project_name(project_name)
-
-        # Detect state
-        state = self._detect_state(claims_layer)
-
-        # Generate layers via server API using CURRENT claim geometries
-        # This preserves any rotations/changes the user has made
-        try:
-            self.generated_layers = self.layer_generator.generate_layers_from_server(
-                claims_layer,
-                state=state
-            )
-        except Exception as e:
-            self.status_label.setText("Failed to apply changes!")
-            self.status_detail.setText(
-                f"Server connection required. Error: {e}\n\n"
-                "Please check your internet connection and ensure you are logged in."
-            )
-            QMessageBox.warning(
-                self,
-                "Apply Changes Failed",
-                f"Failed to recalculate layers: {e}\n\n"
-                "Server connection is required for this operation."
-            )
-            return
-
-        if self.generated_layers:
-            # Add layers to project (replaces existing)
-            self.layer_generator.add_layers_to_project(
-                self.generated_layers,
-                group_name="Claims Workflow"
-            )
-
-            self._layers_generated = True
-            self.status_label.setText(f"Applied changes - {len(self.generated_layers)} layers updated!")
-            self.status_detail.setText(
-                "Layers have been recalculated based on your current modifications."
-            )
-
-            # Re-detect state from generated Lode Claims layer (has State field from server)
-            lode_claims = self.generated_layers.get(ClaimsLayerGenerator.LODE_CLAIMS_LAYER)
-            if _is_layer_valid(lode_claims):
-                state = self._detect_state(lode_claims)
-
-            # Update UI
-            self._update_layers_table()
-            self._update_instructions(state)
-            self._update_lm_corner_table()
-        else:
-            self.status_label.setText("Failed to apply changes!")
-            self.status_detail.setText("Check that your claims layer has valid polygon geometries.")
 
     def _on_reset_clicked(self):
         """
@@ -871,6 +792,9 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             self._layers_generated = True
             self._update_layers_table()
 
+            # Store monument layer IDs in state for reading in Step 6
+            self._store_monument_layer_references()
+
             # Detect state from generated Lode Claims layer (has State field from server)
             # Fall back to original claims layer if Lode Claims not available
             lode_claims = existing.get(ClaimsLayerGenerator.LODE_CLAIMS_LAYER)
@@ -883,5 +807,5 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             self.status_label.setText(f"Found {len(existing)} existing layers")
             self.status_detail.setText(
                 "Layers from a previous session were found. "
-                "Click 'Regenerate All Layers' to reset them."
+                "Click 'Reset All Layers' to regenerate them."
             )

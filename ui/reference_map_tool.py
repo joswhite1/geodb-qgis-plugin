@@ -22,7 +22,7 @@ from qgis.core import (
     QgsCoordinateTransform, QgsVectorLayer, QgsFeature,
     QgsGeometry, QgsField, QgsFields, QgsWkbTypes
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.gui import QgsMapToolEmitPoint, QgsVertexMarker, QgsMapCanvas
 
 if TYPE_CHECKING:
@@ -789,10 +789,10 @@ class ReferencePointsWidget(QWidget):
 
             # Add fields
             fields = QgsFields()
-            fields.append(QgsField("name", QVariant.String, len=255))
-            fields.append(QgsField("easting", QVariant.Double))
-            fields.append(QgsField("northing", QVariant.Double))
-            fields.append(QgsField("epsg", QVariant.Int))
+            fields.append(QgsField("name", QMetaType.Type.QString, len=255))
+            fields.append(QgsField("easting", QMetaType.Type.Double))
+            fields.append(QgsField("northing", QMetaType.Type.Double))
+            fields.append(QgsField("epsg", QMetaType.Type.Int))
             layer.dataProvider().addAttributes(fields.toList())
             layer.updateFields()
 

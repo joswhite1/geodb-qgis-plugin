@@ -24,7 +24,7 @@ from qgis.core import (
     QgsCoordinateTransform, QgsMarkerSymbol, QgsCategorizedSymbolRenderer,
     QgsRendererCategory
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 
 from .step_base import ClaimsStepBase
 
@@ -68,6 +68,37 @@ class ClaimsStep6Widget(ClaimsStepBase):
             from ...processors.grid_processor import GridProcessor
             self._grid_processor = GridProcessor()
         return self._grid_processor
+
+    def _get_lode_claims_layer(self) -> Optional[QgsVectorLayer]:
+        """
+        Find the Lode Claims layer in the current project.
+
+        The Lode Claims layer is created by Step 5 (ClaimsLayerGenerator) and contains
+        the "Notes" field that users edit for location notices. This layer should be
+        preferred over the original input layer when extracting claim data.
+
+        Returns:
+            The Lode Claims layer if found, None otherwise.
+        """
+        from qgis.core import QgsProject
+        from ...processors.claims_layer_generator import ClaimsLayerGenerator
+
+        project = QgsProject.instance()
+
+        # Look for layers matching the Lode Claims naming pattern
+        # The layer might have a project suffix like "Lode Claims [Project Name]"
+        base_name = ClaimsLayerGenerator.LODE_CLAIMS_LAYER  # "Lode Claims"
+
+        for layer in project.mapLayers().values():
+            if isinstance(layer, QgsVectorLayer):
+                layer_name = layer.name()
+                # Match exact name or name with suffix (e.g., "Lode Claims [MAUD Lode Claims]")
+                if layer_name == base_name or layer_name.startswith(f"{base_name} ["):
+                    if layer.isValid() and layer.featureCount() > 0:
+                        self.logger.info(f"[Step6] Using Lode Claims layer: {layer_name}")
+                        return layer
+
+        return None
 
     def _setup_ui(self):
         """Set up the step UI."""
@@ -359,7 +390,9 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
     def _process_claims(self):
         """Process claims on the server."""
-        layer = self.state.claims_layer
+        # Prefer the Lode Claims layer (created in Step 5) over the original input layer.
+        # The Lode Claims layer has the "Notes" field that users edit for location notices.
+        layer = self._get_lode_claims_layer() or self.state.claims_layer
         if not layer:
             QMessageBox.warning(self, "No Layer", "Please select a claims layer first.")
             return
@@ -446,8 +479,11 @@ class ClaimsStep6Widget(ClaimsStepBase):
             self.state.processed_claims = result.get('claims', [])
             self.state.processed_waypoints = result.get('waypoints', [])
 
-            # Create QGIS layers from results
-            self._create_result_layers()
+            # NOTE: Waypoints layer is NOT created here. It is created after
+            # document generation, which merges user-adjusted monument positions
+            # (from Step 5) into the waypoints. Creating the layer here would
+            # use the server's default monument positions, ignoring any manual
+            # adjustments the user made to discovery monuments.
 
             self.progress_bar.setValue(100)
 
@@ -654,16 +690,16 @@ class ClaimsStep6Widget(ClaimsStepBase):
             # Define fields to match QClaims Waypoints layer format
             # This enables GPX export compatibility and proper field navigation
             fields = QgsFields()
-            fields.append(QgsField("No", QVariant.Int))  # Sequential number (1, 2, 3...)
-            fields.append(QgsField("Name", QVariant.String))  # "WP 1", "LM 3", "SL 2", etc.
-            fields.append(QgsField("Latitude", QVariant.Double))  # WGS84 latitude
-            fields.append(QgsField("Longitude", QVariant.Double))  # WGS84 longitude
-            fields.append(QgsField("Altitude", QVariant.Double))  # Always 0
-            fields.append(QgsField("Symbol", QVariant.String))  # GPX symbol: "City (Medium)", "Navaid, Green"
-            fields.append(QgsField("Date", QVariant.String))  # Generation date
-            fields.append(QgsField("Time", QVariant.String))  # "00:00:00"
-            fields.append(QgsField("waypoint_type", QVariant.String))  # For styling: corner, discovery, etc.
-            fields.append(QgsField("claim", QVariant.String))  # Associated claim name(s)
+            fields.append(QgsField("No", QMetaType.Type.Int))  # Sequential number (1, 2, 3...)
+            fields.append(QgsField("Name", QMetaType.Type.QString))  # "WP 1", "LM 3", "SL 2", etc.
+            fields.append(QgsField("Latitude", QMetaType.Type.Double))  # WGS84 latitude
+            fields.append(QgsField("Longitude", QMetaType.Type.Double))  # WGS84 longitude
+            fields.append(QgsField("Altitude", QMetaType.Type.Double))  # Always 0
+            fields.append(QgsField("Symbol", QMetaType.Type.QString))  # GPX symbol: "City (Medium)", "Navaid, Green"
+            fields.append(QgsField("Date", QMetaType.Type.QString))  # Generation date
+            fields.append(QgsField("Time", QMetaType.Type.QString))  # "00:00:00"
+            fields.append(QgsField("waypoint_type", QMetaType.Type.QString))  # For styling: corner, discovery, etc.
+            fields.append(QgsField("claim", QMetaType.Type.QString))  # Associated claim name(s)
 
             # Use GeoPackage if configured, otherwise memory layer
             using_geopackage = bool(self.state.geopackage_path)
@@ -887,6 +923,349 @@ class ClaimsStep6Widget(ClaimsStepBase):
             pass
 
     # =========================================================================
+    # Monument Position Helpers
+    # =========================================================================
+
+    def _transform_to_wgs84(self, easting: float, northing: float, source_crs) -> tuple:
+        """
+        Convert UTM coordinates to WGS84 lat/lon.
+
+        Args:
+            easting: UTM easting coordinate
+            northing: UTM northing coordinate
+            source_crs: Source CRS (QgsCoordinateReferenceSystem)
+
+        Returns:
+            Tuple of (lat, lon) in WGS84
+        """
+        if not source_crs:
+            return 0.0, 0.0
+
+        wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
+        transform = QgsCoordinateTransform(source_crs, wgs84, QgsProject.instance())
+        point = transform.transform(easting, northing)
+        return point.y(), point.x()  # lat, lon
+
+    def _read_monument_positions_from_layers(self) -> Dict[str, Dict]:
+        """
+        Read current monument positions from QGIS layers.
+
+        This reads user-adjusted monument positions from the QGIS layers
+        created in Step 5. These positions may differ from the server-calculated
+        defaults if the user has dragged monuments to new positions.
+
+        Returns:
+            Dict keyed by claim name with monument data including both
+            UTM (easting/northing) and WGS84 (lat/lon) coordinates.
+        """
+        monuments_by_claim = {}
+
+        # Get source CRS from claims layer for coordinate transforms
+        source_crs = None
+        if self.state.claims_layer and self.state.claims_layer.isValid():
+            source_crs = self.state.claims_layer.crs()
+
+        # Read discovery monuments
+        monuments_layer = self.state.monuments_layer
+        if monuments_layer and monuments_layer.isValid():
+            self.logger.info(f"[CLAIMS] Reading {monuments_layer.featureCount()} discovery monuments from layer")
+            for feature in monuments_layer.getFeatures():
+                claim_name = feature['Claim']
+                geom = feature.geometry()
+                if geom.isEmpty():
+                    continue
+                point = geom.asPoint()
+
+                # Transform to WGS84
+                lat, lon = self._transform_to_wgs84(point.x(), point.y(), source_crs)
+
+                if claim_name not in monuments_by_claim:
+                    monuments_by_claim[claim_name] = {}
+
+                monuments_by_claim[claim_name]['discovery_monument'] = {
+                    'easting': round(point.x(), 8),
+                    'northing': round(point.y(), 8),
+                    'lat': round(lat, 7),
+                    'lon': round(lon, 7),
+                    'type': 'discovery'
+                }
+                self.logger.debug(
+                    f"[CLAIMS] Read discovery monument for {claim_name}: "
+                    f"E={point.x():.2f}, N={point.y():.2f}"
+                )
+
+        # Read sideline monuments (Wyoming)
+        sideline_layer = self.state.sideline_monuments_layer
+        if sideline_layer and sideline_layer.isValid():
+            self.logger.info(f"[CLAIMS] Reading {sideline_layer.featureCount()} sideline monuments from layer")
+            for feature in sideline_layer.getFeatures():
+                claim_name = feature['Claim']
+                mon_name = feature['Name']
+                geom = feature.geometry()
+                if geom.isEmpty():
+                    continue
+                point = geom.asPoint()
+
+                lat, lon = self._transform_to_wgs84(point.x(), point.y(), source_crs)
+
+                if claim_name not in monuments_by_claim:
+                    monuments_by_claim[claim_name] = {}
+                if 'sideline_monuments' not in monuments_by_claim[claim_name]:
+                    monuments_by_claim[claim_name]['sideline_monuments'] = []
+
+                monuments_by_claim[claim_name]['sideline_monuments'].append({
+                    'name': mon_name,
+                    'easting': round(point.x(), 8),
+                    'northing': round(point.y(), 8),
+                    'lat': round(lat, 7),
+                    'lon': round(lon, 7),
+                    'type': 'sideline'
+                })
+
+        # Read endline monuments (Arizona)
+        endline_layer = self.state.endline_monuments_layer
+        if endline_layer and endline_layer.isValid():
+            self.logger.info(f"[CLAIMS] Reading {endline_layer.featureCount()} endline monuments from layer")
+            for feature in endline_layer.getFeatures():
+                claim_name = feature['Claim']
+                mon_name = feature['Name']
+                geom = feature.geometry()
+                if geom.isEmpty():
+                    continue
+                point = geom.asPoint()
+
+                lat, lon = self._transform_to_wgs84(point.x(), point.y(), source_crs)
+
+                if claim_name not in monuments_by_claim:
+                    monuments_by_claim[claim_name] = {}
+                if 'endline_monuments' not in monuments_by_claim[claim_name]:
+                    monuments_by_claim[claim_name]['endline_monuments'] = []
+
+                monuments_by_claim[claim_name]['endline_monuments'].append({
+                    'name': mon_name,
+                    'easting': round(point.x(), 8),
+                    'northing': round(point.y(), 8),
+                    'lat': round(lat, 7),
+                    'lon': round(lon, 7),
+                    'type': 'endline'
+                })
+
+        return monuments_by_claim
+
+    def _merge_adjusted_monuments(self, claims: List[Dict], adjusted: Dict[str, Dict]) -> List[Dict]:
+        """
+        Merge user-adjusted monument positions into processed claims.
+
+        Args:
+            claims: List of processed claim dicts from server
+            adjusted: Dict keyed by claim name with adjusted monument data
+
+        Returns:
+            New list of claims with monument positions updated from QGIS layers
+        """
+        if not adjusted:
+            return claims
+
+        merged_claims = []
+        for claim in claims:
+            claim_copy = dict(claim)
+            claim_name = claim.get('name')
+
+            if claim_name in adjusted:
+                adj = adjusted[claim_name]
+
+                # Merge discovery monument
+                if 'discovery_monument' in adj:
+                    original = claim_copy.get('discovery_monument', {})
+                    self.logger.info(
+                        f"[CLAIMS] Merging adjusted discovery monument for {claim_name}: "
+                        f"original E={original.get('easting', 0):.2f} -> new E={adj['discovery_monument']['easting']:.2f}"
+                    )
+                    claim_copy['discovery_monument'] = adj['discovery_monument']
+
+                # Merge sideline monuments
+                if 'sideline_monuments' in adj:
+                    self.logger.info(
+                        f"[CLAIMS] Merging {len(adj['sideline_monuments'])} adjusted sideline monuments for {claim_name}"
+                    )
+                    claim_copy['sideline_monuments'] = adj['sideline_monuments']
+
+                # Merge endline monuments
+                if 'endline_monuments' in adj:
+                    self.logger.info(
+                        f"[CLAIMS] Merging {len(adj['endline_monuments'])} adjusted endline monuments for {claim_name}"
+                    )
+                    claim_copy['endline_monuments'] = adj['endline_monuments']
+
+            merged_claims.append(claim_copy)
+
+        return merged_claims
+
+    def _merge_adjusted_monuments_into_waypoints(
+        self,
+        waypoints: List[Dict],
+        adjusted: Dict[str, Dict]
+    ) -> List[Dict]:
+        """
+        Merge user-adjusted monument positions into processed waypoints.
+
+        When users drag monuments in QGIS layers (Step 5), the waypoint data
+        needs to be updated to reflect the new positions. This ensures:
+        - GPX exports use the adjusted coordinates
+        - Waypoints layer shows correct positions
+        - Server push sends the updated positions
+
+        Args:
+            waypoints: List of waypoint dicts from server
+            adjusted: Dict keyed by claim name with adjusted monument data
+
+        Returns:
+            New list of waypoints with monument positions updated
+        """
+        if not adjusted:
+            return waypoints
+
+        merged_waypoints = []
+        for wp in waypoints:
+            wp_copy = dict(wp)
+            wp_type = wp.get('type', '')
+            claim_name = wp.get('claim', '') or wp.get('claim_name', '')
+
+            # Only update monument waypoints (not corners)
+            if wp_type in ('discovery', 'sideline', 'endline') and claim_name in adjusted:
+                adj = adjusted[claim_name]
+
+                if wp_type == 'discovery' and 'discovery_monument' in adj:
+                    mon = adj['discovery_monument']
+                    self.logger.info(
+                        f"[CLAIMS] Updating discovery waypoint for {claim_name}: "
+                        f"lat={mon.get('lat'):.7f}, lon={mon.get('lon'):.7f}"
+                    )
+                    wp_copy['lat'] = mon.get('lat', wp_copy.get('lat'))
+                    wp_copy['lon'] = mon.get('lon', wp_copy.get('lon'))
+                    wp_copy['easting'] = mon.get('easting', wp_copy.get('easting'))
+                    wp_copy['northing'] = mon.get('northing', wp_copy.get('northing'))
+
+                elif wp_type == 'sideline' and 'sideline_monuments' in adj:
+                    # Match by name to find the correct sideline monument
+                    wp_name = wp.get('name', '') or wp.get('sequence_number', '')
+                    for mon in adj['sideline_monuments']:
+                        if mon.get('name') == wp_name:
+                            self.logger.info(
+                                f"[CLAIMS] Updating sideline waypoint {wp_name} for {claim_name}"
+                            )
+                            wp_copy['lat'] = mon.get('lat', wp_copy.get('lat'))
+                            wp_copy['lon'] = mon.get('lon', wp_copy.get('lon'))
+                            wp_copy['easting'] = mon.get('easting', wp_copy.get('easting'))
+                            wp_copy['northing'] = mon.get('northing', wp_copy.get('northing'))
+                            break
+
+                elif wp_type == 'endline' and 'endline_monuments' in adj:
+                    # Match by name to find the correct endline monument
+                    wp_name = wp.get('name', '') or wp.get('sequence_number', '')
+                    for mon in adj['endline_monuments']:
+                        if mon.get('name') == wp_name:
+                            self.logger.info(
+                                f"[CLAIMS] Updating endline waypoint {wp_name} for {claim_name}"
+                            )
+                            wp_copy['lat'] = mon.get('lat', wp_copy.get('lat'))
+                            wp_copy['lon'] = mon.get('lon', wp_copy.get('lon'))
+                            wp_copy['easting'] = mon.get('easting', wp_copy.get('easting'))
+                            wp_copy['northing'] = mon.get('northing', wp_copy.get('northing'))
+                            break
+
+            merged_waypoints.append(wp_copy)
+
+        return merged_waypoints
+
+    def _update_waypoints_layer_positions(self, adjusted: Dict[str, Dict]):
+        """
+        Update the Claims Waypoints layer with adjusted monument positions.
+
+        When monuments are moved in the monument layers, this method updates
+        the corresponding waypoint features in the Claims Waypoints layer
+        so the visual display matches the adjusted positions.
+
+        Args:
+            adjusted: Dict keyed by claim name with adjusted monument data
+        """
+        # Find the waypoints layer
+        waypoints_layer = None
+        if self.state.waypoints_layer_id:
+            waypoints_layer = QgsProject.instance().mapLayer(self.state.waypoints_layer_id)
+
+        if not waypoints_layer:
+            # Try to find by name
+            for layer in QgsProject.instance().mapLayers().values():
+                if isinstance(layer, QgsVectorLayer) and layer.name().startswith("Claims Waypoints"):
+                    waypoints_layer = layer
+                    break
+
+        if not waypoints_layer or not waypoints_layer.isValid():
+            self.logger.debug("[CLAIMS] No waypoints layer found to update")
+            return
+
+        # Start editing the layer
+        was_editing = waypoints_layer.isEditable()
+        if not was_editing:
+            waypoints_layer.startEditing()
+
+        try:
+            for feature in waypoints_layer.getFeatures():
+                wp_type = feature['waypoint_type'] if 'waypoint_type' in feature.fields().names() else ''
+                claim_name = feature['claim'] if 'claim' in feature.fields().names() else ''
+
+                # Only update monument waypoints
+                if wp_type not in ('discovery', 'sideline', 'endline'):
+                    continue
+
+                if claim_name not in adjusted:
+                    continue
+
+                adj = adjusted[claim_name]
+                new_coords = None
+
+                if wp_type == 'discovery' and 'discovery_monument' in adj:
+                    mon = adj['discovery_monument']
+                    new_coords = (mon.get('easting'), mon.get('northing'))
+
+                elif wp_type == 'sideline' and 'sideline_monuments' in adj:
+                    wp_name = feature['Name']
+                    for mon in adj['sideline_monuments']:
+                        if mon.get('name') == wp_name:
+                            new_coords = (mon.get('easting'), mon.get('northing'))
+                            break
+
+                elif wp_type == 'endline' and 'endline_monuments' in adj:
+                    wp_name = feature['Name']
+                    for mon in adj['endline_monuments']:
+                        if mon.get('name') == wp_name:
+                            new_coords = (mon.get('easting'), mon.get('northing'))
+                            break
+
+                if new_coords and new_coords[0] and new_coords[1]:
+                    new_geom = QgsGeometry.fromPointXY(QgsPointXY(new_coords[0], new_coords[1]))
+                    waypoints_layer.changeGeometry(feature.id(), new_geom)
+                    self.logger.debug(
+                        f"[CLAIMS] Updated waypoint {feature['Name']} geometry to "
+                        f"({new_coords[0]:.2f}, {new_coords[1]:.2f})"
+                    )
+
+            # Commit changes
+            if not was_editing:
+                waypoints_layer.commitChanges()
+            else:
+                # Layer was already being edited, just trigger a refresh
+                waypoints_layer.triggerRepaint()
+
+            self.logger.info("[CLAIMS] Updated waypoints layer with adjusted monument positions")
+
+        except Exception as e:
+            self.logger.error(f"[CLAIMS] Failed to update waypoints layer: {e}")
+            if not was_editing:
+                waypoints_layer.rollBack()
+
+    # =========================================================================
     # Document Methods
     # =========================================================================
 
@@ -906,6 +1285,84 @@ class ClaimsStep6Widget(ClaimsStepBase):
         # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
+            self.progress_bar.setValue(5)
+
+            # Validate that the stored claim_package_id still exists on the server.
+            # Handle three cases:
+            # 1. Package exists and is active -> reuse it
+            # 2. Package exists but is soft-deleted -> restore it and reuse
+            # 3. Package doesn't exist (hard deleted) -> clear ID, let server create new
+            if self.state.claim_package_id:
+                package_status = self.claims_manager.get_package_status(
+                    self.state.claim_package_id
+                )
+
+                if package_status is None:
+                    # Package was hard deleted - clear the stale ID
+                    self.logger.info(
+                        f"[QCLAIMS] Stored claim_package_id={self.state.claim_package_id} "
+                        f"no longer exists on server. Clearing stale ID."
+                    )
+                    self.state.claim_package_id = None
+                    self.state.save_to_geopackage()
+
+                elif package_status.get('mark_deleted'):
+                    # Package exists but is soft-deleted - restore it
+                    self.logger.info(
+                        f"[QCLAIMS] Package {self.state.claim_package_id} is soft-deleted. "
+                        f"Restoring..."
+                    )
+                    if self.claims_manager.restore_package(self.state.claim_package_id):
+                        self.logger.info(
+                            f"[QCLAIMS] Successfully restored package "
+                            f"{self.state.claim_package_id}"
+                        )
+                    else:
+                        # Restore failed - clear ID and let server create new
+                        self.logger.warning(
+                            f"[QCLAIMS] Failed to restore package "
+                            f"{self.state.claim_package_id}. Clearing stale ID."
+                        )
+                        self.state.claim_package_id = None
+                        self.state.save_to_geopackage()
+
+            self.progress_bar.setValue(10)
+
+            # Read user-adjusted monument positions from QGIS layers
+            # These may have been moved by the user in Step 5 (Adjust)
+            adjusted_monuments = self._read_monument_positions_from_layers()
+
+            self.progress_bar.setValue(20)
+
+            # Merge adjusted monument positions into processed claims
+            # This preserves user adjustments for document generation AND server push.
+            # IMPORTANT: Save back to state.processed_claims so that when Step 7 pushes
+            # to the server, the LandHoldings have the updated discovery_monument
+            # coordinates. Without this, the server's stake-to-landholding matching
+            # algorithm fails to link discovery monuments because it looks for stakes
+            # at the qclaims_data['discovery_monument'] coordinates.
+            claims_for_docs = self._merge_adjusted_monuments(
+                self.state.processed_claims,
+                adjusted_monuments
+            )
+            # Update state so push_to_server uses adjusted coordinates
+            self.state.processed_claims = claims_for_docs
+
+            # Also merge adjusted monuments into waypoints so that:
+            # - GPX exports use the updated coordinates
+            # - Waypoints layer shows correct positions
+            # - Server push sends the updated positions
+            if adjusted_monuments:
+                self.state.processed_waypoints = self._merge_adjusted_monuments_into_waypoints(
+                    self.state.processed_waypoints,
+                    adjusted_monuments
+                )
+
+            # Create the waypoints layer NOW, after monument positions have been
+            # merged. This ensures the layer uses user-adjusted positions from
+            # Step 5, not the server's default calculated positions.
+            self._create_result_layers()
+
             self.progress_bar.setValue(30)
 
             # Build claimant_info from state for location notices
@@ -925,7 +1382,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             }
 
             result = self.claims_manager.generate_documents(
-                self.state.processed_claims,
+                claims_for_docs,  # Use claims with merged monument positions
                 waypoints=self.state.processed_waypoints,  # Required for sorted corner certificates
                 document_types=['location_notices', 'corner_certificates'],
                 project_id=self.state.project_id,
@@ -934,7 +1391,8 @@ class ClaimsStep6Widget(ClaimsStepBase):
                 claim_prefix=self.state.grid_name_prefix,  # Prefix filenames with claim name prefix
                 order_id=self.state.fulfillment_order_id,  # Link to existing order/package if in fulfillment mode
                 order_type=self.state.fulfillment_order_type,  # 'claim_purchase' or 'claim_order'
-                reference_points=self.state.reference_points  # For bearing/distance tie-in
+                reference_points=self.state.reference_points,  # For bearing/distance tie-in
+                claim_package_id=self.state.claim_package_id  # Reuse existing package if regenerating
             )
 
             self.progress_bar.setValue(100)
@@ -957,6 +1415,11 @@ class ClaimsStep6Widget(ClaimsStepBase):
                     f"[QCLAIMS] Stored claim_package_id={self.state.claim_package_id} "
                     f"for linking during push"
                 )
+                # Persist immediately so claim_package_id survives dialog close/reopen.
+                # Without this, closing before clicking Next loses the ID and push
+                # creates a duplicate ClaimPackage on the server.
+                self.state.save_to_geopackage()
+                self.state.save_to_qgis_project()
 
             if documents:
                 package_info = self.state.package_info

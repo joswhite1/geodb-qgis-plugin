@@ -440,6 +440,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
             dialog = StaffOrdersDialog(self.claims_manager, self)
             dialog.order_selected.connect(self._on_staff_order_selected)
+            dialog.proposed_claims_selected.connect(self._on_proposed_claims_selected)
 
             dialog.exec_()
 
@@ -456,6 +457,15 @@ class ClaimsStep1Widget(ClaimsStepBase):
         try:
             # Set fulfillment context in wizard state
             self.state.set_fulfillment_context(order_data)
+
+            # Switch project context to the order's project/company
+            # This ensures subsequent API calls use the correct context
+            project_id = order_data.get('project_id')
+            company_id = order_data.get('company_id')
+
+            if company_id and project_id:
+                # Emit signal so main dialog can update project dropdown
+                self.project_context_switched.emit(company_id, project_id)
 
             # Get claim polygons from order
             claim_polygons = order_data.get('claim_polygons', {})
@@ -482,6 +492,125 @@ class ClaimsStep1Widget(ClaimsStepBase):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load order into QGIS: {e}")
 
+    def _on_proposed_claims_selected(self, claims_data: dict):
+        """
+        Handle staff selecting proposed claims for processing.
+
+        Args:
+            claims_data: Dict with project info and claim GeoJSON features
+        """
+        try:
+            # Switch project context to the proposed claims' project/company
+            project_id = claims_data.get('project_id')
+            company_id = claims_data.get('company_id')
+            project_name = claims_data.get('project_name', 'Unknown')
+
+            if company_id and project_id:
+                # Emit signal so main dialog can update project dropdown
+                self.project_context_switched.emit(company_id, project_id)
+
+            # Get claim features
+            claims = claims_data.get('claims', [])
+            if not claims:
+                QMessageBox.warning(
+                    self,
+                    "No Claims",
+                    "No claims were selected."
+                )
+                return
+
+            # Clear any previous fulfillment context (proposed claims are not orders)
+            self.state.clear_fulfillment_context()
+
+            # Create a memory layer from the GeoJSON features
+            self._load_proposed_claims_to_layer(claims_data)
+
+            # Reload state to update UI
+            self.load_state()
+
+            self.emit_status(
+                f"Loaded {len(claims)} proposed claims from {project_name} - ready for processing",
+                "success"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load proposed claims: {e}")
+
+    def _load_proposed_claims_to_layer(self, claims_data: dict):
+        """
+        Load proposed claims into a QGIS memory layer.
+
+        Args:
+            claims_data: Dict with project info and claim GeoJSON features
+        """
+        from qgis.core import (
+            QgsVectorLayer, QgsFeature, QgsGeometry, QgsField, QgsFields
+        )
+        from qgis.PyQt.QtCore import QMetaType
+
+        claims = claims_data.get('claims', [])
+        project_name = claims_data.get('project_name', 'Proposed')
+
+        if not claims:
+            raise ValueError("No claim features found")
+
+        # Create memory layer
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:4326",
+            f"{project_name} - Proposed Claims",
+            "memory"
+        )
+        provider = layer.dataProvider()
+
+        # Add fields
+        fields = QgsFields()
+        fields.append(QgsField("name", QMetaType.Type.QString))
+        fields.append(QgsField("claim_type", QMetaType.Type.QString))
+        fields.append(QgsField("acreage", QMetaType.Type.Double))
+        fields.append(QgsField("plss_location", QMetaType.Type.QString))
+        fields.append(QgsField("approved", QMetaType.Type.Bool))
+        fields.append(QgsField("proposed_claim_id", QMetaType.Type.Int))
+        provider.addAttributes(fields)
+        layer.updateFields()
+
+        # Add features
+        for claim in claims:
+            feature = QgsFeature()
+            props = claim.get('properties', {})
+            geom_data = claim.get('geometry')
+
+            if not geom_data:
+                continue
+
+            geom = QgsGeometry.fromWkt(self._geojson_to_wkt(geom_data))
+            if not geom or geom.isEmpty():
+                continue
+
+            feature.setGeometry(geom)
+
+            # Set attributes
+            feature.setAttributes([
+                props.get('claim_name', 'Unknown'),
+                props.get('claim_type', ''),
+                props.get('acreage', 0.0),
+                props.get('plss_location', ''),
+                props.get('approved', False),
+                claim.get('id')
+            ])
+
+            provider.addFeature(feature)
+
+        layer.updateExtents()
+
+        # Add to project
+        QgsProject.instance().addMapLayer(layer)
+
+        # Zoom to layer
+        from qgis.utils import iface
+        if iface and iface.mapCanvas():
+            iface.mapCanvas().setExtent(layer.extent())
+            iface.mapCanvas().refresh()
+
     def _load_order_polygons_to_layer(self, order_data: dict):
         """
         Load order claim polygons into a QGIS memory layer.
@@ -492,7 +621,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
         from qgis.core import (
             QgsVectorLayer, QgsFeature, QgsGeometry, QgsField, QgsFields
         )
-        from qgis.PyQt.QtCore import QVariant
+        from qgis.PyQt.QtCore import QMetaType
 
         claim_polygons = order_data.get('claim_polygons', {})
         order_number = order_data.get('order_number', 'Unknown')
@@ -522,9 +651,9 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Add fields
         fields = QgsFields()
-        fields.append(QgsField("name", QVariant.String))
-        fields.append(QgsField("order_id", QVariant.Int))
-        fields.append(QgsField("order_type", QVariant.String))
+        fields.append(QgsField("name", QMetaType.Type.QString))
+        fields.append(QgsField("order_id", QMetaType.Type.Int))
+        fields.append(QgsField("order_type", QMetaType.Type.QString))
         provider.addAttributes(fields)
         layer.updateFields()
 
@@ -745,6 +874,9 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
             try:
                 # Create empty GeoPackage by initializing state storage
+                # IMPORTANT: Clear claim_package_id since this is a fresh GeoPackage
+                # Any previous package ID from another GeoPackage is now invalid
+                self.state.claim_package_id = None
                 self.state.geopackage_path = path
                 self.state.save_to_geopackage()
 
@@ -764,6 +896,8 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 self.emit_status(f"Loaded GeoPackage: {Path(path).name}", "success")
             else:
                 # New GeoPackage without metadata - just set the path
+                # Clear claim_package_id since there's no metadata to load from
+                self.state.claim_package_id = None
                 self.state.geopackage_path = path
                 self.gpkg_path_label.setText(path)
                 self.emit_status(f"Selected GeoPackage: {Path(path).name}", "info")

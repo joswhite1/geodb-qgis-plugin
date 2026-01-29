@@ -2416,6 +2416,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.claims_wizard.status_message.connect(self._on_claims_status)
             self.claims_wizard.claims_processed.connect(self._on_claims_processed)
             self.claims_wizard.wizard_completed.connect(self._on_wizard_completed)
+            self.claims_wizard.project_context_switched.connect(self._on_project_context_switched)
             self.claimsTabLayout.addWidget(self.claims_wizard)
 
         # Show wizard
@@ -2502,6 +2503,50 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         from .claims_order_dialog import ClaimsOrderDialog
         dialog = ClaimsOrderDialog(self.claims_manager, order_id, self)
         dialog.exec_()
+
+    def _on_project_context_switched(self, company_id: int, project_id: int):
+        """
+        Handle project context switch from claims wizard.
+
+        When staff pulls an order or proposed claims, the project context
+        switches to that order's project. This method updates the main dialog's
+        project dropdown to reflect the new context.
+        """
+        self.logger.info(
+            f"[CLAIMS] Project context switched: company_id={company_id}, project_id={project_id}"
+        )
+
+        # Find and select the company in dropdown
+        company_found = False
+        if hasattr(self, 'companyCombo'):
+            for i in range(self.companyCombo.count()):
+                data = self.companyCombo.itemData(i)
+                if data and data.get('id') == company_id:
+                    self.companyCombo.setCurrentIndex(i)
+                    company_found = True
+                    break
+
+        if not company_found:
+            self.logger.warning(f"[CLAIMS] Company {company_id} not found in dropdown")
+            return
+
+        # The company change will trigger project list refresh
+        # We need to defer project selection until projects are loaded
+        def select_project():
+            if hasattr(self, 'projectCombo'):
+                for i in range(self.projectCombo.count()):
+                    data = self.projectCombo.itemData(i)
+                    if data and data.get('id') == project_id:
+                        self.projectCombo.setCurrentIndex(i)
+                        self.logger.info(f"[CLAIMS] Selected project {project_id}")
+                        return
+                self.logger.warning(f"[CLAIMS] Project {project_id} not found in dropdown")
+
+        # Use QTimer to defer project selection until after company change is processed
+        from qgis.PyQt.QtCore import QTimer
+        QTimer.singleShot(100, select_project)
+
+        self._log_message(f"Switched to project context for order fulfillment", "info")
 
     def cleanup(self):
         """Clean up resources before plugin unload to prevent crashes.
