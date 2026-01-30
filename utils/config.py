@@ -153,9 +153,11 @@ class Config:
     @property
     def base_url(self) -> str:
         """Get the appropriate base URL (production or local)."""
+        default_url = "https://api.geodb.io/api/v2"
+        default_local = "http://localhost:8000/api/v2"
         if self.get('api.use_local', False):
-            return self.get('api.local_base_url')
-        return self.get('api.base_url')
+            return self.get('api.local_base_url', default_local)
+        return self.get('api.base_url', default_url)
     
     @property
     def endpoints(self) -> Dict[str, str]:

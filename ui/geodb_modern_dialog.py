@@ -45,7 +45,6 @@ from .login_dialog import LoginDialog
 from .assay_range_dialog import AssayRangeDialog
 from .storage_dialog import StorageConfigDialog
 from .field_work_dialog import FieldWorkDialog
-from .claims_widget import ClaimsWidget  # Keep for reference, deprecated
 from .claims_wizard_widget import ClaimsWizardWidget
 from .claims_order_widget import ClaimsOrderWidget
 from .basemaps_widget import BasemapsWidget
@@ -142,12 +141,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.style_processor = StyleProcessor()
         self.claims_manager = ClaimsManager(self.api_client, self.config)
 
-        # Claims wizard widget (replaces old ClaimsWidget)
+        # Claims wizard widget
         self.claims_wizard: Optional[ClaimsWizardWidget] = None
         # Claims order widget for pay-per-claim users
         self.claims_order_widget: Optional[ClaimsOrderWidget] = None
-        # Keep legacy reference for backward compatibility
-        self.claims_widget: Optional[ClaimsWidget] = None
         # Basemaps widget
         self.basemaps_widget: Optional[BasemapsWidget] = None
 

@@ -75,37 +75,42 @@ class APIClient:
             APIException: On request failure
         """
         self.logger.debug(f"{method} {url}")
-        
+
         # Prepare headers
         request_headers = {
             'Content-Type': 'application/json'
         }
-        
+
         # Add authentication token
         if self.token:
             request_headers['Authorization'] = f'Token {self.token}'
-        
+
         # Add custom headers
         if headers:
             request_headers.update(headers)
-        
-        # Create request
-        request = QNetworkRequest(QUrl(url))
-        for key, value in request_headers.items():
-            request.setRawHeader(QByteArray(key.encode()), QByteArray(value.encode()))
-        
-        # Prepare data
+
+        # Prepare data (only needs to be done once)
         request_data = None
         if data:
             json_data = json.dumps(data)
             request_data = QByteArray(json_data.encode('utf-8'))
-        
+
+        # Helper to create fresh request (QNetworkRequest may be modified by QgsBlockingNetworkRequest)
+        def create_request():
+            qurl = QUrl(url)
+            req = QNetworkRequest(qurl)
+            for key, value in request_headers.items():
+                req.setRawHeader(QByteArray(key.encode()), QByteArray(value.encode()))
+            return req
+
         # Execute request with retry logic
         max_retries = self.config.get('api.retry_attempts', 3)
         last_error = None
-        
+
         for attempt in range(max_retries):
             try:
+                # Create fresh request for each attempt
+                request = create_request()
                 response = self._execute_request(method, request, request_data)
                 return response
             except NetworkError as e:
@@ -118,7 +123,7 @@ class APIClient:
             except APIException:
                 # Don't retry on authentication/validation errors
                 raise
-        
+
         raise last_error
     
     def _execute_request(
@@ -757,9 +762,6 @@ class APIClient:
             raise ValueError(f"Unknown model: {model_name}")
 
         url = f"{endpoint}bulk/"
-        # Debug: Log first record to verify project natural key format
-        if records:
-            print(f"[DEBUG] bulk_upsert first record: {records[0]}")
         return self._make_request('POST', url, data=records)
 
     def delete_record(self, model_name: str, record_id: int) -> None:

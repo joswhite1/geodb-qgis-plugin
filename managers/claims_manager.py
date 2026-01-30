@@ -50,6 +50,10 @@ class ClaimsManager:
     def _get_claims_endpoint(self, path: str) -> str:
         """Build full URL for claims endpoint (always uses v2 API)."""
         base = self.config.base_url
+        # Safety check - use default if base_url is None or empty
+        if not base:
+            base = "https://api.geodb.io/api/v2"
+            self.logger.warning("[QCLAIMS] base_url was empty in _get_claims_endpoint, using default")
         # Ensure we use v2 API for claims endpoints
         if '/v1' in base:
             base = base.replace('/v1', '/api/v2')
@@ -545,14 +549,17 @@ class ClaimsManager:
             elif pending_only:
                 params.append('pending_only=true')
 
-            # Use services URL path (not claims API)
-            base = self.config.base_url
-            # Strip /api/v2 or /api/v1 to get base domain
-            if '/api/' in base:
-                base = base[:base.index('/api/')]
-            url = f"{base}/services/api/projects-with-proposed-claims/"
+            # Use the v2 API endpoint for proposed claims (Knox token auth)
+            # base_url is like https://api.geodb.io/api/v2
+            base_url = self.config.base_url
+            if not base_url:
+                base_url = "https://api.geodb.io/api/v2"
+                self.logger.warning("[QCLAIMS] base_url was empty, using default")
+            # Build the proposed claims endpoint URL
+            url = f"{base_url.rstrip('/')}/proposed-claims/projects/"
             if params:
                 url += '?' + '&'.join(params)
+            self.logger.info(f"[QCLAIMS] Fetching proposed claims projects from: {url}")
 
             result = self.api._make_request('GET', url)
 
@@ -593,12 +600,13 @@ class ClaimsManager:
             APIException: If API call fails
         """
         try:
-            # Use services URL path (not claims API)
-            base = self.config.base_url
-            # Strip /api/v2 or /api/v1 to get base domain
-            if '/api/' in base:
-                base = base[:base.index('/api/')]
-            url = f"{base}/services/api/project-proposed-claims/{project_id}/"
+            # Use the v2 API endpoint for proposed claims (Knox token auth)
+            # base_url is like https://api.geodb.io/api/v2
+            base_url = self.config.base_url
+            if not base_url:
+                base_url = "https://api.geodb.io/api/v2"
+            url = f"{base_url.rstrip('/')}/proposed-claims/project/{project_id}/"
+            self.logger.info(f"[QCLAIMS] Fetching proposed claims for project {project_id} from: {url}")
 
             result = self.api._make_request('GET', url)
 

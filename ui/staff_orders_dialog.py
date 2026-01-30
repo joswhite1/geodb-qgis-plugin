@@ -252,6 +252,30 @@ class StaffOrdersDialog(QDialog):
 
         layout.addLayout(project_layout)
 
+        # Selection buttons row
+        selection_layout = QHBoxLayout()
+
+        self.select_all_btn = QPushButton("Select All")
+        self.select_all_btn.setStyleSheet(self._get_secondary_button_style())
+        self.select_all_btn.clicked.connect(self._select_all_claims)
+        self.select_all_btn.setEnabled(False)
+        selection_layout.addWidget(self.select_all_btn)
+
+        self.deselect_all_btn = QPushButton("Deselect All")
+        self.deselect_all_btn.setStyleSheet(self._get_secondary_button_style())
+        self.deselect_all_btn.clicked.connect(self._deselect_all_claims)
+        self.deselect_all_btn.setEnabled(False)
+        selection_layout.addWidget(self.deselect_all_btn)
+
+        selection_layout.addStretch()
+
+        # Selection hint
+        selection_hint = QLabel("Tip: Shift+click to select a range, Ctrl+click to toggle")
+        selection_hint.setStyleSheet("color: #9ca3af; font-size: 11px; font-style: italic;")
+        selection_layout.addWidget(selection_hint)
+
+        layout.addLayout(selection_layout)
+
         # Proposed claims table
         self.proposed_table = QTableWidget()
         self.proposed_table.setColumnCount(5)
@@ -270,7 +294,8 @@ class StaffOrdersDialog(QDialog):
         self.proposed_table.verticalHeader().setVisible(False)
         self.proposed_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.proposed_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.proposed_table.setSelectionMode(QAbstractItemView.MultiSelection)
+        # ExtendedSelection: click to select, Ctrl+click to toggle, Shift+click for range
+        self.proposed_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.proposed_table.setStyleSheet(self._get_table_style())
 
         self.proposed_table.itemSelectionChanged.connect(self._on_proposed_selection_changed)
@@ -479,6 +504,19 @@ class StaffOrdersDialog(QDialog):
 
         self.proposed_table.clearSelection()
         self._update_proposed_details()
+
+        # Enable/disable selection buttons based on whether there are claims
+        has_claims = len(claims) > 0
+        self.select_all_btn.setEnabled(has_claims)
+        self.deselect_all_btn.setEnabled(has_claims)
+
+    def _select_all_claims(self):
+        """Select all claims in the proposed claims table."""
+        self.proposed_table.selectAll()
+
+    def _deselect_all_claims(self):
+        """Deselect all claims in the proposed claims table."""
+        self.proposed_table.clearSelection()
 
     def _set_filter(self, filter_type: str):
         """Set the proposed claims filter."""
@@ -706,28 +744,31 @@ class StaffOrdersDialog(QDialog):
     # =========================================================================
 
     def _get_tab_style(self) -> str:
-        """Get tab widget style."""
+        """Get tab widget style matching main UI."""
         return """
             QTabWidget::pane {
-                border: 1px solid #e5e7eb;
-                border-radius: 8px;
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
                 background-color: white;
             }
             QTabBar::tab {
-                padding: 10px 20px;
-                background-color: #f3f4f6;
-                border: 1px solid #e5e7eb;
-                border-bottom: none;
+                padding: 10px 25px;
+                font-weight: bold;
+                min-width: 90px;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 margin-right: 4px;
             }
             QTabBar::tab:selected {
-                background-color: white;
-                font-weight: bold;
+                background-color: #5bbad5;
+                color: white;
+            }
+            QTabBar::tab:!selected {
+                background-color: #e5e7eb;
+                color: #374151;
             }
             QTabBar::tab:hover:!selected {
-                background-color: #e5e7eb;
+                background-color: #d1d5db;
             }
         """
 
@@ -739,13 +780,16 @@ class StaffOrdersDialog(QDialog):
                 border-radius: 8px;
                 background-color: white;
                 gridline-color: #e5e7eb;
+                selection-background-color: #5bbad5;
+                selection-color: white;
             }
             QTableWidget::item {
                 padding: 8px;
+                color: #374151;
             }
             QTableWidget::item:selected {
-                background-color: #dbeafe;
-                color: #1e40af;
+                background-color: #5bbad5;
+                color: white;
             }
             QHeaderView::section {
                 background-color: #f9fafb;

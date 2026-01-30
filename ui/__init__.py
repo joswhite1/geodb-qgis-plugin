@@ -5,7 +5,6 @@ from .geodb_modern_dialog import GeodbModernDialog
 from .login_dialog import LoginDialog
 from .assay_range_dialog import AssayRangeDialog
 from .storage_dialog import StorageConfigDialog
-from .claims_widget import ClaimsWidget
 from .claims_tos_dialog import ClaimsTOSDialog
 from .claims_order_dialog import ClaimsOrderDialog
 from .claims_order_widget import ClaimsOrderWidget
@@ -16,7 +15,6 @@ __all__ = [
     'LoginDialog',
     'AssayRangeDialog',
     'StorageConfigDialog',
-    'ClaimsWidget',
     'ClaimsTOSDialog',
     'ClaimsOrderDialog',
     'ClaimsOrderWidget',

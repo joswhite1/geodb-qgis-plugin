@@ -304,7 +304,7 @@ class ReferencePointsWidget(QWidget):
     - Button to activate reference point map tool
     - List of current reference points
     - Delete functionality
-    - Integration with ClaimsWidget
+    - Integration with ClaimsWizardWidget
     - Persistent QGIS layer in GeoPackage (or memory layer fallback)
     """
 

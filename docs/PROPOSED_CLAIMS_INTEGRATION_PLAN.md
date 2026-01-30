@@ -1,5 +1,7 @@
 # ProposedMiningClaim Integration Plan
 
+**STATUS: IMPLEMENTED** (2026-01-29)
+
 ## Overview
 
 This plan integrates admin-uploaded proposed claim blocks (`ProposedMiningClaim`) into the QGIS plugin workflow for staff users. The goal is to allow staff to:
