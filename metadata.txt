@@ -1,0 +1,71 @@
+# This file contains metadata for your plugin.
+
+# This file should be included when you package your plugin.# Mandatory items:
+
+[general]
+name=geodb.io
+qgisMinimumVersion=3.0
+qgisMaximumVersion=4.99
+supportsQt6=True
+description=Connects to spatial data from geodb.io via api
+version=2.1.1
+author=geodb.io
+email=admin@geodb.io
+
+about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.1.1 includes security hardening, deletion sync, and various bug fixes.
+
+tracker=https://github.com/joswhite1/geodb-qgis-plugin/issues
+repository=https://github.com/joswhite1/geodb-qgis-plugin
+# End of mandatory metadata
+
+# Recommended items:
+
+# License identifier (SPDX format)
+license=GPL-2.0-or-later
+
+hasProcessingProvider=no
+changelog=
+    2.1.1 - Security hardening and improvements
+        - Security hardening of API client and auth flows
+        - Bi-directional deletion sync with server
+        - Deletion conflict detection (local changes vs server deletes)
+        - Orphan cleanup for child records
+        - Various bug fixes and stability improvements
+    2.1.0 - Major feature release
+        - BC mineral claims workflow with 7-step wizard
+        - Two-factor authentication (2FA) support
+        - Photo viewer for drill photos and field notes
+        - Staff order management interface
+        - Basemaps widget for quick layer access
+        - Structure model with geological symbology
+        - GPX export for GPS devices
+        - Fixed heap corruption crashes (QgsBlockingNetworkRequest)
+        - Improved cross-platform compatibility
+    2.0.0 - Major architectural rebuild
+        - Modular design with separation of concerns
+        - Improved error handling and logging
+        - Progress feedback for long operations
+        - Incremental data synchronization
+        - Type-safe code with full type hints
+        - Comprehensive documentation
+    0.1 - Initial release
+
+# Tags are comma separated with spaces allowed
+tags=python,database,api,geospatial,data sync
+
+homepage=https://geodb.io
+category=Database
+icon=icon.png
+# experimental flag
+experimental=False
+
+# deprecated flag (applies to the whole plugin, not just a single version)
+deprecated=False
+
+# Since QGIS 3.8, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+# Check the documentation for more information.
+# plugin_dependencies=
+
+# If the plugin can run on QGIS Server.
+server=False

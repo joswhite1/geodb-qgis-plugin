@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Default Structure Point Symbol -->
+<!-- Used for 'Other' (OT) structure types -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20">
+  <!-- Circle marker -->
+  <circle cx="10" cy="10" r="6" stroke="#000000" stroke-width="1.5" fill="none"/>
+  <!-- Center dot -->
+  <circle cx="10" cy="10" r="2" fill="#000000"/>
+</svg>
