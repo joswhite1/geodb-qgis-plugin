@@ -350,16 +350,7 @@ class MapCaptureWidget(QWidget):
                 progress_callback=self._on_upload_progress
             )
 
-            file_id = result.get('id', 'unknown')
-            tiles_status = result.get('tiles_status', 'none')
-
-            status_msg = f"Upload successful! File ID: {file_id}"
-            if tiles_status == 'queued':
-                status_msg += " - Tile generation queued."
-            elif tiles_status == 'none':
-                status_msg += " - Tiles will be generated shortly."
-
-            self._show_status(status_msg, "success")
+            self._show_status("Upload successful!", "success")
             self.status_message.emit(f"Uploaded '{name}' successfully.", "success")
             self.upload_completed.emit(result)
 
