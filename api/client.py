@@ -763,7 +763,7 @@ class APIClient:
                         self.logger.warning("Rejected pagination URL from different origin")
                     url = None
 
-                if progress_callback and 'count' in response:
+                if progress_callback and response.get('count'):
                     progress = int((len(all_results) / response['count']) * 100)
                     progress_callback(progress)
 
