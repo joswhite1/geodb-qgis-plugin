@@ -7,11 +7,11 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.3.0
+version=2.3.1
 author=geodb.io
 email=admin@geodb.io
 
-about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.3.0 adds ClaimPackage scoping for stakes and improved bulk upsert reliability.
+about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.3.1 fixes the missing toolbar icon.
 
 tracker=https://github.com/joswhite1/geodb-qgis-plugin/issues
 repository=https://github.com/joswhite1/geodb-qgis-plugin
@@ -24,6 +24,8 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.3.1 - Toolbar Icon Fix
+        - Fix missing toolbar icon (Qt resources module was not imported)
     2.3.0 - Claims & Stakes Sync Fix
         - Fix ClaimStakes not linking to ClaimPackage during push
         - Add claim_package field to ClaimStake schema for proper package scoping
