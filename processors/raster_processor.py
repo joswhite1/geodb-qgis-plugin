@@ -52,7 +52,7 @@ class RasterProcessor:
     # Allowed file extensions for downloaded rasters (security whitelist)
     ALLOWED_EXTENSIONS = {
         '.tif', '.tiff', '.geotiff', '.png', '.jpg', '.jpeg',
-        '.img', '.hdr', '.ers', '.grd', '.ecw'
+        '.img', '.hdr', '.ers', '.grd', '.ecw', '.gpkg'
     }
 
     def __init__(self, cache_dir: Optional[str] = None, base_url: Optional[str] = None):
@@ -291,12 +291,49 @@ class RasterProcessor:
                     # These are images that have georeferencing data but aren't GeoTIFFs
                     # (GeoTIFFs have embedded georeferencing and don't need world files)
                     file_ext = Path(local_path).suffix.lower()
-                    needs_world_file = georef is not None and file_ext in self.IMAGE_EXTENSIONS
                     is_sketch = pf.get('category') in self.SKETCH_CATEGORIES
 
+                    # Parse bounds if it's a JSON string
+                    pf_bounds = pf.get('bounds')
+                    if pf_bounds and isinstance(pf_bounds, str):
+                        import json
+                        try:
+                            pf_bounds = json.loads(pf_bounds)
+                            pf['bounds'] = pf_bounds
+                        except json.JSONDecodeError:
+                            pf_bounds = None
+
+                    # Determine if we need a world file for this image
+                    has_native_bounds = (
+                        pf_bounds is not None
+                        and isinstance(pf_bounds, list)
+                        and len(pf_bounds) == 4
+                        and pf.get('epsg') is not None
+                    )
+                    needs_world_file = file_ext in self.IMAGE_EXTENSIONS and (
+                        has_native_bounds or georef is not None
+                    )
+
                     if needs_world_file:
-                        self.logger.info(f"Generating world file for '{pf.get('name')}' with georef: {georef}")
-                        world_file_path = self._generate_world_file(local_path, georef)
+                        if has_native_bounds:
+                            # Screen captures / QGIS uploads: use native CRS bounds
+                            # and actual image dimensions for accurate world file
+                            self.logger.info(
+                                f"Generating world file for '{pf.get('name')}' "
+                                f"from native bounds (EPSG:{pf.get('epsg')})"
+                            )
+                            world_file_path = self._generate_world_file_from_bounds(
+                                local_path, pf['bounds'], pf['epsg']
+                            )
+                        else:
+                            # Mobile sketches: use georeferencing data (WGS84 lat/lon)
+                            self.logger.info(
+                                f"Generating world file for '{pf.get('name')}' "
+                                f"from georef data (sketch)"
+                            )
+                            world_file_path = self._generate_world_file(
+                                local_path, georef
+                            )
                         if not world_file_path:
                             errors.append(f"Failed to generate world file for: {pf.get('name')}")
                             continue
@@ -442,8 +479,11 @@ class RasterProcessor:
             self.logger.error(f"Failed to load raster layer: {layer_name}")
             return None
 
-        # Set CRS if provided and not already set
-        if crs and not layer.crs().isValid():
+        # Set CRS if provided
+        # Always set when we have a CRS - PNGs with world files won't have
+        # an embedded CRS, and even for files that do, we trust the metadata
+        # from the server over any embedded value
+        if crs:
             layer_crs = QgsCoordinateReferenceSystem(crs)
             if layer_crs.isValid():
                 layer.setCrs(layer_crs)
@@ -876,6 +916,100 @@ class RasterProcessor:
 
         except Exception as e:
             self.logger.error(f"Failed to generate world file: {e}")
+            return None
+
+    def _generate_world_file_from_bounds(
+        self,
+        image_path: str,
+        bounds: list,
+        epsg: int
+    ) -> Optional[str]:
+        """
+        Generate a world file from native CRS bounds and actual image dimensions.
+
+        Unlike _generate_world_file() which uses georeferencing data (WGS84 lat/lon
+        from the server), this method uses the original bounds in the file's native
+        CRS and reads the actual image pixel dimensions from the file itself.
+
+        This is the correct approach for screen captures uploaded from QGIS, where:
+        - bounds are in native CRS (e.g., UTM meters)
+        - pixel dimensions must match the actual image file
+        - the world file must use the same CRS as the bounds
+
+        Args:
+            image_path: Path to the image file
+            bounds: Bounding box [minX, minY, maxX, maxY] in native CRS
+            epsg: EPSG code of the native CRS
+
+        Returns:
+            Path to generated world file, or None on failure
+        """
+        try:
+            from qgis.PyQt.QtGui import QImage
+
+            if not bounds or len(bounds) != 4:
+                self.logger.error(f"Invalid bounds for world file: {bounds}")
+                return None
+
+            # Parse bounds as JSON if string
+            if isinstance(bounds, str):
+                import json
+                bounds = json.loads(bounds)
+
+            min_x, min_y, max_x, max_y = [float(v) for v in bounds]
+
+            # Read actual image dimensions from the file
+            img = QImage(image_path)
+            if img.isNull():
+                self.logger.error(f"Could not read image dimensions from: {image_path}")
+                return None
+
+            img_width = img.width()
+            img_height = img.height()
+
+            if img_width <= 0 or img_height <= 0:
+                self.logger.error(
+                    f"Invalid image dimensions: {img_width}x{img_height}"
+                )
+                return None
+
+            # Calculate pixel size in native CRS units
+            pixel_width = (max_x - min_x) / img_width
+            pixel_height = (max_y - min_y) / img_height
+
+            # Upper-left corner coordinates (center of upper-left pixel)
+            upper_left_x = min_x + (pixel_width / 2)
+            upper_left_y = max_y - (pixel_height / 2)
+
+            # World file content
+            world_content = (
+                f"{pixel_width:.12f}\n"
+                f"0.0\n"
+                f"0.0\n"
+                f"{-pixel_height:.12f}\n"
+                f"{upper_left_x:.12f}\n"
+                f"{upper_left_y:.12f}\n"
+            )
+
+            # Determine world file extension
+            world_ext = self._get_world_file_extension(image_path)
+            world_path = Path(image_path).with_suffix(world_ext)
+
+            # Write world file
+            with open(world_path, 'w') as f:
+                f.write(world_content)
+
+            self.logger.info(
+                f"Generated world file from native bounds: {world_path} "
+                f"(EPSG:{epsg}, {img_width}x{img_height}px, "
+                f"pixel={pixel_width:.6f} CRS units)"
+            )
+            return str(world_path)
+
+        except Exception as e:
+            self.logger.error(f"Failed to generate world file from bounds: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return None
 
     def _get_world_file_extension(self, image_path: str) -> str:

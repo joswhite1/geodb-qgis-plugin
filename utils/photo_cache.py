@@ -71,7 +71,7 @@ class PhotoCache:
         Returns:
             Cache filename (hash + extension)
         """
-        url_hash = hashlib.md5(url.encode()).hexdigest()
+        url_hash = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()
 
         # Try to preserve original extension
         ext = '.png'

@@ -14,7 +14,7 @@ from qgis.PyQt.QtCore import Qt, QTimer, QThread, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDialog, QMessageBox, QLabel, QComboBox, QPushButton,
     QVBoxLayout, QGroupBox, QTableWidget, QTableWidgetItem,
-    QHBoxLayout, QHeaderView
+    QHBoxLayout, QHeaderView, QTabWidget
 )
 from qgis.PyQt.QtGui import QColor, QTextCursor
 
@@ -49,6 +49,8 @@ from .claims_wizard_widget import ClaimsWizardWidget
 from .claims_order_widget import ClaimsOrderWidget
 from .basemaps_widget import BasemapsWidget
 from .map_capture_widget import MapCaptureWidget
+from .georef_files_widget import GeorefFilesWidget
+from .gpkg_sync_widget import GpkgSyncWidget
 
 # Ensure plugin directory is in sys.path for UI resource imports
 plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -152,6 +154,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.basemaps_widget: Optional[BasemapsWidget] = None
         # Map capture widget
         self.map_capture_widget: Optional[MapCaptureWidget] = None
+        # Georeferenced files upload widget
+        self.georef_files_widget: Optional[GeorefFilesWidget] = None
+        # GeoPackage sync widget
+        self.gpkg_sync_widget: Optional[GpkgSyncWidget] = None
+        # Raster tools parent tab widget (contains map capture + georef files sub-tabs)
+        self.raster_tools_tab: Optional[QTabWidget] = None
 
         # Current state
         self.current_session: Optional[AuthSession] = None
@@ -2153,13 +2161,18 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.field_tasks_widget.update_button_state()
 
     def _update_map_capture_state(self):
-        """Update map capture widget enabled state based on login and project."""
-        if not hasattr(self, 'map_capture_widget') or self.map_capture_widget is None:
-            return
+        """Update raster tools widgets enabled state based on login and project."""
         has_project = self.project_manager.active_project is not None
         is_logged_in = self.current_session is not None
         can_edit = self.project_manager.can_edit() if has_project else False
-        self.map_capture_widget.set_enabled_state(is_logged_in and has_project and can_edit)
+        enabled = is_logged_in and has_project and can_edit
+
+        if hasattr(self, 'map_capture_widget') and self.map_capture_widget is not None:
+            self.map_capture_widget.set_enabled_state(enabled)
+        if hasattr(self, 'georef_files_widget') and self.georef_files_widget is not None:
+            self.georef_files_widget.set_enabled_state(enabled)
+        if hasattr(self, 'gpkg_sync_widget') and self.gpkg_sync_widget is not None:
+            self.gpkg_sync_widget.set_enabled_state(enabled)
 
     # ==================== CLAIMS MANAGEMENT ====================
 
@@ -2203,30 +2216,66 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self._log_message(f"Added basemap: {layer_name}", "success")
 
     def _setup_map_capture_ui(self):
-        """Set up the Map Capture widget as a new tab."""
+        """Set up the Project Files tab with Map Capture, Upload Files, and GeoPackage Sync sub-tabs."""
+        # Create parent tab widget for raster tools sub-tabs
+        self.raster_tools_tab = QTabWidget()
+        self.raster_tools_tab.setTabPosition(QTabWidget.TabPosition.North)
+
+        # --- Sub-tab 1: Map Capture (existing) ---
         self.map_capture_widget = MapCaptureWidget(
             data_manager=self.data_manager,
             project_manager=self.project_manager,
-            parent=self
+            parent=self.raster_tools_tab
         )
-
-        # Connect signals
         self.map_capture_widget.status_message.connect(
             lambda msg, level: self._log_message(msg, level)
         )
         self.map_capture_widget.upload_completed.connect(
             self._on_map_capture_uploaded
         )
+        self.raster_tools_tab.addTab(self.map_capture_widget, "Map Capture")
 
-        # Add as a new tab before the Log tab
+        # --- Sub-tab 2: Upload Georeferenced Files (new) ---
+        self.georef_files_widget = GeorefFilesWidget(
+            data_manager=self.data_manager,
+            project_manager=self.project_manager,
+            api_client=self.api_client,
+            parent=self.raster_tools_tab
+        )
+        self.georef_files_widget.status_message.connect(
+            lambda msg, level: self._log_message(msg, level)
+        )
+        self.georef_files_widget.upload_completed.connect(
+            self._on_map_capture_uploaded
+        )
+        self.raster_tools_tab.addTab(self.georef_files_widget, "Upload Files")
+
+        # --- Sub-tab 3: GeoPackage Sync ---
+        self.gpkg_sync_widget = GpkgSyncWidget(
+            data_manager=self.data_manager,
+            project_manager=self.project_manager,
+            api_client=self.api_client,
+            parent=self.raster_tools_tab
+        )
+        self.gpkg_sync_widget.status_message.connect(
+            lambda msg, level: self._log_message(msg, level)
+        )
+        self.gpkg_sync_widget.upload_completed.connect(
+            self._on_map_capture_uploaded
+        )
+        self.raster_tools_tab.addTab(self.gpkg_sync_widget, "GeoPackage Sync")
+
+        # Add as a new tab before the Log tab in the main tab widget
         if hasattr(self, 'mainTabWidget'):
             log_tab_index = self.mainTabWidget.count() - 1  # Log is last tab
             self.mainTabWidget.insertTab(
-                log_tab_index, self.map_capture_widget, "Map Capture"
+                log_tab_index, self.raster_tools_tab, "Project Files"
             )
 
         # Initially disabled until logged in with project selected
         self.map_capture_widget.set_enabled_state(False)
+        self.georef_files_widget.set_enabled_state(False)
+        self.gpkg_sync_widget.set_enabled_state(False)
 
     def _on_map_capture_uploaded(self, result: dict):
         """Handle map capture upload completion."""
@@ -2521,6 +2570,32 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 pass
             self.basemaps_widget = None
 
+        # Clean up georef files widget
+        if self.georef_files_widget is not None:
+            try:
+                self.georef_files_widget.status_message.disconnect()
+                self.georef_files_widget.upload_completed.disconnect()
+            except Exception:
+                pass
+            try:
+                self.georef_files_widget.deleteLater()
+            except Exception:
+                pass
+            self.georef_files_widget = None
+
+        # Clean up gpkg sync widget
+        if self.gpkg_sync_widget is not None:
+            try:
+                self.gpkg_sync_widget.status_message.disconnect()
+                self.gpkg_sync_widget.upload_completed.disconnect()
+            except Exception:
+                pass
+            try:
+                self.gpkg_sync_widget.deleteLater()
+            except Exception:
+                pass
+            self.gpkg_sync_widget = None
+
         # Clean up map capture widget
         if self.map_capture_widget is not None:
             try:
@@ -2533,6 +2608,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             except Exception:
                 pass
             self.map_capture_widget = None
+
+        # Clean up raster tools parent tab
+        if self.raster_tools_tab is not None:
+            try:
+                self.raster_tools_tab.deleteLater()
+            except Exception:
+                pass
+            self.raster_tools_tab = None
 
     def closeEvent(self, event):
         """Handle dialog close - cleanup UI log handler."""

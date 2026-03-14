@@ -20,8 +20,6 @@ from pathlib import Path
 # Directories to include in the package
 INCLUDE_DIRS = [
     'api',
-    'docs',
-    'help',
     'i18n',
     'icons',
     'managers',

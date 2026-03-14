@@ -90,7 +90,7 @@ class PhotoLoader(QThread):
     def _get_cache_path(self) -> Path:
         """Get cache file path for URL."""
         import hashlib
-        url_hash = hashlib.md5(self.url.encode()).hexdigest()
+        url_hash = hashlib.md5(self.url.encode(), usedforsecurity=False).hexdigest()
         return self.cache_dir / f"{url_hash}.png"
 
     def cancel(self):

@@ -25,12 +25,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.1.1 - Security hardening and improvements
-        - Security hardening of API client and auth flows
+    2.1.1 - QGIS 4.0 Compatibility & Security Hardening
+        - QGIS 4.0 / Qt6 compatibility (supports QGIS 3.0 through 4.99)
+        - Security hardening of API client (request retry logic, removed debug exposure)
         - Bi-directional deletion sync with server
         - Deletion conflict detection (local changes vs server deletes)
         - Orphan cleanup for child records
-        - Various bug fixes and stability improvements
+        - Map canvas capture and georeferenced upload
+        - GeoPackage storage option for persistent local data
+        - Bug fixes and stability improvements
     2.1.0 - Major feature release
         - BC mineral claims workflow with 7-step wizard
         - Two-factor authentication (2FA) support

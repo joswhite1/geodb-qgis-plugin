@@ -63,6 +63,7 @@ class FieldWorkDialog(QDialog):
 
         self._setup_ui()
         self._connect_signals()
+        self._select_active_layer()
         self._update_preview()
 
     def _setup_ui(self):
@@ -213,6 +214,19 @@ class FieldWorkDialog(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         self.preview_button.clicked.connect(self._show_full_preview)
         self.push_button.clicked.connect(self._on_push_clicked)
+
+    def _select_active_layer(self):
+        """Pre-select the currently active layer from the QGIS Layers panel."""
+        try:
+            from qgis.utils import iface
+            if iface:
+                active_layer = iface.activeLayer()
+                if (active_layer and isinstance(active_layer, QgsVectorLayer)
+                        and QgsWkbTypes.geometryType(active_layer.wkbType())
+                        == QgsWkbTypes.PointGeometry):
+                    self.layer_combo.setLayer(active_layer)
+        except Exception:
+            pass
 
     def _on_layer_changed(self, layer):
         """Handle layer selection change."""

@@ -231,16 +231,13 @@ class MapCaptureWidget(QWidget):
             )
             return
 
-        # Compute bounds and resolution
-        width_px = canvas.width()
-        height_px = canvas.height()
+        # Compute bounds
         bounds = [
             extent.xMinimum(),
             extent.yMinimum(),
             extent.xMaximum(),
             extent.yMaximum()
         ]
-        resolution = (extent.xMaximum() - extent.xMinimum()) / width_px
 
         # Save canvas to temp PNG
         temp_dir = tempfile.gettempdir()
@@ -254,6 +251,20 @@ class MapCaptureWidget(QWidget):
         if not os.path.exists(file_path):
             self._show_status("Failed to save map canvas image.", "error")
             return
+
+        # Read actual image dimensions from the saved file
+        # This accounts for HiDPI/Retina displays where saveAsImage() produces
+        # an image larger than the logical canvas.width()/height()
+        saved_image = QImage(file_path)
+        if saved_image.isNull():
+            self._show_status("Failed to read saved image.", "error")
+            return
+
+        width_px = saved_image.width()
+        height_px = saved_image.height()
+
+        # Compute resolution using actual image dimensions
+        resolution = (extent.xMaximum() - extent.xMinimum()) / width_px
 
         # Store capture state
         self._captured_file_path = file_path
