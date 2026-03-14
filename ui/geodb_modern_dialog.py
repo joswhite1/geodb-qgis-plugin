@@ -88,6 +88,13 @@ class RefreshWorker(QThread):
         try:
             url = f"{self.base_url}/me/"
 
+            # Validate URL scheme to prevent file:// or other unsafe schemes
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if parsed.scheme not in ('https', 'http'):
+                self.error.emit(f"Unsupported URL scheme: {parsed.scheme}")
+                return
+
             # Create SSL context - only bypass verification in dev mode
             from ..utils.config import DEV_MODE
             ctx = ssl.create_default_context()

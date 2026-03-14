@@ -9,7 +9,6 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
 import xml.etree.ElementTree as ET
-from xml.dom import minidom
 
 from ..utils.logger import PluginLogger
 
@@ -107,14 +106,9 @@ class GPXExporter:
                 route = self._create_route_element(sorted_waypoints)
                 gpx.append(route)
 
-            # Write to file with pretty printing
-            xml_string = ET.tostring(gpx, encoding='unicode')
-            dom = minidom.parseString(xml_string)
-            pretty_xml = dom.toprettyxml(indent='  ')
-
-            # Remove extra blank lines
-            lines = [line for line in pretty_xml.split('\n') if line.strip()]
-            pretty_xml = '\n'.join(lines)
+            # Write to file with indentation
+            ET.indent(gpx, space='  ')
+            pretty_xml = ET.tostring(gpx, encoding='unicode', xml_declaration=True)
 
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)

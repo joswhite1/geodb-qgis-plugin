@@ -49,6 +49,12 @@ class PhotoLoader(QThread):
             # Download from URL
             import urllib.request
             import ssl
+            from urllib.parse import urlparse
+
+            # Validate URL scheme to prevent file:// or other unsafe schemes
+            parsed = urlparse(self.url)
+            if parsed.scheme not in ('https', 'http'):
+                return
 
             # Create SSL context - only bypass verification in dev mode
             from ..utils.config import DEV_MODE

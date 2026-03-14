@@ -282,8 +282,8 @@ class ClaimsStorageManager:
                 return False
 
             # Check for identifier
-            cursor.execute(f'''
-                SELECT value FROM {self.METADATA_TABLE}
+            cursor.execute('''
+                SELECT value FROM qclaims_metadata
                 WHERE key = ?
             ''', (self.KEY_IDENTIFIER,))
 
@@ -328,7 +328,7 @@ class ClaimsStorageManager:
             conn = sqlite3.connect(gpkg_path)
             cursor = conn.cursor()
 
-            cursor.execute(f'SELECT key, value FROM {self.METADATA_TABLE}')
+            cursor.execute('SELECT key, value FROM qclaims_metadata')
             rows = cursor.fetchall()
 
             conn.close()

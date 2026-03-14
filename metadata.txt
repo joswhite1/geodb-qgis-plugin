@@ -6,13 +6,12 @@
 name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
-supportsQt6=True
 description=Connects to spatial data from geodb.io via api
-version=2.2.0
+version=2.2.1
 author=geodb.io
 email=admin@geodb.io
 
-about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.2.0 adds Project Files management with georeferenced file upload and GeoPackage sync.
+about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.2.1 adds Project Files management with georeferenced file upload and GeoPackage sync.
 
 tracker=https://github.com/joswhite1/geodb-qgis-plugin/issues
 repository=https://github.com/joswhite1/geodb-qgis-plugin
@@ -25,13 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.2.0 - Project Files & GeoPackage Sync
+    2.2.1 - Project Files & GeoPackage Sync
         - New "Project Files" tab with sub-tabs for Map Capture, Upload Files, and GeoPackage Sync
         - Upload georeferenced raster layers from QGIS to geodb.io server
         - GeoPackage sync: push/pull GeoPackage files with embedded styles
         - Improved world file generation with native CRS bounds support
         - Fix HiDPI/Retina display handling for map captures
         - Pre-select active layer in field work dialog
+        - Security fixes: SQL injection prevention, URL scheme validation, safe XML parsing
+        - Removed deprecated supportsQt6 metadata flag
         - Bug fixes and stability improvements
     2.1.1 - QGIS 4.0 Compatibility & Security Hardening
         - QGIS 4.0 / Qt6 compatibility (supports QGIS 3.0 through 4.99)
