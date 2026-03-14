@@ -12,7 +12,7 @@ class Company:
     id: int
     name: str
     projects: List['Project']
-    
+
     def __str__(self):
         return self.name
 
@@ -35,15 +35,15 @@ class Permission:
     """User permissions for a model type."""
     model_name: str  # e.g., 'LandHolding', 'DrillCollar'
     level: str  # 'admin', 'editor', 'viewer'
-    
+
     @property
     def can_view(self) -> bool:
         return self.level in ['admin', 'editor', 'viewer']
-    
+
     @property
     def can_edit(self) -> bool:
         return self.level in ['admin', 'editor']
-    
+
     @property
     def can_admin(self) -> bool:
         return self.level == 'admin'

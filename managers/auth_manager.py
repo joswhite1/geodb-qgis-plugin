@@ -192,7 +192,7 @@ class AuthManager:
             'token': token,
             'user_context': user_context.to_dict()
         })
-    
+
     def logout(self) -> bool:
         """
         Logout current user and clear credentials.
@@ -225,7 +225,7 @@ class AuthManager:
                 self._remove_credentials(auth_config_id)
 
         return True
-    
+
     def restore_session(self) -> Optional[AuthSession]:
         """
         Restore session from stored credentials.
@@ -413,7 +413,7 @@ class AuthManager:
 
         password = auth_config.config('password', '')
         return password if password else None
-    
+
     def _store_credentials(self, username: str, token: str, password: Optional[str] = None) -> str:
         """
         Store credentials in QGIS Authentication Manager.
@@ -457,17 +457,17 @@ class AuthManager:
 
         self.logger.debug(f"Stored credentials with ID: {auth_config_id}")
         return auth_config_id
-    
+
     def _find_auth_config(self) -> Optional[str]:
         """Find existing auth config by name."""
         configs = self.auth_manager.availableAuthMethodConfigs()
-        
+
         for config_id, config in configs.items():
             if config.name() == self.AUTH_CONFIG_NAME:
                 return config_id
-        
+
         return None
-    
+
     def _remove_credentials(self, auth_config_id: str) -> bool:
         """Remove credentials from auth manager."""
         try:

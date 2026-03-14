@@ -122,7 +122,7 @@ class RefreshWorker(QThread):
 
 class GeodbModernDialog(QDialog, FORM_CLASS):
     """Modern dialog for Geodb.io plugin with clean UI and manager integration."""
-    
+
     def __init__(self, parent=None):
         """Initialize the dialog."""
         super(GeodbModernDialog, self).__init__(parent)
@@ -211,33 +211,33 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Try to restore session
         self._try_restore_session()
-    
+
     def _connect_signals(self):
         """Connect UI signals to handlers."""
         # Authentication
         self.loginButton.clicked.connect(self._on_login_clicked)
         self.logoutButton.clicked.connect(self._on_logout_clicked)
         self.localModeCheckBox.stateChanged.connect(self._on_local_mode_changed)
-        
+
         # Project selection
         self.companyComboBox.currentIndexChanged.connect(self._on_company_changed)
         self.projectComboBox.currentIndexChanged.connect(self._on_project_changed)
         self.refreshProjectsButton.clicked.connect(self._on_refresh_projects_clicked)
-        
+
         # Model selection
         self.modelListWidget.currentItemChanged.connect(self._on_model_selected)
-        
+
         # Actions
         self.pullButton.clicked.connect(self._on_pull_clicked)
         self.pushButton.clicked.connect(self._on_push_clicked)
-        
+
         # Options
         self.includeMergedAssaysCheckBox.stateChanged.connect(self._on_assay_options_changed)
-        
+
         # Messages
         self.clearMessagesButton.clicked.connect(self._clear_messages)
         self.closeButton.clicked.connect(self.close)
-    
+
     def _initialize_ui(self):
         """Initialize UI state."""
         self.modelListWidget.setCurrentRow(0)
@@ -385,7 +385,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         except Exception as e:
             self.logger.error(f"Failed to restore session: {e}")
-    
+
     # ==================== AUTHENTICATION ====================
 
     def _on_login_clicked(self):
@@ -458,7 +458,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.logger.warning(f"Could not check QClaims access: {e}")
             # Default to wizard if access check fails
             self._show_claims_wizard()
-    
+
     def _on_logout_clicked(self):
         """Handle logout button click."""
         try:
@@ -478,7 +478,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         except Exception as e:
             self.logger.exception("Logout error")
             self._log_message(f"Logout error: {e}", "error")
-    
+
     def _on_local_mode_changed(self, state):
         """Handle local development mode toggle."""
         # Guard against rapid repeated calls (can happen during checkbox state changes)
@@ -619,7 +619,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._log_message(f"Loaded {len(companies)} companies.", "success")
         else:
             self._log_message("No companies found.", "warning")
-    
+
     def _clear_projects(self):
         """Clear project selection."""
         self.companyComboBox.clear()
@@ -724,7 +724,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Update context header (project will update when project is selected)
         self._update_context_header()
-    
+
     def _on_project_changed(self, index: int):
         """Handle project selection change.
 
@@ -800,7 +800,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._log_message(f"Failed to select project: {e}", "error")
 
     # ==================== MODEL SELECTION ====================
-    
+
     def _on_model_selected(self, current, previous):
         """Handle model selection from list."""
         if not current:
@@ -851,7 +851,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.pushButton.setEnabled(self.project_manager.can_edit())
 
         self._log_message(f"Selected model: {model_name}", "info")
-    
+
     def _on_assay_options_changed(self, state):
         """Enable/disable assay merge controls."""
         # This method is now deprecated since we replaced manual controls
@@ -1504,19 +1504,19 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         if reply != QMessageBox.StandardButton.Yes:
             return
-        
+
         try:
             self._log_message(f"Starting PUSH for {self.current_model}...", "info")
             self.pushButton.setEnabled(False)
             self.progressBar.setVisible(True)
             self.progressBar.setValue(0)
-            
+
             # Perform push with progress callback
             result = self.data_manager.push_model_data(
                 self.current_model,
                 progress_callback=self._on_progress
             )
-            
+
             # Handle dictionary result format
             if isinstance(result, dict):
                 created = result.get('created', 0)
@@ -1546,7 +1546,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                     f"{result.records_updated} updated, {result.records_deleted} deleted",
                     "success"
                 )
-            
+
         except APIPermissionError as e:
             self._log_message(f"Permission denied: {e}", "error")
             QMessageBox.critical(self, "Permission Denied", str(e))
@@ -1560,7 +1560,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         finally:
             self.pushButton.setEnabled(True)
             self.progressBar.setVisible(False)
-    
+
     def _get_sync_options(self) -> dict:
         """Get current sync options from UI."""
         options = {}
@@ -1579,14 +1579,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 options['assay_config_id'] = self.current_assay_config.get('id')
 
         return options
-    
+
     def _on_progress(self, percent: int, message: str):
         """Handle progress updates."""
         self.progressBar.setValue(percent)
         self._log_message(f"[{percent}%] {message}", "info")
-    
+
     # ==================== MESSAGES ====================
-    
+
     def _log_message(self, message: str, level: str = "info", _from_logger: bool = False):
         """Add message to the message browser.
 
@@ -1670,7 +1670,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 # Reset to default color (empty QColor uses default)
                 tab_bar.setTabTextColor(i, QColor())
                 break
-    
+
     def _clear_messages(self):
         """Clear the messages browser."""
         self.messagesTextBrowser.clear()

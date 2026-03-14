@@ -165,8 +165,8 @@ class SyncManager:
 
         # For geometry strings (WKT/EWKT), normalize to uppercase WKT
         if isinstance(value, str) and (
-            value.upper().startswith('SRID=') or
-            value.upper().startswith(('POINT', 'LINESTRING', 'POLYGON', 'MULTI'))
+            value.upper().startswith('SRID=')
+            or value.upper().startswith(('POINT', 'LINESTRING', 'POLYGON', 'MULTI'))
         ):
             # Strip SRID prefix if present
             if value.upper().startswith('SRID='):
@@ -1686,7 +1686,7 @@ class SyncManager:
             if progress_callback:
                 progress = int((idx / len(features)) * 100)
                 progress_callback(progress)
-            
+
             server_id = feature_data.get('id')
 
             # Extract attributes
@@ -1746,9 +1746,9 @@ class SyncManager:
             # When latitude/longitude are NULL (planned, not yet collected), use target_* coords
             # Check both model_name and base_schema_name since FieldTasks uses PointSample schema
             is_pointsample_data = (
-                model_name.startswith('PointSample') or
-                model_name.startswith('FieldTasks') or
-                base_schema_name == 'PointSample'
+                model_name.startswith('PointSample')
+                or model_name.startswith('FieldTasks')
+                or base_schema_name == 'PointSample'
             )
             if not geom_data and is_pointsample_data:
                 point_geom = self._build_pointsample_geometry_with_fallback(feature_data)
@@ -1759,7 +1759,7 @@ class SyncManager:
                         has_actual = feature_data.get('latitude') and feature_data.get('longitude')
                         coord_source = "actual" if has_actual else "target (planned)"
                         self.logger.info(f"Built PointSample geometry from {coord_source} coordinates")
-            
+
             # Collect processed attributes for snapshot computation
             # This ensures the hash matches what we'll read back from QGIS
             if server_id:
@@ -1807,7 +1807,7 @@ class SyncManager:
                 # Add new feature
                 features_to_add.append(attributes)
                 added += 1
-        
+
         # Batch add new features
         if features_to_add:
             self.layer_processor.add_features(layer, features_to_add)
@@ -1861,7 +1861,7 @@ class SyncManager:
 
         self.logger.info(f"Sync complete: {result}")
         return result
-    
+
     def get_changed_features(
         self,
         model_name: str,
@@ -1995,7 +1995,7 @@ class SyncManager:
             f"{len(changed_features)} changed, {skipped_unchanged} unchanged out of {total_count}"
         )
         return changed_features, total_count, skipped_unchanged
-    
+
     def sync_push_response(
         self,
         model_name: str,
@@ -2025,10 +2025,10 @@ class SyncManager:
         if not layer:
             self.logger.warning(f"Layer not found: {model_name}")
             return {'updated': 0, 'errors': 0}
-        
+
         updated = 0
         errors = 0
-        
+
         # Update features with server IDs
         for result in results:
             if result.get('success'):
@@ -2039,13 +2039,13 @@ class SyncManager:
             else:
                 errors += 1
                 self.logger.error(f"Feature push failed: {result.get('error')}")
-        
+
         return {
             'updated': updated,
             'errors': errors,
             'total': len(results)
         }
-    
+
     def has_local_changes(self, model_name: str, project_name: Optional[str] = None) -> bool:
         """
         Check if layer has unsaved changes.
@@ -2077,27 +2077,27 @@ class SyncManager:
         """
         layer = self._find_layer(model_name, project_name)
         return layer is not None
-    
+
     def get_last_sync_time(self, model_name: str) -> Optional[str]:
         """
         Get last sync time for model.
-        
+
         Args:
             model_name: Model name
-            
+
         Returns:
             ISO timestamp string or None
         """
         qgs_project = QgsProject.instance()
-        
+
         value = qgs_project.readEntry(
             self.SYNC_VAR_SECTION,
             f"{model_name}_last_sync",
             ""
         )[0]
-        
+
         return value if value else None
-    
+
     def set_last_sync_time(self, model_name: str, timestamp: str):
         """
         Set last sync time for model.
@@ -2221,11 +2221,11 @@ class SyncManager:
                 if original_hash and current_hash != original_hash:
                     # Get a human-readable name for the record
                     name = (
-                        feature.attribute('name') or
-                        feature.attribute('hole_id') or
-                        feature.attribute('bhid') or
-                        feature.attribute('sample_name') or
-                        f"{model_name}:{server_id}"
+                        feature.attribute('name')
+                        or feature.attribute('hole_id')
+                        or feature.attribute('bhid')
+                        or feature.attribute('sample_name')
+                        or f"{model_name}:{server_id}"
                     )
                     conflicts.append({
                         'server_id': server_id,

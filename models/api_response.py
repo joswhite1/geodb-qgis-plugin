@@ -14,12 +14,12 @@ class APIResponse:
     error: Optional[str] = None
     status_code: Optional[int] = None
     headers: Optional[Dict[str, str]] = None
-    
+
     @classmethod
     def from_success(cls, data: Any, status_code: int = 200, headers: Dict = None):
         """Create success response."""
         return cls(success=True, data=data, status_code=status_code, headers=headers)
-    
+
     @classmethod
     def from_error(cls, error: str, status_code: int = None, data: Any = None):
         """Create error response."""

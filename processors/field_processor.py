@@ -28,7 +28,7 @@ class FieldProcessor:
         'datetime': QMetaType.Type.QDateTime,
         'time': QMetaType.Type.QTime
     }
-    
+
     # Read-only fields that should not be edited
     READONLY_FIELDS = [
         'id',
@@ -37,29 +37,29 @@ class FieldProcessor:
         'created_by',
         'updated_by'
     ]
-    
+
     def __init__(self):
         """Initialize field processor."""
         self.logger = PluginLogger.get_logger()
-    
+
     def create_qgs_fields(self, field_definitions: List[Dict[str, Any]]) -> QgsFields:
         """
         Create QGIS fields from API field definitions.
-        
+
         Args:
             field_definitions: List of field definition dicts
                 [{'name': 'field1', 'type': 'string', 'length': 255}, ...]
-            
+
         Returns:
             QgsFields object
         """
         qgs_fields = QgsFields()
-        
+
         for field_def in field_definitions:
             field_name = field_def.get('name')
             field_type = field_def.get('type', 'string')
             field_length = field_def.get('length', 255)
-            
+
             # Map API type to QMetaType.Type (non-deprecated since QGIS 3.38)
             qgs_type = self.TYPE_MAPPING.get(field_type, QMetaType.Type.QString)
 
@@ -77,23 +77,23 @@ class FieldProcessor:
                     qgs_field.setLength(field_length)
 
             qgs_fields.append(qgs_field)
-        
+
         return qgs_fields
-    
+
     def api_to_qgs_value(self, value: Any, field_type: str) -> Any:
         """
         Convert API value to QGIS-compatible value.
-        
+
         Args:
             value: Value from API
             field_type: API field type
-            
+
         Returns:
             Converted value
         """
         if value is None:
             return None
-        
+
         try:
             if field_type in ['integer']:
                 return int(value)
@@ -106,7 +106,7 @@ class FieldProcessor:
         except (ValueError, TypeError) as e:
             self.logger.warning(f"Failed to convert value {value} to {field_type}: {e}")
             return value
-    
+
     def qgs_to_api_value(self, value: Any, field_type: str) -> Any:
         """
         Convert QGIS value to API-compatible value.
@@ -161,19 +161,19 @@ class FieldProcessor:
         except (ValueError, TypeError) as e:
             self.logger.warning(f"Failed to convert value {value} to {field_type}: {e}")
             return value
-    
+
     def is_readonly_field(self, field_name: str) -> bool:
         """
         Check if field is read-only.
-        
+
         Args:
             field_name: Field name
-            
+
         Returns:
             True if field is read-only
         """
         return field_name in self.READONLY_FIELDS
-    
+
     def extract_attributes(
         self,
         feature_data: Dict[str, Any],
@@ -212,7 +212,7 @@ class FieldProcessor:
             attributes[field_name] = converted_value
 
         return attributes
-    
+
     # Fields that should be parsed as JSON objects (natural keys and metadata)
     NATURAL_KEY_FIELDS = {
         'project', 'land_status', 'bhid',

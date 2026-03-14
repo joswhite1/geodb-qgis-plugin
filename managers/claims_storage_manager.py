@@ -1048,8 +1048,8 @@ class ClaimsStorageManager:
                 if layer.source() == expected_source:
                     return layer
                 # Also check normalized paths
-                if (os.path.normpath(layer.source().split('|')[0]) ==
-                        os.path.normpath(gpkg_path)):
+                if (os.path.normpath(layer.source().split('|')[0])
+                        == os.path.normpath(gpkg_path)):
                     if f"layername={table_name}" in layer.source():
                         return layer
 

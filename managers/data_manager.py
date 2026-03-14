@@ -467,10 +467,10 @@ class DataManager:
                     # The server uses this to look up the record for upsert
                     project_value = push_data.get('project')
                     needs_project = (
-                        not project_value or
-                        project_value is None or
-                        project_value == '' or
-                        project_value == 'NULL'
+                        not project_value
+                        or project_value is None
+                        or project_value == ''
+                        or project_value == 'NULL'
                     )
 
                     if needs_project:
@@ -988,9 +988,9 @@ class DataManager:
             # This is done in process_project_files, but we can pre-filter here for accurate counting
             loadable_files = [
                 f for f in files
-                if (f.get('is_raster', False) or
-                    f.get('georeferencing') or
-                    (f.get('tiles_available', False) and f.get('tiles_status') == 'completed'))
+                if (f.get('is_raster', False)
+                    or f.get('georeferencing')
+                    or (f.get('tiles_available', False) and f.get('tiles_status') == 'completed'))
             ]
 
             # Debug: Log all files and their georeferencing/tile status

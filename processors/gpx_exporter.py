@@ -267,9 +267,9 @@ class GPXExporter:
                 # Check if this corner is the LM corner (Idaho/New Mexico)
                 # LM corners get Navaid, Green symbol
                 is_lm_corner = (
-                    corner.get('is_lm_corner', False) or
-                    corner.get('is_location_monument', False) or
-                    (lm_corner_num is not None and corner_num == lm_corner_num)
+                    corner.get('is_lm_corner', False)
+                    or corner.get('is_location_monument', False)
+                    or (lm_corner_num is not None and corner_num == lm_corner_num)
                 )
 
                 if is_lm_corner:

@@ -601,8 +601,8 @@ class ReferencePointsWidget(QWidget):
 
                     # Check if source matches (handle path normalization)
                     is_match = (
-                        normalized_layer_path == normalized_gpkg_path and
-                        f"layername={ClaimsStorageManager.REFERENCE_POINTS_TABLE}".lower() in layer_source.lower()
+                        normalized_layer_path == normalized_gpkg_path
+                        and f"layername={ClaimsStorageManager.REFERENCE_POINTS_TABLE}".lower() in layer_source.lower()
                     )
 
                     if is_match:
@@ -1066,8 +1066,8 @@ class ReferencePointsWidget(QWidget):
         for layer_id, layer in QgsProject.instance().mapLayers().items():
             if isinstance(layer, QgsVectorLayer):
                 # Check if it's a memory-based Reference Points layer
-                if (layer.name() == self.LAYER_NAME and
-                        layer.dataProvider().name() == 'memory'):
+                if (layer.name() == self.LAYER_NAME
+                        and layer.dataProvider().name() == 'memory'):
                     layers_to_remove.append(layer_id)
                     self.logger.info(
                         f"[REFERENCE WIDGET] Removing old memory layer: {layer.name()}"

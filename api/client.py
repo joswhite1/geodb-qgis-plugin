@@ -46,11 +46,11 @@ class APIClient:
         self.token = token
         self.logger = PluginLogger.get_logger()
         self.network_manager = QgsNetworkAccessManager.instance()
-    
+
     def set_token(self, token: str):
         """Set authentication token."""
         self.token = token
-    
+
     def _make_request(
         self,
         method: str,
@@ -61,17 +61,17 @@ class APIClient:
     ) -> Dict[str, Any]:
         """
         Make HTTP request and return parsed response.
-        
+
         Args:
             method: HTTP method (GET, POST, etc.)
             url: Request URL
             data: Optional request body data
             headers: Optional additional headers
             progress_callback: Optional callback for progress updates
-            
+
         Returns:
             Parsed JSON response
-            
+
         Raises:
             APIException: On request failure
         """
@@ -126,7 +126,7 @@ class APIClient:
                 raise
 
         raise last_error
-    
+
     def _execute_request(
         self,
         method: str,
@@ -642,8 +642,8 @@ class APIClient:
             return False
         base = urlparse(self.config.base_url)
         target = urlparse(next_url)
-        return (target.scheme == base.scheme and
-                target.netloc == base.netloc)
+        return (target.scheme == base.scheme
+                and target.netloc == base.netloc)
 
     # =========================================================================
     # RESTful Data Endpoints

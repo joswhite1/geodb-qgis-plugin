@@ -25,7 +25,7 @@ DEV_MODE = _check_dev_mode()
 
 class Config:
     """Central configuration management for the plugin."""
-    
+
     DEFAULT_CONFIG = {
         "api": {
             "base_url": "https://api.geodb.io/api/v2",
@@ -47,11 +47,11 @@ class Config:
             "enabled": True
         }
     }
-    
+
     def __init__(self, config_path: Optional[str] = None):
         """
         Initialize configuration.
-        
+
         Args:
             config_path: Optional path to config file. If None, uses default location.
         """
@@ -64,10 +64,10 @@ class Config:
                 config_path = os.path.join(profile_path, 'geodb_plugin_config.json')
             else:
                 config_path = os.path.expanduser('~/.qgis3/geodb_plugin_config.json')
-        
+
         self.config_path = config_path
         self._config = self._load_config()
-    
+
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file or create default."""
         if os.path.exists(self.config_path):
@@ -84,7 +84,7 @@ class Config:
             # Create default config file
             self.save()
             return self.DEFAULT_CONFIG.copy()
-    
+
     def _deep_merge(self, base: dict, update: dict) -> dict:
         """Deep merge two dictionaries."""
         for key, value in update.items():
@@ -93,66 +93,66 @@ class Config:
             else:
                 base[key] = value
         return base
-    
+
     def save(self) -> bool:
         """Save configuration to file."""
         try:
             # Ensure directory exists
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-            
+
             with open(self.config_path, 'w') as f:
                 json.dump(self._config, f, indent=2)
             return True
         except Exception as e:
             print(f"Error saving config: {e}")
             return False
-    
+
     def get(self, key_path: str, default: Any = None) -> Any:
         """
         Get configuration value using dot notation.
-        
+
         Args:
             key_path: Dot-separated path (e.g., 'api.base_url')
             default: Default value if key not found
-            
+
         Returns:
             Configuration value or default
         """
         keys = key_path.split('.')
         value = self._config
-        
+
         for key in keys:
             if isinstance(value, dict) and key in value:
                 value = value[key]
             else:
                 return default
-        
+
         return value
-    
+
     def set(self, key_path: str, value: Any) -> bool:
         """
         Set configuration value using dot notation.
-        
+
         Args:
             key_path: Dot-separated path (e.g., 'api.base_url')
             value: Value to set
-            
+
         Returns:
             True if successful
         """
         keys = key_path.split('.')
         config = self._config
-        
+
         # Navigate to the parent of the target key
         for key in keys[:-1]:
             if key not in config:
                 config[key] = {}
             config = config[key]
-        
+
         # Set the value
         config[keys[-1]] = value
         return self.save()
-    
+
     @property
     def base_url(self) -> str:
         """Get the appropriate base URL (production or local)."""
@@ -169,7 +169,7 @@ class Config:
             return default_url
 
         return url
-    
+
     @property
     def endpoints(self) -> Dict[str, str]:
         """Get all API endpoints based on geodb.io API v1 specification."""
