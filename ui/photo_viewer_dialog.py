@@ -68,7 +68,7 @@ class PhotoLoader(QThread):
                 headers={'User-Agent': 'QGIS-GeodbPlugin/2.0'}
             )
 
-            with urllib.request.urlopen(request, context=ctx, timeout=30) as response:
+            with urllib.request.urlopen(request, context=ctx, timeout=30) as response:  # nosec B310 - scheme validated above
                 data = response.read()
 
             if self._cancelled:

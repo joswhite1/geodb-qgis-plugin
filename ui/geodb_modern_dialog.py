@@ -111,7 +111,7 @@ class RefreshWorker(QThread):
                 }
             )
 
-            with urllib.request.urlopen(request, context=ctx, timeout=30) as response:
+            with urllib.request.urlopen(request, context=ctx, timeout=30) as response:  # nosec B310 - scheme validated above
                 data = response.read().decode('utf-8')
                 result = json.loads(data)
                 self.finished.emit(result)
