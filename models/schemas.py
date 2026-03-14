@@ -526,6 +526,8 @@ CLAIM_STAKE_SCHEMA = ModelSchema(
                    description='Project natural key (JSON object)'),
         FieldSchema('land_holding', FieldType.STRING, length=0,
                    description='Associated LandHolding natural key (JSON object)'),
+        FieldSchema('claim_package', FieldType.INTEGER,
+                   description='ClaimPackage ID to scope stakes to a package'),
         # Stake type and status
         FieldSchema('stake_type', FieldType.STRING, length=2, default='WP',
                    description='WP=Corner Waypoint, LM=Location Monument, SM=Sideline Monument, EM=Endline Monument'),
