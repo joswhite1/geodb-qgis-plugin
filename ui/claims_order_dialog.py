@@ -8,10 +8,10 @@ from typing import Dict, Any, Optional
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGroupBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QApplication
+    QHeaderView
 )
-from qgis.PyQt.QtCore import Qt, QTimer
-from qgis.PyQt.QtGui import QFont, QColor, QBrush
+from qgis.PyQt.QtCore import QTimer
+from qgis.PyQt.QtGui import QFont
 
 from ..managers.claims_manager import ClaimsManager
 

@@ -4,14 +4,13 @@ Claims wizard main container widget.
 
 Provides step navigation, step indicator, and manages step widget transitions.
 """
-from typing import Optional, List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QStackedWidget, QFrame, QMessageBox, QSizePolicy
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.PyQt.QtGui import QFont
 
 from .claims_wizard_state import ClaimsWizardState
 from ..utils.logger import PluginLogger

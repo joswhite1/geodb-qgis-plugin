@@ -5,7 +5,7 @@ comparing them against files already on the geodb.io server, and uploading
 new ones as ProjectFiles.
 """
 import os
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -336,10 +336,10 @@ class GeorefFilesWidget(QWidget):
             # (QGIS may have loaded it with embedded georeferencing we didn't detect)
             has_valid_crs = layer.crs().isValid()
             has_valid_extent = (
-                layer.extent().isFinite()
-                and not layer.extent().isEmpty()
-                and layer.extent().width() > 0
-                and layer.extent().height() > 0
+                layer.extent().isFinite() and
+                not layer.extent().isEmpty() and
+                layer.extent().width() > 0 and
+                layer.extent().height() > 0
             )
 
             if not (is_native_georef or is_worldfile_georef or (has_valid_crs and has_valid_extent)):
@@ -458,10 +458,10 @@ class GeorefFilesWidget(QWidget):
         server_stem = os.path.splitext(server_name)[0] if '.' in server_name else server_name
 
         name_matches = (
-            local_name == server_name
-            or local_stem == server_stem
-            or local_stem == server_name
-            or local_name == server_stem
+            local_name == server_name or
+            local_stem == server_stem or
+            local_stem == server_name or
+            local_name == server_stem
         )
 
         if not name_matches:

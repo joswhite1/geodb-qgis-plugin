@@ -12,11 +12,10 @@ Provides a clean, user-friendly login interface with:
 from typing import Optional, Tuple
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QCheckBox, QFrame, QSpacerItem, QSizePolicy,
-    QMessageBox, QApplication
+    QPushButton, QCheckBox, QFrame
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QDateTime
-from qgis.PyQt.QtGui import QFont, QPixmap, QIcon
+from qgis.PyQt.QtGui import QFont
 
 from .two_factor_dialog import TwoFactorDialog
 

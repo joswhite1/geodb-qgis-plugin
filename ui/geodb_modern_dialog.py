@@ -8,13 +8,12 @@
 
 import os
 import sys
-from typing import Optional, Callable, List, Dict, Any
+from typing import Optional, List, Dict, Any
 from qgis.PyQt import uic
-from qgis.PyQt.QtCore import Qt, QTimer, QThread, pyqtSignal
+from qgis.PyQt.QtCore import QTimer, QThread, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDialog, QMessageBox, QLabel, QComboBox, QPushButton,
-    QVBoxLayout, QGroupBox, QTableWidget, QTableWidgetItem,
-    QHBoxLayout, QHeaderView, QTabWidget
+    QTableWidget, QTableWidgetItem, QTabWidget
 )
 from qgis.PyQt.QtGui import QColor, QTextCursor
 
@@ -28,7 +27,6 @@ from ..utils.config import Config, DEV_MODE
 from ..utils.logger import PluginLogger
 from ..api.client import APIClient
 from ..api.exceptions import (
-    AuthenticationError,
     PermissionError as APIPermissionError,
     NetworkError,
     ValidationError
@@ -42,7 +40,6 @@ from ..managers.claims_manager import ClaimsManager
 from ..models.auth import AuthSession, UserContext
 from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
-from .assay_range_dialog import AssayRangeDialog
 from .storage_dialog import StorageConfigDialog
 from .field_tasks_widget import FieldTasksWidget
 from .claims_wizard_widget import ClaimsWizardWidget
@@ -268,7 +265,6 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     def _setup_context_header(self):
         """Set up the context header showing current company and project."""
         from qgis.PyQt.QtWidgets import QFrame, QHBoxLayout
-        from qgis.PyQt.QtCore import Qt
 
         # Create the header widget
         self.context_header = QFrame()
@@ -856,7 +852,6 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """Enable/disable assay merge controls."""
         # This method is now deprecated since we replaced manual controls
         # Kept for backward compatibility during transition
-        pass
 
     def _load_assay_configurations(self):
         """Load AssayRangeConfigurations and AssayMergeSettings from API."""
@@ -1038,7 +1033,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     def _display_color_ranges(self, config: Dict[str, Any]):
         """Display color ranges in the table."""
         ranges = config.get('ranges', [])
-        units = config.get('units', '')
+        config.get('units', '')
 
         self.rangesTable.setRowCount(len(ranges))
 
@@ -1266,7 +1261,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 for error in result['errors']:
                     self._log_message(f"Error: {error}", "error")
             else:
-                self._log_message(f"File skipped or not loaded", "warning")
+                self._log_message("File skipped or not loaded", "warning")
 
         except NetworkError as e:
             self._log_message(f"Network error: {e}", "error")
@@ -1874,9 +1869,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
                 # Format file size
                 if file_size > 1024 * 1024 * 1024:
-                    size_str = f"{file_size / (1024*1024*1024):.1f} GB"
+                    size_str = f"{file_size / (1024 *1024 *1024):.1f} GB"
                 elif file_size > 1024 * 1024:
-                    size_str = f"{file_size / (1024*1024):.1f} MB"
+                    size_str = f"{file_size / (1024 *1024):.1f} MB"
                 elif file_size > 1024:
                     size_str = f"{file_size / 1024:.1f} KB"
                 else:
@@ -1939,9 +1934,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Format file size
         if file_size > 1024 * 1024 * 1024:
-            size_str = f"{file_size / (1024*1024*1024):.2f} GB"
+            size_str = f"{file_size / (1024 *1024 *1024):.2f} GB"
         elif file_size > 1024 * 1024:
-            size_str = f"{file_size / (1024*1024):.2f} MB"
+            size_str = f"{file_size / (1024 *1024):.2f} MB"
         elif file_size > 1024:
             size_str = f"{file_size / 1024:.2f} KB"
         else:
@@ -2508,7 +2503,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         from qgis.PyQt.QtCore import QTimer
         QTimer.singleShot(100, select_project)
 
-        self._log_message(f"Switched to project context for order fulfillment", "info")
+        self._log_message("Switched to project context for order fulfillment", "info")
 
     def cleanup(self):
         """Clean up resources before plugin unload to prevent crashes.

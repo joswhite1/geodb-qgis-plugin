@@ -5,7 +5,7 @@ Claims Order Widget for pay-per-claim users.
 A simplified single-page widget for submitting claim orders with payment.
 This is shown to pay-per-claim users instead of the full Claims Wizard.
 """
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -13,11 +13,11 @@ from qgis.PyQt.QtWidgets import (
     QScrollArea, QSpinBox, QDoubleSpinBox,
     QLineEdit, QFormLayout, QCheckBox
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal, QUrl
-from qgis.PyQt.QtGui import QFont, QDesktopServices
+from qgis.PyQt.QtCore import pyqtSignal, QUrl
+from qgis.PyQt.QtGui import QDesktopServices
 from qgis.core import (
-    QgsProject, QgsVectorLayer, QgsPointXY,
-    QgsCoordinateReferenceSystem, QgsCoordinateTransform
+    QgsProject, QgsVectorLayer, QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform
 )
 
 from ..managers.claims_manager import ClaimsManager

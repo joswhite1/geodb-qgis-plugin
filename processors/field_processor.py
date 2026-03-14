@@ -2,11 +2,10 @@
 """
 Field mapping and type conversion between API and QGIS.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from qgis.core import QgsField, QgsFields
-from qgis.PyQt.QtCore import QVariant, QMetaType
+from qgis.PyQt.QtCore import QMetaType
 
-from ..api.exceptions import FieldMappingError
 from ..utils.logger import PluginLogger
 
 
@@ -245,7 +244,6 @@ class FieldProcessor:
         Returns:
             Dictionary ready for API (without 'id' field)
         """
-        import json
 
         prepared = {}
 

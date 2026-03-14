@@ -24,9 +24,9 @@ import math
 
 from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
-    QgsField, QgsFields, QgsProject, QgsWkbTypes, QgsVectorSimplifyMethod
+    QgsField, QgsWkbTypes
 )
-from qgis.PyQt.QtCore import QMetaType, QVariant
+from qgis.PyQt.QtCore import QMetaType
 
 from ..utils.logger import PluginLogger
 
@@ -482,7 +482,6 @@ class GridProcessor:
 
         # Check for GeoPackage layer
         source = layer.source()
-        is_geopackage = '|layername=' in source and source.endswith('.gpkg|layername=' + source.split('|layername=')[-1])
 
         # For GeoPackage layers, we need to rewrite the entire table
         if layer.dataProvider().name() == 'ogr' and '.gpkg' in source:
@@ -1243,9 +1242,9 @@ class GridProcessor:
         diff2 = abs(sides[1] - sides[3]) / max(sides[1], sides[3], 0.001)
 
         if diff1 > tolerance:
-            return False, f"Opposite sides differ by {diff1*100:.1f}% (sides 1 and 3)"
+            return False, f"Opposite sides differ by {diff1 *100:.1f}% (sides 1 and 3)"
 
         if diff2 > tolerance:
-            return False, f"Opposite sides differ by {diff2*100:.1f}% (sides 2 and 4)"
+            return False, f"Opposite sides differ by {diff2 *100:.1f}% (sides 2 and 4)"
 
         return True, None

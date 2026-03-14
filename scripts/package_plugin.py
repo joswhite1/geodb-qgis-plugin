@@ -142,7 +142,7 @@ def package_plugin():
                 print(f"  WARNING: Missing directory: {dirname}")
 
     print()
-    print(f"Package created successfully!")
+    print("Package created successfully!")
     print(f"  Files: {files_added}")
     print(f"  Size: {zip_path.stat().st_size / 1024:.1f} KB")
     print(f"  Output: {zip_path}")

@@ -7,9 +7,7 @@ performance and reduce network requests when viewing the same photos
 multiple times.
 """
 
-import os
 import hashlib
-import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta

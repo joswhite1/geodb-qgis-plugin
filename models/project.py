@@ -3,7 +3,7 @@
 Project and company data models.
 """
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 
 @dataclass

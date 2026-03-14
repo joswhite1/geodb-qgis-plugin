@@ -14,7 +14,7 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QDialogButtonBox, QListWidget, QListWidgetItem,
-    QMessageBox, QWidget, QGroupBox
+    QMessageBox, QWidget
 )
 from qgis.PyQt.QtGui import QCursor
 from qgis.core import (
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from ..managers.claims_storage_manager import ClaimsStorageManager
 
 from ..utils.logger import PluginLogger
-from ..utils.layer_utils import is_layer_valid, is_layer_in_project
+from ..utils.layer_utils import is_layer_in_project
 
 
 class ReferenceInputDialog(QDialog):
@@ -237,7 +237,7 @@ class ReferenceMapTool(QgsMapToolEmitPoint):
                 raise  # Re-raise so caller knows save failed
         elif self.storage_manager:
             self.logger.warning(
-                f"[REFERENCE TOOL] No GeoPackage path set, point only saved to memory"
+                "[REFERENCE TOOL] No GeoPackage path set, point only saved to memory"
             )
 
         self.logger.info(
@@ -601,8 +601,8 @@ class ReferencePointsWidget(QWidget):
 
                     # Check if source matches (handle path normalization)
                     is_match = (
-                        normalized_layer_path == normalized_gpkg_path
-                        and f"layername={ClaimsStorageManager.REFERENCE_POINTS_TABLE}".lower() in layer_source.lower()
+                        normalized_layer_path == normalized_gpkg_path and
+                        f"layername={ClaimsStorageManager.REFERENCE_POINTS_TABLE}".lower() in layer_source.lower()
                     )
 
                     if is_match:
@@ -633,7 +633,7 @@ class ReferencePointsWidget(QWidget):
             # Load existing layer from GeoPackage with proper display name
             # Pass the EPSG so the layer is created with the correct CRS if it doesn't exist
             self.logger.info(
-                f"[REFERENCE WIDGET] Layer not in project, loading from GeoPackage..."
+                "[REFERENCE WIDGET] Layer not in project, loading from GeoPackage..."
             )
 
             # First check if the GeoPackage table has wrong CRS and fix it
@@ -715,7 +715,6 @@ class ReferencePointsWidget(QWidget):
         but UTM coordinates were stored.
         """
         from ..managers.claims_storage_manager import ClaimsStorageManager
-        import sqlite3
 
         if not self._geopackage_path or not self._layer_epsg:
             return
@@ -1066,8 +1065,8 @@ class ReferencePointsWidget(QWidget):
         for layer_id, layer in QgsProject.instance().mapLayers().items():
             if isinstance(layer, QgsVectorLayer):
                 # Check if it's a memory-based Reference Points layer
-                if (layer.name() == self.LAYER_NAME
-                        and layer.dataProvider().name() == 'memory'):
+                if (layer.name() == self.LAYER_NAME and
+                        layer.dataProvider().name() == 'memory'):
                     layers_to_remove.append(layer_id)
                     self.logger.info(
                         f"[REFERENCE WIDGET] Removing old memory layer: {layer.name()}"

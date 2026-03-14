@@ -642,8 +642,8 @@ class APIClient:
             return False
         base = urlparse(self.config.base_url)
         target = urlparse(next_url)
-        return (target.scheme == base.scheme
-                and target.netloc == base.netloc)
+        return (target.scheme == base.scheme and
+                target.netloc == base.netloc)
 
     # =========================================================================
     # RESTful Data Endpoints

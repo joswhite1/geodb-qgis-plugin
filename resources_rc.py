@@ -7,7 +7,7 @@ When uic.loadUiType() processes UI files, it imports this module
 in a context where relative imports fail. We handle both cases.
 """
 try:
-    from .resources import *
+    pass
 except ImportError:
     # Fallback for UI loader context - use absolute path import
     import os

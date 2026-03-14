@@ -77,7 +77,6 @@ class ClaimsStepBase(QWidget):
         Returns:
             Step title string (e.g., "Project Setup")
         """
-        pass
 
     @abstractmethod
     def get_step_description(self) -> str:
@@ -87,7 +86,6 @@ class ClaimsStepBase(QWidget):
         Returns:
             Description string explaining what to do in this step
         """
-        pass
 
     @abstractmethod
     def validate(self) -> List[str]:
@@ -97,7 +95,6 @@ class ClaimsStepBase(QWidget):
         Returns:
             List of error messages (empty list if valid)
         """
-        pass
 
     def is_valid(self) -> bool:
         """
@@ -115,7 +112,6 @@ class ClaimsStepBase(QWidget):
 
         Use this to refresh UI, load data, etc.
         """
-        pass
 
     @abstractmethod
     def on_leave(self):
@@ -124,7 +120,6 @@ class ClaimsStepBase(QWidget):
 
         Use this to save state, clean up, etc.
         """
-        pass
 
     @abstractmethod
     def save_state(self):
@@ -133,7 +128,6 @@ class ClaimsStepBase(QWidget):
 
         Called by on_leave() and when state needs to be persisted.
         """
-        pass
 
     @abstractmethod
     def load_state(self):
@@ -142,7 +136,6 @@ class ClaimsStepBase(QWidget):
 
         Called by on_enter() to populate UI from state.
         """
-        pass
 
     def set_active(self, active: bool):
         """

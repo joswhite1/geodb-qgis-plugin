@@ -8,16 +8,16 @@ Handles:
 - Create or identify GeoPackage for claims storage
 - Fill in claimant information
 """
-from typing import List, Optional
+from typing import List
 from pathlib import Path
 import math
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QFormLayout, QLineEdit, QFileDialog, QMessageBox,
-    QFrame, QScrollArea, QApplication
+    QFrame, QScrollArea
 )
-from qgis.PyQt.QtCore import Qt, QTimer
+from qgis.PyQt.QtCore import QTimer
 from qgis.core import QgsProject, QgsCoordinateReferenceSystem
 
 from .step_base import ClaimsStepBase

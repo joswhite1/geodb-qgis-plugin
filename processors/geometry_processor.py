@@ -3,7 +3,7 @@
 Geometry processing for coordinate conversion and WKT handling.
 """
 from typing import Optional, Tuple
-from qgis.core import QgsGeometry, QgsPointXY, QgsCoordinateReferenceSystem
+from qgis.core import QgsGeometry
 
 from ..api.exceptions import GeometryError
 from ..utils.logger import PluginLogger

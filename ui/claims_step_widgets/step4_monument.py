@@ -10,9 +10,8 @@ Handles:
 from typing import List
 
 from qgis.PyQt.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QFormLayout, QDoubleSpinBox, QComboBox,
-    QFrame, QScrollArea, QMessageBox
+    QWidget, QVBoxLayout, QLabel, QGroupBox, QFormLayout,
+    QDoubleSpinBox, QComboBox, QFrame, QScrollArea
 )
 
 from .step_base import ClaimsStepBase

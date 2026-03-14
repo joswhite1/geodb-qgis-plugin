@@ -5,7 +5,7 @@ Basemaps widget for adding XYZ tile layers and reference layers to QGIS project.
 Provides easy access to common basemap providers like ESRI, USGS, and OpenStreetMap,
 as well as BLM PLSS cadastral reference layers for mining claims work.
 """
-from typing import Dict, Optional
+from typing import Optional
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -18,8 +18,7 @@ from qgis.core import (
     QgsSimpleLineSymbolLayer, QgsSimpleFillSymbolLayer, QgsMarkerSymbol,
     QgsSymbol, QgsSingleSymbolRenderer, QgsCategorizedSymbolRenderer,
     QgsRendererCategory, QgsPalLayerSettings, QgsVectorLayerSimpleLabeling,
-    QgsTextFormat, QgsTextBufferSettings,
-    QgsRuleBasedLabeling, QgsExpression, QgsSimpleMarkerSymbolLayer
+    QgsTextFormat, QgsTextBufferSettings
 )
 from qgis.PyQt.QtGui import QColor, QFont
 
@@ -590,7 +589,7 @@ class BasemapsWidget(QWidget):
         from qgis.utils import iface
         from qgis.core import (
             QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-            QgsApplication, QgsFeature, QgsFields, QgsSpatialIndex
+            QgsApplication, QgsFeature
         )
 
         try:
@@ -697,7 +696,7 @@ class BasemapsWidget(QWidget):
             layer = QgsVectorLayer(mem_uri, layer_name, 'memory')
 
             if not layer.isValid():
-                self.logger.error(f"[BASEMAPS] Failed to create memory layer for PLSS")
+                self.logger.error("[BASEMAPS] Failed to create memory layer for PLSS")
                 # Fall back to using the OGR layer directly
                 layer = temp_layer
             else:
@@ -778,7 +777,7 @@ class BasemapsWidget(QWidget):
         Returns:
             dict with 'ok' (bool) and 'message' (str) keys
         """
-        from qgis.core import QgsDistanceArea, QgsUnitTypes
+        from qgis.core import QgsDistanceArea
 
         limits = PLSS_EXTENT_LIMITS.get(layer_type, {})
         max_extent_km = limits.get('max_extent_km', 100)
@@ -1061,8 +1060,8 @@ class BasemapsWidget(QWidget):
         """
         from qgis.utils import iface
         from qgis.core import (
-            QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsWkbTypes,
-            QgsApplication, QgsFeature
+            QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsApplication,
+            QgsFeature
         )
 
         try:
@@ -1205,7 +1204,6 @@ class BasemapsWidget(QWidget):
         """
         Apply categorized marker styling to MRDS layer by primary commodity.
         """
-        from qgis.core import QgsWkbTypes
 
         # Build categories for each commodity
         categories = []

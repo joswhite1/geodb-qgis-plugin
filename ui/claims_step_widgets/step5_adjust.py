@@ -17,9 +17,8 @@ from typing import List, Optional
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QFormLayout, QFrame, QScrollArea, QMessageBox,
-    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
-    QToolButton, QSizePolicy
+    QGroupBox, QFrame, QScrollArea, QMessageBox, QTableWidget,
+    QTableWidgetItem, QHeaderView, QComboBox, QToolButton
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsProject, QgsVectorLayer
@@ -132,7 +131,6 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
     def _create_claims_layer_group(self) -> QGroupBox:
         """Create the claims layer selection group."""
-        import os
         group = QGroupBox("Claims Layer")
         group.setStyleSheet(self._get_group_style())
         layout = QVBoxLayout(group)
@@ -965,14 +963,8 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
     def save_state(self):
         """Save widget state to shared state."""
-        # Store layer IDs in state for reference (only for valid layers)
-        if self.generated_layers:
-            layer_ids = {
-                name: layer.id()
-                for name, layer in self.generated_layers.items()
-                if is_layer_valid(layer)
-            }
-            # Could store in state if needed for later steps
+        # Layer IDs could be stored in state if needed for later steps
+        pass
 
     def load_state(self):
         """Load widget state from shared state."""

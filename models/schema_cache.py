@@ -6,7 +6,7 @@ Custom field schemas are fetched once per project/model combination
 and cached for 5 minutes. This balances freshness vs performance since
 schema changes are infrequent (admin action).
 """
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from datetime import datetime, timedelta
 
 

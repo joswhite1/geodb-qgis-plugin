@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from qgis.core import QgsSettings, QgsApplication
+from qgis.core import QgsSettings
 from qgis.PyQt.QtCore import QStandardPaths
 
 from ..utils.logger import PluginLogger

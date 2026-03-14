@@ -6,13 +6,12 @@ Supports downloading georeferenced raster files from the API and loading them
 as raster layers in QGIS.
 """
 import os
-import tempfile
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any, List, Tuple
 from urllib.parse import urlparse, urljoin
 
-from qgis.PyQt.QtCore import QUrl, QByteArray, QFile, QIODevice
-from qgis.PyQt.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+from qgis.PyQt.QtCore import QUrl
+from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import (
     QgsProject,
     QgsRasterLayer,
@@ -305,10 +304,10 @@ class RasterProcessor:
 
                     # Determine if we need a world file for this image
                     has_native_bounds = (
-                        pf_bounds is not None
-                        and isinstance(pf_bounds, list)
-                        and len(pf_bounds) == 4
-                        and pf.get('epsg') is not None
+                        pf_bounds is not None and
+                        isinstance(pf_bounds, list) and
+                        len(pf_bounds) == 4 and
+                        pf.get('epsg') is not None
                     )
                     needs_world_file = file_ext in self.IMAGE_EXTENSIONS and (
                         has_native_bounds or georef is not None
@@ -544,7 +543,7 @@ class RasterProcessor:
 
             # Build URI parameters
             uri_parts = [
-                f"type=xyz",
+                "type=xyz",
                 f"url={encoded_url}",
                 f"zmin={min_zoom}",
                 f"zmax={max_zoom}",
@@ -687,12 +686,7 @@ class RasterProcessor:
             return
 
         try:
-            from qgis.core import (
-                QgsRasterShader,
-                QgsColorRampShader,
-                QgsSingleBandPseudoColorRenderer,
-                QgsStyle,
-            )
+            pass
 
             # Get band count for styling decisions
             band_count = layer.bandCount()
@@ -720,7 +714,6 @@ class RasterProcessor:
                 QgsRasterShader,
                 QgsColorRampShader,
                 QgsSingleBandPseudoColorRenderer,
-                QgsGradientColorRamp,
             )
             from qgis.PyQt.QtGui import QColor
 
@@ -812,7 +805,6 @@ class RasterProcessor:
         """
         try:
             from qgis.core import QgsRasterTransparency
-            from qgis.PyQt.QtGui import QColor
 
             # Get the layer's renderer
             renderer = layer.renderer()

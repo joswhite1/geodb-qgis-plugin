@@ -5,12 +5,11 @@ Assay Range Configuration selection dialog.
 Allows users to select an AssayRangeConfiguration for visualizing
 PointSample or DrillSample data with color-coded grade values.
 """
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QFrame, QTableWidget, QTableWidgetItem,
-    QHeaderView, QSpacerItem, QSizePolicy, QGroupBox,
-    QProgressBar, QApplication
+    QHeaderView, QGroupBox, QProgressBar
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QColor, QBrush

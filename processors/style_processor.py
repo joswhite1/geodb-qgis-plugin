@@ -18,8 +18,6 @@ from qgis.core import (
     QgsGraduatedSymbolRenderer,
     QgsRendererRange,
     QgsSimpleMarkerSymbolLayer,
-    QgsSimpleLineSymbolLayer,
-    QgsSimpleFillSymbolLayer,
     QgsWkbTypes
 )
 from qgis.PyQt.QtGui import QColor
@@ -232,7 +230,7 @@ class StyleProcessor:
         Returns:
             QgsSymbol instance
         """
-        qcolor = QColor(color)
+        QColor(color)
 
         if geometry_type == QgsWkbTypes.PointGeometry:
             symbol = QgsMarkerSymbol.createSimple({
@@ -576,7 +574,6 @@ class StyleProcessor:
             return False
 
         from qgis.core import QgsSingleSymbolRenderer, QgsSvgMarkerSymbolLayer
-        import os
 
         # Create a camera marker symbol
         # QGIS has built-in SVG markers including camera icons
@@ -608,7 +605,7 @@ class StyleProcessor:
 
         if svg_layer:
             symbol.appendSymbolLayer(svg_layer)
-            self.logger.info(f"Applied SVG camera icon to photo layer")
+            self.logger.info("Applied SVG camera icon to photo layer")
         else:
             # Fallback: use a distinctive star/cross marker
             simple_layer = QgsSimpleMarkerSymbolLayer()
@@ -679,7 +676,7 @@ class StyleProcessor:
             self.logger.warning("Invalid layer for field note photo styling")
             return False
 
-        from qgis.core import QgsSingleSymbolRenderer, QgsSvgMarkerSymbolLayer, QgsAction
+        from qgis.core import QgsSingleSymbolRenderer, QgsSvgMarkerSymbolLayer
 
         # Create a camera marker symbol
         symbol = QgsMarkerSymbol()
@@ -812,11 +809,7 @@ class StyleProcessor:
         from qgis.core import (
             QgsRuleBasedRenderer,
             QgsSvgMarkerSymbolLayer,
-            QgsProperty,
-            QgsPalLayerSettings,
-            QgsVectorLayerSimpleLabeling,
-            QgsTextFormat,
-            QgsPropertyCollection
+            QgsProperty
         )
         import os
 
@@ -954,7 +947,6 @@ class StyleProcessor:
             QgsPalLayerSettings,
             QgsVectorLayerSimpleLabeling,
             QgsTextFormat,
-            QgsPropertyCollection,
             QgsProperty,
             Qgis
         )

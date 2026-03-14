@@ -8,16 +8,15 @@ Allows users to:
 3. Set sample type
 4. Push points as "Planned" samples to geodb.io server
 """
-from typing import Optional, List, Dict, Any, Callable
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QSpinBox, QFrame, QProgressBar,
-    QTextBrowser, QGroupBox, QFormLayout, QMessageBox, QApplication
+    QTextBrowser, QGroupBox, QFormLayout, QMessageBox
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtGui import QFont
 from qgis.core import (
-    QgsProject, QgsVectorLayer, QgsWkbTypes, QgsMapLayerProxyModel
+    QgsVectorLayer, QgsWkbTypes, QgsMapLayerProxyModel
 )
 from qgis.gui import QgsMapLayerComboBox
 
@@ -221,9 +220,9 @@ class FieldWorkDialog(QDialog):
             from qgis.utils import iface
             if iface:
                 active_layer = iface.activeLayer()
-                if (active_layer and isinstance(active_layer, QgsVectorLayer)
-                        and QgsWkbTypes.geometryType(active_layer.wkbType())
-                        == QgsWkbTypes.PointGeometry):
+                if (active_layer and isinstance(active_layer, QgsVectorLayer) and
+                        QgsWkbTypes.geometryType(active_layer.wkbType()) ==
+                        QgsWkbTypes.PointGeometry):
                     self.layer_combo.setLayer(active_layer)
         except Exception:
             pass
@@ -368,7 +367,7 @@ class FieldWorkDialog(QDialog):
             created = result.get('created', 0)
             updated = result.get('updated', 0)
             errors = result.get('errors', 0)
-            total_success = created + updated
+            created + updated
 
             if errors == 0:
                 # Build success message

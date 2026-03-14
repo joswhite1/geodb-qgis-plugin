@@ -16,7 +16,6 @@ from qgis.PyQt.QtWidgets import (
     QGroupBox, QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox,
     QComboBox, QMessageBox, QFrame, QScrollArea
 )
-from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsProject, QgsVectorLayer
 
 from .step_base import ClaimsStepBase

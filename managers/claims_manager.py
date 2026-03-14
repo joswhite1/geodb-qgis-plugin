@@ -11,7 +11,6 @@ Handles QClaims API interactions for:
 - Push to server (LandHoldings + ClaimStakes)
 """
 from typing import Dict, Any, List, Optional
-import json
 import time
 
 from ..api.client import APIClient
@@ -325,7 +324,7 @@ class ClaimsManager:
             )
             return result
 
-        except PermissionError as e:
+        except PermissionError:
             # Pay-per-claim users get 403 - this is expected
             self.logger.info("[QCLAIMS] Pay-per-claim user - use submit_order instead")
             raise
@@ -1092,9 +1091,9 @@ class ClaimsManager:
 
         for i, record in enumerate(stake_records):
             try:
-                print(f"[QCLAIMS] Pushing stake {i+1}/{len(stake_records)}: {record.get('sequence_number')}")
+                print(f"[QCLAIMS] Pushing stake {i +1}/{len(stake_records)}: {record.get('sequence_number')}")
                 self.logger.info(
-                    f"[QCLAIMS] Pushing stake {i+1}/{len(stake_records)}: "
+                    f"[QCLAIMS] Pushing stake {i +1}/{len(stake_records)}: "
                     f"seq={record.get('sequence_number')}, "
                     f"target_lat={record.get('target_latitude')}, "
                     f"target_lon={record.get('target_longitude')}"

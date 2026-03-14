@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import (
     QRadioButton, QLineEdit, QPushButton, QLabel,
     QFileDialog, QMessageBox, QButtonGroup, QFrame
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtGui import QFont
 
 from ..managers.storage_manager import StorageManager, StorageMode

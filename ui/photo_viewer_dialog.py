@@ -6,17 +6,15 @@ Provides a Qt-based image viewer that can display photos from URLs
 with caching support and navigation between multiple photos.
 """
 
-import os
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from qgis.PyQt.QtCore import Qt, QUrl, QSize, QThread, pyqtSignal, QByteArray
-from qgis.PyQt.QtGui import QPixmap, QImage, QIcon
+from qgis.PyQt.QtGui import QPixmap, QImage
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QScrollArea, QSizePolicy, QWidget
 )
-from qgis.PyQt.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 from ..utils.logger import PluginLogger
 

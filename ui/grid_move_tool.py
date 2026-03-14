@@ -8,14 +8,12 @@ from typing import Optional
 
 from qgis.PyQt.QtCore import pyqtSignal, Qt
 from qgis.PyQt.QtGui import QColor, QCursor
-from qgis.PyQt.QtWidgets import QApplication
 from qgis.core import (
     QgsVectorLayer, QgsPointXY, QgsGeometry,
-    QgsFeature, QgsWkbTypes
+    QgsWkbTypes
 )
 from qgis.gui import (
-    QgsMapTool, QgsMapCanvas, QgsRubberBand,
-    QgsMapToolEmitPoint
+    QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint
 )
 
 

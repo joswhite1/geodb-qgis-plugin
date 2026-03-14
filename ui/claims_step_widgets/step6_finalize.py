@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QProgressBar, QTableWidget, QTableWidgetItem,
-    QHeaderView, QFrame, QScrollArea, QMessageBox, QApplication
+    QHeaderView, QFrame, QScrollArea, QMessageBox
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QDesktopServices
@@ -870,7 +870,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
             layer.triggerRepaint()
 
-        except Exception as e:
+        except Exception:
             # Fall back to simple styling on error
             try:
                 symbol = QgsMarkerSymbol.createSimple({
@@ -924,7 +924,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             layer.setLabeling(labeling)
             layer.setLabelsEnabled(True)
 
-        except Exception as e:
+        except Exception:
             # Labeling is optional - don't fail if it doesn't work
             pass
 
@@ -1522,7 +1522,6 @@ class ClaimsStep6Widget(ClaimsStepBase):
     def save_state(self):
         """Save widget state to shared state."""
         # Most state is already saved during processing
-        pass
 
     def load_state(self):
         """Load widget state from shared state."""

@@ -4,10 +4,10 @@ QClaims Terms of Service acceptance dialog.
 
 Displays the TOS content and requires user to accept before proceeding.
 """
-from typing import Dict, Any, List
+from typing import Dict, Any
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextBrowser, QCheckBox, QFrame, QScrollArea, QWidget
+    QTextBrowser, QCheckBox, QFrame
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QFont

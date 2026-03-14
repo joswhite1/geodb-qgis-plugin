@@ -12,8 +12,7 @@ from typing import List, Dict, Any
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QFrame, QScrollArea, QMessageBox, QProgressBar,
-    QApplication
+    QFrame, QScrollArea, QMessageBox, QProgressBar
 )
 from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QDesktopServices
@@ -315,16 +314,16 @@ class ClaimsStep7Widget(ClaimsStepBase):
             lat_val = feature['Latitude'] if 'Latitude' in field_names else None
 
             # Check if Latitude is NULL or missing (manually-added row)
-            is_null = (lat_val is None
-                       or (hasattr(lat_val, 'isNull') and lat_val.isNull())
-                       or lat_val == 0)
+            is_null = (lat_val is None or
+                       (hasattr(lat_val, 'isNull') and lat_val.isNull()) or
+                       lat_val == 0)
 
             if is_null:
                 # Validate that Name is filled in
                 name_val = feature['Name'] if 'Name' in field_names else None
-                has_name = (name_val is not None
-                            and not (hasattr(name_val, 'isNull') and name_val.isNull())
-                            and str(name_val).strip() != '')
+                has_name = (name_val is not None and
+                            not (hasattr(name_val, 'isNull') and name_val.isNull()) and
+                            str(name_val).strip() != '')
                 if has_name and not feature.geometry().isEmpty():
                     features_to_update.append(feature)
             elif reference_feature is None:
@@ -628,8 +627,8 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 st_str += f", {st_orphans} orphans removed"
 
             self.push_status_label.setText(
-                f"Pushed: {lh_str} LandHoldings, {st_str} ClaimStakes"
-                + (f", {docs_linked} docs linked" if docs_linked else "")
+                f"Pushed: {lh_str} LandHoldings, {st_str} ClaimStakes" +
+                (f", {docs_linked} docs linked" if docs_linked else "")
             )
             self.push_status_label.setStyleSheet(self._get_success_label_style())
 
@@ -680,7 +679,6 @@ class ClaimsStep7Widget(ClaimsStepBase):
     def save_state(self):
         """Save widget state to shared state."""
         # Most state is already stored during operations
-        pass
 
     def load_state(self):
         """Load widget state from shared state."""

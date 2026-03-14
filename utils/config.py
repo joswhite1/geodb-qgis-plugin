@@ -165,7 +165,7 @@ class Config:
 
         # Enforce HTTPS for non-local connections
         if not DEV_MODE and not url.startswith('https://'):
-            logger.warning(f"Rejecting non-HTTPS base URL, using default")
+            logger.warning("Rejecting non-HTTPS base URL, using default")
             return default_url
 
         return url

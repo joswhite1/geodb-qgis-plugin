@@ -9,9 +9,9 @@ from datetime import datetime
 from typing import Optional
 
 from qgis.PyQt.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QLineEdit, QTextEdit, QGroupBox, QFormLayout,
-    QMessageBox, QFrame, QSizePolicy, QScrollArea
+    QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
+    QLineEdit, QTextEdit, QGroupBox, QFormLayout, QMessageBox,
+    QFrame, QScrollArea
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QPixmap, QImage

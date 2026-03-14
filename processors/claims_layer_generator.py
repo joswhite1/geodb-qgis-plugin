@@ -16,16 +16,15 @@ NOTE: All calculations are performed SERVER-SIDE via the geodb.io API.
 The client only receives coordinate data and creates QGIS layers for display.
 This protects proprietary algorithms while keeping the plugin open-source.
 """
-import json
 from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
     QgsPointXY, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsField, QgsFields, QgsWkbTypes, QgsLineString, QgsPoint,
-    QgsSymbol, QgsSingleSymbolRenderer, QgsSimpleMarkerSymbolLayer,
-    QgsSimpleLineSymbolLayer, QgsPalLayerSettings, QgsTextFormat,
-    QgsVectorLayerSimpleLabeling, QgsMessageLog, Qgis
+    QgsField, QgsFields, QgsWkbTypes, QgsSymbol, QgsSingleSymbolRenderer,
+    QgsSimpleMarkerSymbolLayer, QgsSimpleLineSymbolLayer, QgsPalLayerSettings,
+    QgsTextFormat, QgsVectorLayerSimpleLabeling, QgsMessageLog,
+    Qgis
 )
 from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor, QFont
@@ -453,7 +452,7 @@ class ClaimsLayerGenerator:
                             QgsPointXY(easting, northing)
                         ))
                         feature.setAttribute("Claim", mon.get('claim_name', ''))
-                        feature.setAttribute("Name", f"LM {i+1}")
+                        feature.setAttribute("Name", f"LM {i +1}")
                         feature.setAttribute("Easting", easting)
                         feature.setAttribute("Northing", northing)
                         features.append(feature)

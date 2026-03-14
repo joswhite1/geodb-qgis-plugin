@@ -12,7 +12,7 @@ The server-side implementation handles:
 - Corner coordinate generation
 - Polygon geometry creation
 """
-from typing import List, Dict, Any, Optional
+from typing import Optional
 from enum import Enum
 
 from qgis.core import (
@@ -368,7 +368,6 @@ class GridGenerator:
         Note: This is a simplified implementation for offline use only.
         For production use, the server-side implementation is preferred.
         """
-        import math
 
         # Convert dimensions to meters
         width_m = self.LODE_WIDTH_FT * self.FEET_TO_METERS

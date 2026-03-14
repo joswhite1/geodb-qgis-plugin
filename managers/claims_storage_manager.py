@@ -21,7 +21,7 @@ from typing import Dict, Any, List, Optional
 from qgis.core import (
     QgsVectorLayer, QgsVectorFileWriter, QgsProject,
     QgsFeature, QgsGeometry, QgsField, QgsFields,
-    QgsCoordinateReferenceSystem, QgsPointXY, QgsWkbTypes
+    QgsCoordinateReferenceSystem, QgsPointXY
 )
 from qgis.PyQt.QtCore import QMetaType
 
@@ -623,7 +623,7 @@ class ClaimsStorageManager:
             layer = QgsVectorLayer(layer_uri, layer_display_name, "ogr")
             if layer.isValid():
                 self.logger.info(
-                    f"[CLAIMS STORAGE] Created and loaded reference points layer"
+                    "[CLAIMS STORAGE] Created and loaded reference points layer"
                 )
                 return layer
             else:
@@ -1048,8 +1048,8 @@ class ClaimsStorageManager:
                 if layer.source() == expected_source:
                     return layer
                 # Also check normalized paths
-                if (os.path.normpath(layer.source().split('|')[0])
-                        == os.path.normpath(gpkg_path)):
+                if (os.path.normpath(layer.source().split('|')[0]) ==
+                        os.path.normpath(gpkg_path)):
                     if f"layername={table_name}" in layer.source():
                         return layer
 

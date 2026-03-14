@@ -4,7 +4,6 @@ QGIS layer operations and management.
 """
 import os
 from typing import Optional, Dict, Any, List
-from pathlib import Path
 from qgis.core import (
     QgsProject,
     QgsVectorLayer,
@@ -14,8 +13,7 @@ from qgis.core import (
     QgsFields,
     QgsWkbTypes,
     QgsCoordinateReferenceSystem,
-    QgsEditorWidgetSetup,
-    QgsFieldConstraints
+    QgsEditorWidgetSetup
 )
 
 from ..api.exceptions import LayerError
@@ -287,7 +285,7 @@ class LayerProcessor:
             self.logger.info(f"Adding layer to existing GeoPackage: {gpkg_path}")
 
         # Get the QGIS geometry type
-        qgs_geom_type = self.GEOMETRY_TYPE_MAPPING.get(geometry_type, QgsWkbTypes.Point)
+        self.GEOMETRY_TYPE_MAPPING.get(geometry_type, QgsWkbTypes.Point)
 
         # Create CRS object - supports both EPSG codes and proj4 strings
         crs_obj = QgsCoordinateReferenceSystem(crs)
@@ -460,7 +458,6 @@ class LayerProcessor:
         Returns:
             New QgsVectorLayer
         """
-        from qgis.PyQt.QtCore import QCoreApplication
 
         layer_name = self._build_layer_name(model_name, project_name)
         self.logger.info(f"Removing and recreating layer: {layer_name}")
@@ -564,8 +561,6 @@ class LayerProcessor:
         geom_failed = 0
         first_failure_logged = False
 
-        # Check if layer has geometry (not NoGeometry type)
-        layer_has_geometry = layer.geometryType() != 4  # 4 = QgsWkbTypes.NullGeometry
         skipped_no_geom = 0
 
         for feature_data in features_data:

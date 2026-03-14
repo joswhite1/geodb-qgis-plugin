@@ -6,13 +6,12 @@ import json
 import hashlib
 from typing import Dict, Any, List, Optional, Callable, Tuple
 from datetime import datetime
-from qgis.core import QgsProject, QgsField
-from qgis.PyQt.QtCore import QVariant
+from qgis.core import QgsProject
 
 from ..processors.geometry_processor import GeometryProcessor
 from ..processors.field_processor import FieldProcessor
 from ..processors.layer_processor import LayerProcessor
-from ..models.schemas import get_schema, get_extended_schema, ModelSchema, FieldType, GeometryType
+from ..models.schemas import get_schema, get_extended_schema, FieldType, GeometryType
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
 
@@ -165,8 +164,8 @@ class SyncManager:
 
         # For geometry strings (WKT/EWKT), normalize to uppercase WKT
         if isinstance(value, str) and (
-            value.upper().startswith('SRID=')
-            or value.upper().startswith(('POINT', 'LINESTRING', 'POLYGON', 'MULTI'))
+            value.upper().startswith('SRID=') or
+            value.upper().startswith(('POINT', 'LINESTRING', 'POLYGON', 'MULTI'))
         ):
             # Strip SRID prefix if present
             if value.upper().startswith('SRID='):
@@ -593,15 +592,15 @@ class SyncManager:
 
                 # DEBUG: Log what we're getting from the API
                 if not url:
-                    self.logger.warning(f"Empty URL for image {i+1} in feature {feature_data.get('id', 'unknown')}")
+                    self.logger.warning(f"Empty URL for image {i +1} in feature {feature_data.get('id', 'unknown')}")
                     self.logger.debug(f"Image object keys: {list(img.keys())}")
                 else:
                     # Log first 100 chars of URL
-                    self.logger.info(f"image_{i+1} URL: {url[:100]}{'...' if len(url) > 100 else ''}")
+                    self.logger.info(f"image_{i +1} URL: {url[:100]}{'...' if len(url) > 100 else ''}")
 
-                attrs[f'image_{i+1}'] = url
+                attrs[f'image_{i +1}'] = url
             else:
-                attrs[f'image_{i+1}'] = None
+                attrs[f'image_{i +1}'] = None
 
         docs = feature_data.get('documents', [])
         for i in range(max_docs):
@@ -612,15 +611,15 @@ class SyncManager:
 
                 # DEBUG: Log what we're getting from the API
                 if not url:
-                    self.logger.warning(f"Empty URL for document {i+1} in feature {feature_data.get('id', 'unknown')}")
+                    self.logger.warning(f"Empty URL for document {i +1} in feature {feature_data.get('id', 'unknown')}")
                     self.logger.debug(f"Document object keys: {list(doc.keys())}")
                 else:
                     # Log first 100 chars of URL
-                    self.logger.info(f"document_{i+1} URL: {url[:100]}{'...' if len(url) > 100 else ''}")
+                    self.logger.info(f"document_{i +1} URL: {url[:100]}{'...' if len(url) > 100 else ''}")
 
-                attrs[f'document_{i+1}'] = url
+                attrs[f'document_{i +1}'] = url
             else:
-                attrs[f'document_{i+1}'] = None
+                attrs[f'document_{i +1}'] = None
 
         return attrs
 
@@ -1139,7 +1138,7 @@ class SyncManager:
         Args:
             layer: The Photo layer
         """
-        from qgis.core import QgsEditorWidgetSetup, QgsAction
+        from qgis.core import QgsAction
         from ..processors.style_processor import StyleProcessor
 
         # 1. Apply camera icon symbology
@@ -1242,7 +1241,7 @@ class SyncManager:
             )
 
         self.logger.info(
-            f"Configured Photo layer with camera icon, maptip, and image popup action"
+            "Configured Photo layer with camera icon, maptip, and image popup action"
         )
 
     def _normalize_drillpad_geometry(self, feature: Dict[str, Any]) -> Dict[str, Any]:
@@ -1732,7 +1731,7 @@ class SyncManager:
                 if line_geom:
                     attributes['geometry'] = line_geom
                     if idx == 0:
-                        self.logger.info(f"Built LineStringZ geometry from xyz_from/xyz_to")
+                        self.logger.info("Built LineStringZ geometry from xyz_from/xyz_to")
                 elif idx == 0:
                     # Log why geometry couldn't be built (first feature only)
                     has_xyz_from = 'xyz_from_wgs84' in feature_data or 'xyz_from' in feature_data
@@ -1746,9 +1745,9 @@ class SyncManager:
             # When latitude/longitude are NULL (planned, not yet collected), use target_* coords
             # Check both model_name and base_schema_name since FieldTasks uses PointSample schema
             is_pointsample_data = (
-                model_name.startswith('PointSample')
-                or model_name.startswith('FieldTasks')
-                or base_schema_name == 'PointSample'
+                model_name.startswith('PointSample') or
+                model_name.startswith('FieldTasks') or
+                base_schema_name == 'PointSample'
             )
             if not geom_data and is_pointsample_data:
                 point_geom = self._build_pointsample_geometry_with_fallback(feature_data)
@@ -2033,7 +2032,7 @@ class SyncManager:
         for result in results:
             if result.get('success'):
                 # Feature was successfully saved on server
-                server_id = result.get('id')
+                result.get('id')
                 # TODO: Update local feature with server ID if it was new
                 updated += 1
             else:
@@ -2221,11 +2220,11 @@ class SyncManager:
                 if original_hash and current_hash != original_hash:
                     # Get a human-readable name for the record
                     name = (
-                        feature.attribute('name')
-                        or feature.attribute('hole_id')
-                        or feature.attribute('bhid')
-                        or feature.attribute('sample_name')
-                        or f"{model_name}:{server_id}"
+                        feature.attribute('name') or
+                        feature.attribute('hole_id') or
+                        feature.attribute('bhid') or
+                        feature.attribute('sample_name') or
+                        f"{model_name}:{server_id}"
                     )
                     conflicts.append({
                         'server_id': server_id,

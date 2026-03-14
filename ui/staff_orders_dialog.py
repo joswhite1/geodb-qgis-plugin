@@ -14,7 +14,7 @@ from qgis.PyQt.QtWidgets import (
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QAbstractItemView, QTabWidget, QWidget, QComboBox
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtGui import QFont, QColor, QBrush
 
 from ..managers.claims_manager import ClaimsManager

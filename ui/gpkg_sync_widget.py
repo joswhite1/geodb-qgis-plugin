@@ -19,7 +19,6 @@ from qgis.PyQt.QtWidgets import (
     QProgressBar, QCheckBox, QApplication,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QUrl
-from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtNetwork import QNetworkRequest
 
 from qgis.core import (
@@ -742,7 +741,7 @@ class GpkgSyncWidget(QWidget):
         version_btn = msg.addButton(
             "Save as New Version", QMessageBox.ButtonRole.AcceptRole
         )
-        cancel_btn = msg.addButton(QMessageBox.StandardButton.Cancel)
+        msg.addButton(QMessageBox.StandardButton.Cancel)
 
         msg.setDefaultButton(version_btn)
         msg.exec()

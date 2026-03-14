@@ -15,14 +15,13 @@ Provides tools for aligning claim corners that should be shared between
 adjacent claims. This is important for proper neighbor detection and
 waypoint deduplication.
 """
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Set
 import math
 from collections import defaultdict
 
 from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
-    QgsField, QgsFields, QgsCoordinateReferenceSystem,
-    QgsProject
+    QgsField, QgsFields, QgsCoordinateReferenceSystem
 )
 from qgis.PyQt.QtCore import QMetaType
 

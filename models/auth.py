@@ -235,8 +235,8 @@ class AuthSession:
     def has_active_project(self) -> bool:
         """Check if user has an active project selected."""
         return (
-            self.user_context is not None
-            and self.user_context.active_project is not None
+            self.user_context is not None and
+            self.user_context.active_project is not None
         )
 
     def get_active_project_id(self) -> Optional[int]:

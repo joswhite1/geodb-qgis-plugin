@@ -28,7 +28,6 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.core import QgsApplication
 
 # Initialize Qt resources from file resources.py
-from .resources import *
 from .ui.geodb_modern_dialog import GeodbModernDialog
 from .managers.storage_manager import StorageManager
 
