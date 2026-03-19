@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.4.1
+version=2.4.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,10 +24,14 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.4.1 - Compatibility & Streaming Fixes
-        - Fix QgsField TypeError on QGIS 3.38+ by wrapping QMetaType.Type enums as QMetaType instances
+    2.4.2 - Cross-Version Compatibility (QGIS 3.36 / 3.38+ / 4.0)
+        - Fix QgsField TypeError across all QGIS versions (3.36, 3.38+, 4.0) with runtime probe
+        - Fix Qt enum compatibility for QGIS 4.0 (Qt.DashLine, Qt.Checked, QFrame.HLine, etc.)
+        - Fix streaming layer crashes on project switch (wrapped C++ object deleted)
         - Fix PLSS grid streaming checkbox staying disabled after session restore
         - Add URL scheme validation for BLM and PLSS streaming requests (security hardening)
+        - Centralized Qt5/Qt6 enum compatibility layer in utils/compat.py
+    2.4.1 - Compatibility & Streaming Fixes
         - Add Qt5/Qt6 compatibility layer for QgsField types
         - Improve login error messaging
         - Add BLM claims manager and PLSS streaming manager

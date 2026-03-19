@@ -14,6 +14,7 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal
 
 from .claims_wizard_state import ClaimsWizardState
 from ..utils.logger import PluginLogger
+from ..utils.compat import QSizePolicy_Expanding, QSizePolicy_Fixed
 
 if TYPE_CHECKING:
     from ..managers.claims_manager import ClaimsManager
@@ -97,7 +98,7 @@ class StepIndicator(QWidget):
         connector = QFrame()
         connector.setFixedHeight(2)
         connector.setMinimumWidth(30)
-        connector.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        connector.setSizePolicy(QSizePolicy_Expanding, QSizePolicy_Fixed)
         return connector
 
     def _on_step_clicked(self, index: int):

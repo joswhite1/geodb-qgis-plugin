@@ -21,6 +21,7 @@ from qgis.core import (
 from qgis.gui import QgsMapLayerComboBox
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import QFrame_HLine
 
 
 # Sample type choices matching the API
@@ -96,7 +97,7 @@ class FieldWorkDialog(QDialog):
 
         # Separator
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame_HLine)
         line.setStyleSheet("background-color: #e5e7eb;")
         layout.addWidget(line)
 

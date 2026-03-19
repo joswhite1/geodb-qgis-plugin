@@ -16,6 +16,8 @@ from qgis.gui import (
     QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint
 )
 
+from ..utils.compat import Qt_SizeAllCursor, Qt_LeftButton, Qt_Key_Escape, Qt_CrossCursor
+
 
 class GridMoveTool(QgsMapToolEmitPoint):
     """
@@ -47,11 +49,11 @@ class GridMoveTool(QgsMapToolEmitPoint):
         self._rubber_band: Optional[QgsRubberBand] = None
 
         # Set cursor
-        self.setCursor(QCursor(Qt.SizeAllCursor))
+        self.setCursor(QCursor(Qt_SizeAllCursor))
 
     def canvasPressEvent(self, event):
         """Handle mouse press - start dragging."""
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt_LeftButton:
             return
 
         self._start_point = self.toMapCoordinates(event.pos())
@@ -79,7 +81,7 @@ class GridMoveTool(QgsMapToolEmitPoint):
         if not self._dragging or not self._start_point:
             return
 
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt_LeftButton:
             return
 
         end_point = self.toMapCoordinates(event.pos())
@@ -102,7 +104,7 @@ class GridMoveTool(QgsMapToolEmitPoint):
 
     def keyPressEvent(self, event):
         """Handle key press - Escape cancels."""
-        if event.key() == Qt.Key_Escape:
+        if event.key() == Qt_Key_Escape:
             self._clear_rubber_band()
             self._dragging = False
             self._start_point = None
@@ -199,6 +201,6 @@ class GridRotateTool(QgsMapToolEmitPoint):
         super().__init__(canvas)
         self.canvas = canvas
         self.layer = layer
-        self.setCursor(QCursor(Qt.CrossCursor))
+        self.setCursor(QCursor(Qt_CrossCursor))
 
     # TODO: Implement rotation functionality

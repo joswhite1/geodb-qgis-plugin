@@ -9,6 +9,11 @@ to save the current view as a persistent layer.
 import json
 from typing import Optional, Dict, Any
 
+try:
+    import sip
+except ImportError:
+    from qgis.PyQt import sip
+
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal, QThread, QUrl, QByteArray
 from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import (
@@ -138,6 +143,11 @@ class BLMClaimsManager(QObject):
         self._canvas = None
         self._canvas_connected = False
 
+    @staticmethod
+    def _layer_alive(layer) -> bool:
+        """Check if a QgsVectorLayer reference is still valid (not deleted by C++)."""
+        return layer is not None and not sip.isdeleted(layer)
+
     def _log(self, msg: str, level: str = "info"):
         """Log to both internal logger and plugin log panel."""
         self._logger.info(f"[BLM] {msg}")
@@ -158,7 +168,7 @@ class BLMClaimsManager(QObject):
         self._log("Enabling streaming layer...")
 
         # Create the streaming layer if needed
-        if not self._streaming_layer or not self._streaming_layer.isValid():
+        if not self._layer_alive(self._streaming_layer) or not self._streaming_layer.isValid():
             self._create_streaming_layer()
 
         # Connect to extent changes
@@ -195,12 +205,12 @@ class BLMClaimsManager(QObject):
             pass
 
         # Remove the streaming layer from project
-        if self._streaming_layer:
+        if self._layer_alive(self._streaming_layer):
             try:
                 QgsProject.instance().removeMapLayer(self._streaming_layer.id())
             except Exception:
                 pass
-            self._streaming_layer = None
+        self._streaming_layer = None
 
         # Cancel any pending worker
         if self._worker and self._worker.isRunning():
@@ -227,7 +237,7 @@ class BLMClaimsManager(QObject):
 
     def snapshot_to_layer(self) -> Optional[QgsVectorLayer]:
         """Save the current streaming layer contents as a persistent snapshot layer."""
-        if not self._streaming_layer or not self._streaming_layer.isValid():
+        if not self._layer_alive(self._streaming_layer) or not self._streaming_layer.isValid():
             return None
 
         from datetime import datetime
@@ -282,7 +292,7 @@ class BLMClaimsManager(QObject):
 
     def _on_layer_removed(self, layer_id: str):
         """Handle layer removal — disable if our layer was removed."""
-        if self._streaming_layer and layer_id == self._streaming_layer.id():
+        if self._layer_alive(self._streaming_layer) and layer_id == self._streaming_layer.id():
             self._logger.info("[BLM] Streaming layer removed by user")
             self._streaming_layer = None
             self._enabled = False
@@ -320,7 +330,7 @@ class BLMClaimsManager(QObject):
             self.status_changed.emit("Zoom in to see BLM claims")
             self.loading_changed.emit(False)
             # Clear existing features
-            if self._streaming_layer and self._streaming_layer.isValid():
+            if self._layer_alive(self._streaming_layer) and self._streaming_layer.isValid():
                 self._streaming_layer.startEditing()
                 self._streaming_layer.deleteFeatures(
                     [f.id() for f in self._streaming_layer.getFeatures()]
@@ -373,7 +383,7 @@ class BLMClaimsManager(QObject):
 
         self.loading_changed.emit(False)
 
-        if not self._streaming_layer or not self._streaming_layer.isValid():
+        if not self._layer_alive(self._streaming_layer) or not self._streaming_layer.isValid():
             return
 
         features_data = geojson_data.get('features', [])

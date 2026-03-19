@@ -14,6 +14,7 @@ from qgis.PyQt.QtCore import pyqtSignal
 
 from .field_work_dialog import FieldWorkDialog
 from ..utils.logger import PluginLogger
+from ..utils.compat import QFrame_HLine, QFrame_Sunken
 
 
 class FieldTasksWidget(QWidget):
@@ -56,8 +57,8 @@ class FieldTasksWidget(QWidget):
 
         # Separator
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
+        line.setFrameShape(QFrame_HLine)
+        line.setFrameShadow(QFrame_Sunken)
         main_layout.addWidget(line)
 
         # --- Pull Field Tasks group ---

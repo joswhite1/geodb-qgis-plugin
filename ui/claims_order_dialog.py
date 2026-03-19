@@ -14,6 +14,7 @@ from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtGui import QFont
 
 from ..managers.claims_manager import ClaimsManager
+from ..utils.compat import QFrame_HLine, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
 
 
 class ClaimsOrderDialog(QDialog):
@@ -90,7 +91,7 @@ class ClaimsOrderDialog(QDialog):
 
         # Separator
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame_HLine)
         line.setStyleSheet("background-color: #e5e7eb;")
         layout.addWidget(line)
 
@@ -141,9 +142,9 @@ class ClaimsOrderDialog(QDialog):
         self.documents_table = QTableWidget()
         self.documents_table.setColumnCount(2)
         self.documents_table.setHorizontalHeaderLabels(["Document", "Type"])
-        self.documents_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.documents_table.horizontalHeader().setSectionResizeMode(QHeaderView_Stretch)
         self.documents_table.verticalHeader().setVisible(False)
-        self.documents_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.documents_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.documents_table.setMaximumHeight(120)
         self.documents_table.setStyleSheet(self._get_table_style())
         docs_layout.addWidget(self.documents_table)

@@ -18,6 +18,7 @@ from qgis.PyQt.QtGui import QFont
 
 from ..managers.storage_manager import StorageManager, StorageMode
 from ..utils.logger import PluginLogger
+from ..utils.compat import QFrame_HLine
 
 
 class StorageConfigDialog(QDialog):
@@ -112,7 +113,7 @@ class StorageConfigDialog(QDialog):
 
         # Separator
         separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShape(QFrame_HLine)
         separator.setStyleSheet("color: #ddd;")
         options_layout.addWidget(separator)
 

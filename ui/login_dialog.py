@@ -18,6 +18,7 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal, QDateTime
 from qgis.PyQt.QtGui import QFont
 
 from .two_factor_dialog import TwoFactorDialog
+from ..utils.compat import Qt_AlignCenter, QFrame_HLine, QLineEdit_Password, QDialog_Accepted
 
 
 class LoginDialog(QDialog):
@@ -72,13 +73,13 @@ class LoginDialog(QDialog):
 
         # Subtitle
         subtitle_label = QLabel("Sign in to sync your geological data")
-        subtitle_label.setAlignment(Qt.AlignCenter)
+        subtitle_label.setAlignment(Qt_AlignCenter)
         subtitle_label.setStyleSheet("color: #6b7280; margin-bottom: 16px;")
         layout.addWidget(subtitle_label)
 
         # Separator line
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame_HLine)
         line.setStyleSheet("background-color: #e5e7eb;")
         layout.addWidget(line)
 
@@ -104,7 +105,7 @@ class LoginDialog(QDialog):
 
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Enter your password")
-        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setEchoMode(QLineEdit_Password)
         self.password_input.setStyleSheet(self._get_input_style())
         self.password_input.returnPressed.connect(self._on_login_clicked)
         layout.addWidget(self.password_input)
@@ -156,7 +157,7 @@ class LoginDialog(QDialog):
         # Footer
         layout.addSpacing(16)
         footer_label = QLabel("Don't have an account? Visit geodb.io to sign up.")
-        footer_label.setAlignment(Qt.AlignCenter)
+        footer_label.setAlignment(Qt_AlignCenter)
         footer_label.setStyleSheet("color: #9ca3af; font-size: 11px;")
         layout.addWidget(footer_label)
 
@@ -473,7 +474,7 @@ class LoginDialog(QDialog):
         dialog = LoginDialog(parent, auth_manager)
         result = dialog.exec_()
 
-        if result == QDialog.Accepted and auth_manager:
+        if result == QDialog_Accepted and auth_manager:
             session = auth_manager.get_session()
             if session:
                 return (True, session.token, session.user_context)

@@ -27,6 +27,10 @@ from qgis.core import (
 )
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import (
+    QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QAbstractItemView_SelectRows,
+    QHeaderView_Fixed, QHeaderView_Stretch, QHeaderView_ResizeToContents,
+)
 
 
 class GpkgSyncWidget(QWidget):
@@ -62,7 +66,7 @@ class GpkgSyncWidget(QWidget):
         """Build the widget UI with push and pull sections."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -154,8 +158,8 @@ class GpkgSyncWidget(QWidget):
         self.push_table = QTableWidget()
         self.push_table.setColumnCount(4)
         self.push_table.setHorizontalHeaderLabels(["", "GeoPackage", "Layers", "Size"])
-        self.push_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.push_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.push_table.setSelectionBehavior(QAbstractItemView_SelectRows)
+        self.push_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.push_table.setAlternatingRowColors(True)
         self.push_table.verticalHeader().setVisible(False)
         self.push_table.setStyleSheet("""
@@ -175,11 +179,11 @@ class GpkgSyncWidget(QWidget):
             }
         """)
         header = self.push_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(0, QHeaderView_Fixed)
         self.push_table.setColumnWidth(0, 30)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView_Stretch)
+        header.setSectionResizeMode(2, QHeaderView_ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView_ResizeToContents)
         self.push_table.setMinimumHeight(120)
         self.push_table.setMaximumHeight(200)
         group_layout.addWidget(self.push_table)
@@ -284,8 +288,8 @@ class GpkgSyncWidget(QWidget):
         self.pull_table = QTableWidget()
         self.pull_table.setColumnCount(4)
         self.pull_table.setHorizontalHeaderLabels(["", "GeoPackage", "Size", "Date"])
-        self.pull_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.pull_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.pull_table.setSelectionBehavior(QAbstractItemView_SelectRows)
+        self.pull_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.pull_table.setAlternatingRowColors(True)
         self.pull_table.verticalHeader().setVisible(False)
         self.pull_table.setStyleSheet("""
@@ -305,11 +309,11 @@ class GpkgSyncWidget(QWidget):
             }
         """)
         header = self.pull_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(0, QHeaderView_Fixed)
         self.pull_table.setColumnWidth(0, 30)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView_Stretch)
+        header.setSectionResizeMode(2, QHeaderView_ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView_ResizeToContents)
         self.pull_table.setMinimumHeight(120)
         self.pull_table.setMaximumHeight(200)
         group_layout.addWidget(self.pull_table)

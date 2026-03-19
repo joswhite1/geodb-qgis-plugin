@@ -12,6 +12,8 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont
 
+from ..utils.compat import QFrame_HLine, QDialog_Accepted
+
 if TYPE_CHECKING:
     from ..api.client import APIClient
 
@@ -87,7 +89,7 @@ class TwoFactorDialog(QDialog):
 
         # Separator
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame_HLine)
         line.setStyleSheet("background-color: #e5e7eb;")
         layout.addWidget(line)
 
@@ -628,7 +630,7 @@ class TwoFactorDialog(QDialog):
         dialog.verification_successful.connect(on_success)
         result = dialog.exec_()
 
-        if result == QDialog.Accepted and token:
+        if result == QDialog_Accepted and token:
             return (True, token, expiry)
 
         return (False, None, None)

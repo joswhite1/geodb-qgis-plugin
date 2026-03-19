@@ -18,6 +18,11 @@ from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtGui import QFont, QColor, QBrush
 
 from ..managers.claims_manager import ClaimsManager
+from ..utils.compat import (
+    QAbstractItemView_NoEditTriggers, QAbstractItemView_SelectRows,
+    QAbstractItemView_SingleSelection, QAbstractItemView_ExtendedSelection,
+    QHeaderView_Stretch, QHeaderView_ResizeToContents,
+)
 
 
 class StaffOrdersDialog(QDialog):
@@ -169,18 +174,18 @@ class StaffOrdersDialog(QDialog):
 
         # Configure table
         header = self.orders_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Order #
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Type
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Status
-        header.setSectionResizeMode(3, QHeaderView.Stretch)          # Customer
-        header.setSectionResizeMode(4, QHeaderView.Stretch)          # Project
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Claims
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Created
+        header.setSectionResizeMode(0, QHeaderView_ResizeToContents)  # Order #
+        header.setSectionResizeMode(1, QHeaderView_ResizeToContents)  # Type
+        header.setSectionResizeMode(2, QHeaderView_ResizeToContents)  # Status
+        header.setSectionResizeMode(3, QHeaderView_Stretch)          # Customer
+        header.setSectionResizeMode(4, QHeaderView_Stretch)          # Project
+        header.setSectionResizeMode(5, QHeaderView_ResizeToContents)  # Claims
+        header.setSectionResizeMode(6, QHeaderView_ResizeToContents)  # Created
 
         self.orders_table.verticalHeader().setVisible(False)
-        self.orders_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.orders_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.orders_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.orders_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
+        self.orders_table.setSelectionBehavior(QAbstractItemView_SelectRows)
+        self.orders_table.setSelectionMode(QAbstractItemView_SingleSelection)
         self.orders_table.setStyleSheet(self._get_table_style())
 
         self.orders_table.itemSelectionChanged.connect(self._on_order_selection_changed)
@@ -285,17 +290,17 @@ class StaffOrdersDialog(QDialog):
 
         # Configure table
         header = self.proposed_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Name
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Type
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Acreage
-        header.setSectionResizeMode(3, QHeaderView.Stretch)           # PLSS
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Approved
+        header.setSectionResizeMode(0, QHeaderView_ResizeToContents)  # Name
+        header.setSectionResizeMode(1, QHeaderView_ResizeToContents)  # Type
+        header.setSectionResizeMode(2, QHeaderView_ResizeToContents)  # Acreage
+        header.setSectionResizeMode(3, QHeaderView_Stretch)           # PLSS
+        header.setSectionResizeMode(4, QHeaderView_ResizeToContents)  # Approved
 
         self.proposed_table.verticalHeader().setVisible(False)
-        self.proposed_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.proposed_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.proposed_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
+        self.proposed_table.setSelectionBehavior(QAbstractItemView_SelectRows)
         # ExtendedSelection: click to select, Ctrl+click to toggle, Shift+click for range
-        self.proposed_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.proposed_table.setSelectionMode(QAbstractItemView_ExtendedSelection)
         self.proposed_table.setStyleSheet(self._get_table_style())
 
         self.proposed_table.itemSelectionChanged.connect(self._on_proposed_selection_changed)

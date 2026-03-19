@@ -17,6 +17,7 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QPixmap, QImage
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import QFrame_NoFrame
 
 
 # ProjectFile category choices (matching server model_variables.projectfile_choices)
@@ -69,7 +70,7 @@ class MapCaptureWidget(QWidget):
         # Use a scroll area for the whole widget
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         content = QWidget()
         layout = QVBoxLayout(content)

@@ -24,6 +24,7 @@ except ImportError:
 
 # Import our new managers
 from ..utils.config import Config, DEV_MODE
+from ..utils.compat import QAbstractItemView_NoEditTriggers, QTextCursor_End, QDialog_Accepted
 from ..utils.logger import PluginLogger
 from ..api.client import APIClient
 from ..api.exceptions import (
@@ -405,7 +406,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Show dialog
         result = login_dialog.exec_()
 
-        if result != QDialog.Accepted:
+        if result != QDialog_Accepted:
             self._log_message("Login cancelled.", "info")
 
     def _on_login_successful(self, token: str, user_context: dict):
@@ -1682,7 +1683,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Append to browser
         cursor = self.messagesTextBrowser.textCursor()
-        cursor.movePosition(QTextCursor.End)
+        cursor.movePosition(QTextCursor_End)
         self.messagesTextBrowser.setTextCursor(cursor)
         self.messagesTextBrowser.insertHtml(html + "<br>")
 
@@ -1845,7 +1846,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.rangesTable.setHorizontalHeaderLabels(["From", "To", "Color", "Label"])
         self.rangesTable.horizontalHeader().setStretchLastSection(True)
         self.rangesTable.setMaximumHeight(150)
-        self.rangesTable.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.rangesTable.setEditTriggers(QAbstractItemView_NoEditTriggers)
         form_layout.addRow(self.rangesTable)
 
     def _add_projectfile_options_ui(self):

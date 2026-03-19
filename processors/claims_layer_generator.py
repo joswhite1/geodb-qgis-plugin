@@ -30,7 +30,7 @@ from qgis.PyQt.QtGui import QColor, QFont
 
 from ..utils.logger import PluginLogger
 from ..utils.compat import (
-    FieldType_QString, FieldType_Int, FieldType_Double,
+    FieldType_QString, FieldType_Int, FieldType_Double, QFont_Bold,
 )
 
 
@@ -1189,7 +1189,7 @@ class ClaimsLayerGenerator:
 
             # Text format
             text_format = QgsTextFormat()
-            text_format.setFont(QFont("Arial", 8, QFont.Bold))
+            text_format.setFont(QFont("Arial", 8, QFont_Bold))
             text_format.setColor(QColor(0, 0, 0))  # Black text
             text_format.setSize(8)
 
@@ -1385,7 +1385,7 @@ class ClaimsLayerGenerator:
 
             # Text format
             text_format = QgsTextFormat()
-            text_format.setFont(QFont("Arial", 9, QFont.Bold))
+            text_format.setFont(QFont("Arial", 9, QFont_Bold))
             text_format.setColor(QColor(25, 25, 112))  # Midnight blue
             text_format.setSize(9)
 

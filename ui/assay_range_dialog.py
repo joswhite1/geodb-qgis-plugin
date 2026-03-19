@@ -14,6 +14,11 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QColor, QBrush
 
+from ..utils.compat import (
+    QFrame_HLine, QAbstractItemView_NoEditTriggers, QAbstractItemView_NoSelection,
+    QHeaderView_Stretch, QDialog_Accepted,
+)
+
 
 class AssayRangeDialog(QDialog):
     """
@@ -92,7 +97,7 @@ class AssayRangeDialog(QDialog):
 
         # Separator
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame_HLine)
         line.setStyleSheet("background-color: #e5e7eb;")
         layout.addWidget(line)
 
@@ -158,10 +163,10 @@ class AssayRangeDialog(QDialog):
         self.range_table.setHorizontalHeaderLabels([
             "From", "To", "Color", "Size", "Label"
         ])
-        self.range_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.range_table.horizontalHeader().setSectionResizeMode(QHeaderView_Stretch)
         self.range_table.verticalHeader().setVisible(False)
-        self.range_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.range_table.setSelectionMode(QTableWidget.NoSelection)
+        self.range_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
+        self.range_table.setSelectionMode(QAbstractItemView_NoSelection)
         self.range_table.setStyleSheet("""
             QTableWidget {
                 border: none;
@@ -555,7 +560,7 @@ class AssayRangeDialog(QDialog):
         dialog = AssayRangeDialog(parent, api_client, project_id, company_id, model_type)
         result = dialog.exec_()
 
-        if result == QDialog.Accepted:
+        if result == QDialog_Accepted:
             return dialog.get_selected_config()
 
         return None

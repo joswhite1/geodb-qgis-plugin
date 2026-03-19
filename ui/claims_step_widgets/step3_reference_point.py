@@ -14,6 +14,7 @@ from qgis.PyQt.QtWidgets import (
 
 from .step_base import ClaimsStepBase
 from ...utils.layer_utils import is_layer_valid
+from ...utils.compat import QFrame_NoFrame
 
 
 class ClaimsStep3Widget(ClaimsStepBase):
@@ -44,7 +45,7 @@ class ClaimsStep3Widget(ClaimsStepBase):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)

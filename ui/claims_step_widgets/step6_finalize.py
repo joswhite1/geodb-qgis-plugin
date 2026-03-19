@@ -25,7 +25,7 @@ from qgis.core import (
     QgsRendererCategory
 )
 from .step_base import ClaimsStepBase
-from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
+from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double, QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
 from ...utils.layer_utils import is_layer_valid
 
 
@@ -107,7 +107,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
@@ -237,9 +237,9 @@ class ClaimsStep6Widget(ClaimsStepBase):
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(4)
         self.results_table.setHorizontalHeaderLabels(["Claim", "State", "PLSS", "Corners"])
-        self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView_Stretch)
         self.results_table.verticalHeader().setVisible(False)
-        self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.results_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.results_table.setMaximumHeight(200)
         self.results_table.setStyleSheet("""
             QTableWidget {

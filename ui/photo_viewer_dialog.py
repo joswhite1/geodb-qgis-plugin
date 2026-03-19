@@ -17,6 +17,11 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import (
+    Qt_KeepAspectRatio, Qt_SmoothTransformation,
+    Qt_Key_Left, Qt_Key_Right, Qt_Key_Escape, Qt_Key_Space,
+    QSizePolicy_Ignored,
+)
 
 
 class PhotoLoader(QThread):
@@ -189,7 +194,7 @@ class PhotoViewerDialog(QDialog):
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setStyleSheet("QLabel { background-color: #2d2d2d; }")
-        self.image_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.image_label.setSizePolicy(QSizePolicy_Ignored, QSizePolicy_Ignored)
         self.scroll_area.setWidget(self.image_label)
         layout.addWidget(self.scroll_area, 1)
 
@@ -350,8 +355,8 @@ class PhotoViewerDialog(QDialog):
         available_size = self.scroll_area.size() - QSize(20, 20)  # Margin
         scaled = self.current_pixmap.scaled(
             available_size,
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
+            Qt_KeepAspectRatio,
+            Qt_SmoothTransformation
         )
         self.image_label.setPixmap(scaled)
         self.image_label.adjustSize()
@@ -413,13 +418,13 @@ class PhotoViewerDialog(QDialog):
 
     def keyPressEvent(self, event):
         """Handle keyboard navigation."""
-        if event.key() == Qt.Key_Left:
+        if event.key() == Qt_Key_Left:
             self._show_previous()
-        elif event.key() == Qt.Key_Right:
+        elif event.key() == Qt_Key_Right:
             self._show_next()
-        elif event.key() == Qt.Key_Escape:
+        elif event.key() == Qt_Key_Escape:
             self.close()
-        elif event.key() == Qt.Key_Space:
+        elif event.key() == Qt_Key_Space:
             self._toggle_zoom()
         else:
             super().keyPressEvent(event)

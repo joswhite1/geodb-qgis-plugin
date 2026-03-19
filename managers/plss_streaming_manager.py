@@ -9,6 +9,11 @@ Follows the same pattern as BLMClaimsManager.
 import json
 from typing import Optional, Dict
 
+try:
+    import sip
+except ImportError:
+    from qgis.PyQt import sip
+
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal, QThread
 from qgis.core import (
     Qgis, QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
@@ -24,6 +29,7 @@ from qgis.PyQt.QtGui import QColor, QFont
 from ..api.client import APIClient
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
+from ..utils.compat import Qt_DashLine, Qt_SolidLine
 
 
 # Reuse the same access types as BLM claims
@@ -38,14 +44,14 @@ PLSS_STREAMING_STYLES = {
     'townships': {
         'line_color': '#1e3a8a',   # Blue
         'line_width': 2.0,
-        'line_style': Qt.DashLine,
+        'line_style': Qt_DashLine,
         'label_color': '#1e3a8a',
         'opacity': 0.7,
     },
     'sections': {
         'line_color': '#059669',   # Green
         'line_width': 1.0,
-        'line_style': Qt.SolidLine,
+        'line_style': Qt_SolidLine,
         'label_color': '#059669',
         'opacity': 0.7,
     },
@@ -148,6 +154,11 @@ class PLSSStreamingManager(QObject):
         self._canvas = None
         self._canvas_connected = False
 
+    @staticmethod
+    def _layer_alive(layer) -> bool:
+        """Check if a QgsVectorLayer reference is still valid (not deleted by C++)."""
+        return layer is not None and not sip.isdeleted(layer)
+
     def _log(self, msg: str, level: str = "info"):
         """Log to both internal logger and plugin log panel."""
         self._logger.info(f"[PLSS] {msg}")
@@ -168,9 +179,9 @@ class PLSSStreamingManager(QObject):
         self._log("Enabling PLSS streaming layers...")
 
         # Create layers if needed
-        if not self._twp_layer or not self._twp_layer.isValid():
+        if not self._layer_alive(self._twp_layer) or not self._twp_layer.isValid():
             self._create_layer('townships')
-        if not self._sec_layer or not self._sec_layer.isValid():
+        if not self._layer_alive(self._sec_layer) or not self._sec_layer.isValid():
             self._create_layer('sections')
 
         # Connect to extent changes
@@ -207,7 +218,7 @@ class PLSSStreamingManager(QObject):
 
         # Remove layers
         for layer in (self._twp_layer, self._sec_layer):
-            if layer:
+            if self._layer_alive(layer):
                 try:
                     QgsProject.instance().removeMapLayer(layer.id())
                 except Exception:
@@ -240,13 +251,13 @@ class PLSSStreamingManager(QObject):
 
     def _on_layer_removed(self, layer_id: str):
         """Handle layer removal — disable if both layers were removed."""
-        if self._twp_layer and layer_id == self._twp_layer.id():
+        if self._layer_alive(self._twp_layer) and layer_id == self._twp_layer.id():
             self._twp_layer = None
-        if self._sec_layer and layer_id == self._sec_layer.id():
+        if self._layer_alive(self._sec_layer) and layer_id == self._sec_layer.id():
             self._sec_layer = None
 
         # If both layers are gone, disable entirely
-        if not self._twp_layer and not self._sec_layer:
+        if not self._layer_alive(self._twp_layer) and not self._layer_alive(self._sec_layer):
             self._log("Both PLSS layers removed by user")
             self._enabled = False
             self._debounce_timer.stop()
@@ -334,7 +345,7 @@ class PLSSStreamingManager(QObject):
             return
 
         layer = self._twp_layer if layer_type == 'townships' else self._sec_layer
-        if not layer or not layer.isValid():
+        if not self._layer_alive(layer) or not layer.isValid():
             self._log(f"{layer_type} layer invalid, cannot render", "warning")
             self.loading_changed.emit(False)
             return
@@ -387,8 +398,8 @@ class PLSSStreamingManager(QObject):
         layer.commitChanges()
 
         # Update status
-        twp_count = self._twp_layer.featureCount() if self._twp_layer and self._twp_layer.isValid() else 0
-        sec_count = self._sec_layer.featureCount() if self._sec_layer and self._sec_layer.isValid() else 0
+        twp_count = self._twp_layer.featureCount() if self._layer_alive(self._twp_layer) and self._twp_layer.isValid() else 0
+        sec_count = self._sec_layer.featureCount() if self._layer_alive(self._sec_layer) and self._sec_layer.isValid() else 0
         parts = []
         if twp_count:
             parts.append(f"{twp_count} townships")
@@ -414,7 +425,7 @@ class PLSSStreamingManager(QObject):
 
     def _clear_layer(self, layer: Optional[QgsVectorLayer]):
         """Clear all features from a layer."""
-        if layer and layer.isValid():
+        if self._layer_alive(layer) and layer.isValid():
             layer.startEditing()
             layer.deleteFeatures([f.id() for f in layer.getFeatures()])
             layer.commitChanges()

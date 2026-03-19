@@ -12,6 +12,8 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QFont
 
+from ..utils.compat import Qt_Checked, QFrame_HLine
+
 
 class ClaimsTOSDialog(QDialog):
     """
@@ -61,7 +63,7 @@ class ClaimsTOSDialog(QDialog):
 
         # Separator
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame_HLine)
         line.setStyleSheet("background-color: #e5e7eb;")
         layout.addWidget(line)
 
@@ -198,7 +200,7 @@ class ClaimsTOSDialog(QDialog):
 
     def _on_checkbox_changed(self, state):
         """Handle checkbox state change."""
-        self.accept_btn.setEnabled(state == Qt.Checked)
+        self.accept_btn.setEnabled(state == Qt_Checked)
 
     def _get_primary_button_style(self) -> str:
         """Get primary button style."""

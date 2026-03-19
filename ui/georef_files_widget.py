@@ -19,6 +19,10 @@ from qgis.PyQt.QtGui import QColor
 from qgis.core import QgsProject, QgsRasterLayer
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import (
+    QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QAbstractItemView_SelectRows,
+    QHeaderView_Fixed, QHeaderView_Stretch, QHeaderView_ResizeToContents,
+)
 from .map_capture_widget import PROJECTFILE_CATEGORIES
 
 
@@ -73,7 +77,7 @@ class GeorefFilesWidget(QWidget):
         """Build the widget UI."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -136,8 +140,8 @@ class GeorefFilesWidget(QWidget):
         self.table.setHorizontalHeaderLabels([
             "", "Layer Name", "CRS", "Size", "Category", "Status"
         ])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView_SelectRows)
+        self.table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setStyleSheet("""
@@ -160,13 +164,13 @@ class GeorefFilesWidget(QWidget):
         """)
 
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(0, QHeaderView_Fixed)
         self.table.setColumnWidth(0, 30)  # Checkbox column
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView_Stretch)
+        header.setSectionResizeMode(2, QHeaderView_ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView_ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView_ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView_ResizeToContents)
 
         self.table.setMinimumHeight(200)
         layout.addWidget(self.table)

@@ -23,6 +23,7 @@ from qgis.core import (
 from ..managers.claims_manager import ClaimsManager
 from ..processors.grid_generator import GridGenerator
 from ..utils.logger import PluginLogger
+from ..utils.compat import QFrame_NoFrame, QFrame_HLine, QDialog_Accepted
 
 
 class ClaimsOrderWidget(QWidget):
@@ -73,7 +74,7 @@ class ClaimsOrderWidget(QWidget):
         # Create scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
@@ -308,7 +309,7 @@ class ClaimsOrderWidget(QWidget):
 
         # Separator
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame_HLine)
         line.setStyleSheet("background-color: #e5e7eb; margin: 8px 0;")
         layout.addWidget(line)
 
@@ -728,7 +729,7 @@ class ClaimsOrderWidget(QWidget):
                 from .claims_tos_dialog import ClaimsTOSDialog
                 tos_content = self.claims_manager.get_tos_content()
                 dialog = ClaimsTOSDialog(tos_content, self)
-                if dialog.exec_() != dialog.Accepted:
+                if dialog.exec_() != QDialog_Accepted:
                     return
 
                 # Accept TOS

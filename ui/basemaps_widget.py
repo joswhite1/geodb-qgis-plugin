@@ -23,6 +23,11 @@ from qgis.core import (
 from qgis.PyQt.QtGui import QColor, QFont
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import (
+    Qt_ScrollBarAlwaysOff, Qt_ScrollBarAsNeeded, Qt_Horizontal,
+    Qt_DashLine, Qt_Checked, QFrame_NoFrame,
+    QSizePolicy_Preferred, QSizePolicy_Expanding,
+)
 
 
 # Default basemap providers with XYZ tile URLs
@@ -210,13 +215,13 @@ class BasemapsWidget(QWidget):
         # Scroll area to make content scrollable
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame_NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt_ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt_ScrollBarAsNeeded)
 
         # Container widget that goes inside the scroll area
         scroll_content = QWidget()
-        scroll_content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        scroll_content.setSizePolicy(QSizePolicy_Preferred, QSizePolicy_Preferred)
         layout = QVBoxLayout(scroll_content)
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -262,7 +267,7 @@ class BasemapsWidget(QWidget):
         opacity_label.setStyleSheet("font-weight: bold;")
         opacity_layout.addWidget(opacity_label)
 
-        self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider = QSlider(Qt_Horizontal)
         self.opacity_slider.setMinimum(0)
         self.opacity_slider.setMaximum(100)
         self.opacity_slider.setValue(100)
@@ -628,7 +633,7 @@ class BasemapsWidget(QWidget):
         main_layout.addWidget(scroll_area)
 
         # Allow the widget to shrink
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy_Preferred, QSizePolicy_Expanding)
         self.setMinimumHeight(200)  # Reasonable minimum
 
     def _on_opacity_changed(self, value: int):
@@ -988,7 +993,7 @@ class BasemapsWidget(QWidget):
 
         # Townships get dashed lines
         if layer_type == 'townships':
-            line_layer.setPenStyle(Qt.DashLine)
+            line_layer.setPenStyle(Qt_DashLine)
 
         symbol.appendSymbolLayer(line_layer)
 
@@ -1469,7 +1474,7 @@ class BasemapsWidget(QWidget):
         if not self._blm_manager:
             return
 
-        if state == Qt.Checked:
+        if state == Qt_Checked:
             self._blm_manager.enable()
         else:
             self._blm_manager.disable()
@@ -1559,7 +1564,7 @@ class BasemapsWidget(QWidget):
         if not self._plss_stream_manager:
             return
 
-        if state == Qt.Checked:
+        if state == Qt_Checked:
             self._plss_stream_manager.enable()
         else:
             self._plss_stream_manager.disable()

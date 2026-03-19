@@ -24,6 +24,7 @@ from qgis.core import (
 from .step_base import ClaimsStepBase
 from ...utils.logger import PluginLogger
 from ...utils.layer_utils import is_layer_valid
+from ...utils.compat import QFrame_NoFrame, QHeaderView_Stretch
 
 
 class ClaimsStep7Widget(ClaimsStepBase):
@@ -55,7 +56,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
@@ -99,7 +100,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.waypoints_table = QTableWidget()
         self.waypoints_table.setColumnCount(5)
         self.waypoints_table.setHorizontalHeaderLabels(["Name", "Type", "Claim", "Lat", "Lon"])
-        self.waypoints_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.waypoints_table.horizontalHeader().setSectionResizeMode(QHeaderView_Stretch)
         self.waypoints_table.verticalHeader().setVisible(False)
         self.waypoints_table.setMaximumHeight(250)
         self.waypoints_table.setStyleSheet("""

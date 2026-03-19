@@ -27,6 +27,10 @@ from .step_base import ClaimsStepBase
 from ...processors.claims_layer_generator import ClaimsLayerGenerator
 from ...utils.logger import PluginLogger
 from ...utils.layer_utils import is_layer_valid
+from ...utils.compat import (
+    Qt_RightArrow, Qt_DownArrow, Qt_PointingHandCursor, QFrame_NoFrame,
+    QHeaderView_Stretch, QHeaderView_ResizeToContents, QMessageBox_Warning,
+)
 
 
 class ClaimsStep5AdjustWidget(ClaimsStepBase):
@@ -68,7 +72,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame_NoFrame)
 
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
@@ -256,9 +260,9 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         self.layers_table = QTableWidget()
         self.layers_table.setColumnCount(3)
         self.layers_table.setHorizontalHeaderLabels(["Layer", "Features", "Status"])
-        self.layers_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.layers_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.layers_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.layers_table.horizontalHeader().setSectionResizeMode(0, QHeaderView_Stretch)
+        self.layers_table.horizontalHeader().setSectionResizeMode(1, QHeaderView_ResizeToContents)
+        self.layers_table.horizontalHeader().setSectionResizeMode(2, QHeaderView_ResizeToContents)
         self.layers_table.setMaximumHeight(200)
         self.layers_table.setStyleSheet("""
             QTableWidget {
@@ -332,7 +336,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
         # Toggle button (arrow indicator)
         self.lm_toggle_btn = QToolButton()
-        self.lm_toggle_btn.setArrowType(Qt.RightArrow)
+        self.lm_toggle_btn.setArrowType(Qt_RightArrow)
         self.lm_toggle_btn.setCheckable(True)
         self.lm_toggle_btn.setChecked(False)
         self.lm_toggle_btn.setStyleSheet("""
@@ -358,7 +362,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
         # Make header clickable
         header.mousePressEvent = lambda e: self._toggle_lm_corner_panel()
-        header.setCursor(Qt.PointingHandCursor)
+        header.setCursor(Qt_PointingHandCursor)
 
         container_layout.addWidget(header)
 
@@ -392,9 +396,9 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         self.lm_corner_table = QTableWidget()
         self.lm_corner_table.setColumnCount(3)
         self.lm_corner_table.setHorizontalHeaderLabels(["Claim", "Current LM Corner", "New LM Corner"])
-        self.lm_corner_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.lm_corner_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.lm_corner_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.lm_corner_table.horizontalHeader().setSectionResizeMode(0, QHeaderView_Stretch)
+        self.lm_corner_table.horizontalHeader().setSectionResizeMode(1, QHeaderView_ResizeToContents)
+        self.lm_corner_table.horizontalHeader().setSectionResizeMode(2, QHeaderView_ResizeToContents)
         self.lm_corner_table.setMaximumHeight(200)
         self.lm_corner_table.setStyleSheet("""
             QTableWidget {
@@ -445,13 +449,13 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         """Toggle the LM corner panel expanded/collapsed state."""
         is_expanded = self.lm_content.isVisible()
         self.lm_content.setVisible(not is_expanded)
-        self.lm_toggle_btn.setArrowType(Qt.DownArrow if not is_expanded else Qt.RightArrow)
+        self.lm_toggle_btn.setArrowType(Qt_DownArrow if not is_expanded else Qt_RightArrow)
         self.lm_toggle_btn.setChecked(not is_expanded)
 
     def _set_lm_corner_expanded(self, expanded: bool):
         """Set the LM corner panel to expanded or collapsed state."""
         self.lm_content.setVisible(expanded)
-        self.lm_toggle_btn.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.lm_toggle_btn.setArrowType(Qt_DownArrow if expanded else Qt_RightArrow)
         self.lm_toggle_btn.setChecked(expanded)
 
     def _create_action_buttons(self) -> QWidget:
@@ -873,7 +877,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         """
         # Create a more prominent warning dialog
         msg_box = QMessageBox(self)
-        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setIcon(QMessageBox_Warning)
         msg_box.setWindowTitle("Reset All Layers?")
         msg_box.setText("Are you sure you want to reset all layers?")
         msg_box.setInformativeText(
