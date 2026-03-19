@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.4.0
+version=2.4.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,7 +24,7 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.4.0 - Compatibility & Streaming Fixes
+    2.4.1 - Compatibility & Streaming Fixes
         - Fix QgsField TypeError on QGIS 3.38+ by wrapping QMetaType.Type enums as QMetaType instances
         - Fix PLSS grid streaming checkbox staying disabled after session restore
         - Add URL scheme validation for BLM and PLSS streaming requests (security hardening)
