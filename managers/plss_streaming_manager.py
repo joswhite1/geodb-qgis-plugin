@@ -69,8 +69,15 @@ class PLSSFetchWorker(QThread):
     def run(self):
         import urllib.request
         import ssl
+        from urllib.parse import urlparse
 
         try:
+            parsed = urlparse(self.url)
+            if parsed.scheme not in ('http', 'https'):
+                self.error.emit(self.generation, self.layer_type,
+                                f"Invalid URL scheme: {parsed.scheme}")
+                return
+
             req = urllib.request.Request(self.url)
             req.add_header('Authorization', f'Token {self.token}')
             req.add_header('Accept', 'application/json')

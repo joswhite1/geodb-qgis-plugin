@@ -9,15 +9,15 @@ This module provides a unified set of type constants that work on both.
 
 try:
     from qgis.PyQt.QtCore import QMetaType
-    # Qt6 / QGIS 3.30+
-    FieldType_QString = QMetaType.Type.QString
-    FieldType_Int = QMetaType.Type.Int
-    FieldType_Double = QMetaType.Type.Double
-    FieldType_Bool = QMetaType.Type.Bool
-    FieldType_QDate = QMetaType.Type.QDate
-    FieldType_QDateTime = QMetaType.Type.QDateTime
-    FieldType_QTime = QMetaType.Type.QTime
-    FieldType_LongLong = QMetaType.Type.LongLong
+    # Qt6 / QGIS 3.38+: QgsField expects QMetaType instances, not QMetaType.Type enums
+    FieldType_QString = QMetaType(QMetaType.Type.QString)
+    FieldType_Int = QMetaType(QMetaType.Type.Int)
+    FieldType_Double = QMetaType(QMetaType.Type.Double)
+    FieldType_Bool = QMetaType(QMetaType.Type.Bool)
+    FieldType_QDate = QMetaType(QMetaType.Type.QDate)
+    FieldType_QDateTime = QMetaType(QMetaType.Type.QDateTime)
+    FieldType_QTime = QMetaType(QMetaType.Type.QTime)
+    FieldType_LongLong = QMetaType(QMetaType.Type.LongLong)
 except (ImportError, AttributeError):
     from PyQt5.QtCore import QVariant
     # Qt5 / QGIS < 3.30

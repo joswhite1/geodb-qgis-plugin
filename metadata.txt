@@ -7,11 +7,11 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.3.1
+version=2.4.0
 author=geodb.io
 email=admin@geodb.io
 
-about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more. Version 2.3.1 fixes the missing toolbar icon.
+about=This plugin allows you connect to spatial data hosted at geodb.io including land holding, drill collars, point samples, field notes, and more.
 
 tracker=https://github.com/joswhite1/geodb-qgis-plugin/issues
 repository=https://github.com/joswhite1/geodb-qgis-plugin
@@ -24,6 +24,14 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.4.0 - Compatibility & Streaming Fixes
+        - Fix QgsField TypeError on QGIS 3.38+ by wrapping QMetaType.Type enums as QMetaType instances
+        - Fix PLSS grid streaming checkbox staying disabled after session restore
+        - Add URL scheme validation for BLM and PLSS streaming requests (security hardening)
+        - Add Qt5/Qt6 compatibility layer for QgsField types
+        - Improve login error messaging
+        - Add BLM claims manager and PLSS streaming manager
+        - Basemaps widget and config updates
     2.3.1 - Toolbar Icon Fix
         - Fix missing toolbar icon (Qt resources module was not imported)
     2.3.0 - Claims & Stakes Sync Fix

@@ -386,6 +386,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 # Set up BLM claims access for restored session
                 self._setup_blm_claims_access()
 
+                # Set up PLSS grid streaming access for restored session
+                self._setup_plss_streaming_access()
+
         except Exception as e:
             self.logger.error(f"Failed to restore session: {e}")
 
