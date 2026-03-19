@@ -205,7 +205,7 @@ class GeodbIO:
             self.modern_dialog = GeodbModernDialog(parent=self.iface.mainWindow())
 
         self.modern_dialog.show()
-        self.modern_dialog.exec_()
+        self.modern_dialog.exec()
 
     def _on_qgis_closing(self):
         """

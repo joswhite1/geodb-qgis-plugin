@@ -729,7 +729,7 @@ class ClaimsOrderWidget(QWidget):
                 from .claims_tos_dialog import ClaimsTOSDialog
                 tos_content = self.claims_manager.get_tos_content()
                 dialog = ClaimsTOSDialog(tos_content, self)
-                if dialog.exec_() != QDialog_Accepted:
+                if dialog.exec() != QDialog_Accepted:
                     return
 
                 # Accept TOS

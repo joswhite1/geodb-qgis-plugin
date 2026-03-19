@@ -416,7 +416,7 @@ class RasterProcessor:
             )
 
             # Execute download synchronously using QgsBlockingNetworkRequest
-            # This avoids the heap corruption crashes caused by QEventLoop.exec_()
+            # This avoids the heap corruption crashes caused by QEventLoop.exec()
             blocking_request = QgsBlockingNetworkRequest()
             error_code = blocking_request.get(request, forceRefresh=True)
 

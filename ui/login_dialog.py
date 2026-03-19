@@ -472,7 +472,7 @@ class LoginDialog(QDialog):
             Tuple of (success, token, user_context)
         """
         dialog = LoginDialog(parent, auth_manager)
-        result = dialog.exec_()
+        result = dialog.exec()
 
         if result == QDialog_Accepted and auth_manager:
             session = auth_manager.get_session()

@@ -404,7 +404,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         login_dialog.login_successful.connect(self._on_login_successful)
 
         # Show dialog
-        result = login_dialog.exec_()
+        result = login_dialog.exec()
 
         if result != QDialog_Accepted:
             self._log_message("Login cancelled.", "info")
@@ -772,7 +772,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             return
 
         # Defer the API call to avoid nested event loop crash
-        # (QEventLoop.exec_() inside a combo box signal handler causes Qt crash)
+        # (QEventLoop.exec() inside a combo box signal handler causes Qt crash)
         QTimer.singleShot(0, lambda: self._do_company_change(company))
 
     def _do_company_change(self, company):
@@ -2083,7 +2083,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         )
 
         dialog.storage_configured.connect(self._on_storage_configured)
-        dialog.exec_()
+        dialog.exec()
 
     def _on_storage_configured(self, mode: str, path: str):
         """Handle storage configuration from dialog."""
@@ -2537,7 +2537,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Show order status dialog
         from .claims_order_dialog import ClaimsOrderDialog
         dialog = ClaimsOrderDialog(self.claims_manager, order_id, self)
-        dialog.exec_()
+        dialog.exec()
 
     def _on_project_context_switched(self, company_id: int, project_id: int):
         """

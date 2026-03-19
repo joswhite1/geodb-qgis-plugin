@@ -907,7 +907,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             }
         """)
 
-        reply = msg_box.exec_()
+        reply = msg_box.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
             # Reset LM corners to 1 before regenerating

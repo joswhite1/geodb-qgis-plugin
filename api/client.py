@@ -5,7 +5,7 @@ HTTP client for geodb.io API v1 communication.
 This client implements the RESTful API as documented in COMPLETE_API_REFERENCE.md
 
 IMPORTANT: This client uses QgsBlockingNetworkRequest instead of QEventLoop
-to avoid heap corruption crashes. QEventLoop.exec_() processes all Qt events
+to avoid heap corruption crashes. QEventLoop.exec() processes all Qt events
 which can cause reentrancy issues when combined with QApplication.processEvents()
 calls elsewhere in the codebase.
 """
@@ -198,7 +198,7 @@ class APIClient:
         timer.start(30000)  # 30 second timeout
 
         if not reply.isFinished():
-            loop.exec_()
+            loop.exec()
 
         timer.stop()
 

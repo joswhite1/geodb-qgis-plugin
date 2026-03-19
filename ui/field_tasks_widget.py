@@ -270,4 +270,4 @@ class FieldTasksWidget(QWidget):
         )
 
         dialog.push_completed.connect(self.field_work_completed.emit)
-        dialog.exec_()
+        dialog.exec()

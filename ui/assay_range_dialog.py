@@ -558,7 +558,7 @@ class AssayRangeDialog(QDialog):
             Selected configuration dict or None if cancelled
         """
         dialog = AssayRangeDialog(parent, api_client, project_id, company_id, model_type)
-        result = dialog.exec_()
+        result = dialog.exec()
 
         if result == QDialog_Accepted:
             return dialog.get_selected_config()

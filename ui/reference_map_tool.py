@@ -176,7 +176,7 @@ class ReferenceMapTool(QgsMapToolEmitPoint):
         # Open dialog to get description
         dialog = ReferenceInputDialog(x, y, layer_crs.description())
 
-        if dialog.exec_():
+        if dialog.exec():
             description = dialog.get_description()
 
             if description:

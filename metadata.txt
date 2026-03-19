@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.4.2
+version=2.4.3
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,9 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.4.3 - Qt6 Method Compatibility
+        - Replace deprecated .exec_() with .exec() across all dialogs and event loops
+        - Ensures forward compatibility with Qt6 / QGIS 4.0+
     2.4.2 - Cross-Version Compatibility (QGIS 3.36 / 3.38+ / 4.0)
         - Fix QgsField TypeError across all QGIS versions (3.36, 3.38+, 4.0) with runtime probe
         - Fix Qt enum compatibility for QGIS 4.0 (Qt.DashLine, Qt.Checked, QFrame.HLine, etc.)

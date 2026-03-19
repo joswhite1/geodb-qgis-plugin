@@ -419,7 +419,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             from ..claims_tos_dialog import ClaimsTOSDialog
             dialog = ClaimsTOSDialog(tos_content, self)
 
-            if dialog.exec_():
+            if dialog.exec():
                 # User accepted
                 result = self.claims_manager.accept_tos()
                 self.state.tos_accepted = True
@@ -443,7 +443,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             dialog.order_selected.connect(self._on_staff_order_selected)
             dialog.proposed_claims_selected.connect(self._on_proposed_claims_selected)
 
-            dialog.exec_()
+            dialog.exec()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load pending orders: {e}")

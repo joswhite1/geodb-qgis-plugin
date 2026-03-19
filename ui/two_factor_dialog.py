@@ -628,7 +628,7 @@ class TwoFactorDialog(QDialog):
             expiry = e
 
         dialog.verification_successful.connect(on_success)
-        result = dialog.exec_()
+        result = dialog.exec()
 
         if result == QDialog_Accepted and token:
             return (True, token, expiry)
