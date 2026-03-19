@@ -26,10 +26,12 @@ from qgis.core import (
     QgsTextFormat, QgsVectorLayerSimpleLabeling, QgsMessageLog,
     Qgis
 )
-from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor, QFont
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import (
+    FieldType_QString, FieldType_Int, FieldType_Double,
+)
 
 
 def _qgis_log(message: str, level: Qgis.MessageLevel = Qgis.Info):
@@ -238,16 +240,16 @@ class ClaimsLayerGenerator:
                     self.LODE_CLAIMS_LAYER,
                     crs,
                     [
-                        ("FID", QMetaType.Type.Int),
-                        ("Name", QMetaType.Type.QString),
-                        ("LM Corner", QMetaType.Type.Int),
-                        ("Manual FID", QMetaType.Type.Int),
-                        ("Notes", QMetaType.Type.QString),
-                        ("Lode_Azimuth", QMetaType.Type.Double),
-                        ("Dimensions", QMetaType.Type.QString),
-                        ("Corner 1", QMetaType.Type.QString),
-                        ("State", QMetaType.Type.QString),
-                        ("County", QMetaType.Type.QString),
+                        ("FID", FieldType_Int),
+                        ("Name", FieldType_QString),
+                        ("LM Corner", FieldType_Int),
+                        ("Manual FID", FieldType_Int),
+                        ("Notes", FieldType_QString),
+                        ("Lode_Azimuth", FieldType_Double),
+                        ("Dimensions", FieldType_QString),
+                        ("Corner 1", FieldType_QString),
+                        ("State", FieldType_QString),
+                        ("County", FieldType_QString),
                     ]
                 )
                 if layer:
@@ -309,10 +311,10 @@ class ClaimsLayerGenerator:
                     self.CORNER_POINTS_LAYER,
                     crs,
                     [
-                        ("Corner #", QMetaType.Type.Int),
-                        ("Claim", QMetaType.Type.QString),
-                        ("Easting", QMetaType.Type.Double),
-                        ("Northing", QMetaType.Type.Double),
+                        ("Corner #", FieldType_Int),
+                        ("Claim", FieldType_QString),
+                        ("Easting", FieldType_Double),
+                        ("Northing", FieldType_Double),
                     ]
                 )
                 if layer:
@@ -353,10 +355,10 @@ class ClaimsLayerGenerator:
                     self.LM_CORNERS_LAYER,
                     crs,
                     [
-                        ("Corner #", QMetaType.Type.Int),
-                        ("Claim", QMetaType.Type.QString),
-                        ("Easting", QMetaType.Type.Double),
-                        ("Northing", QMetaType.Type.Double),
+                        ("Corner #", FieldType_Int),
+                        ("Claim", FieldType_QString),
+                        ("Easting", FieldType_Double),
+                        ("Northing", FieldType_Double),
                     ]
                 )
                 if layer:
@@ -394,7 +396,7 @@ class ClaimsLayerGenerator:
                 layer = self._create_line_layer(
                     self.CENTERLINES_LAYER,
                     crs,
-                    [("Name", QMetaType.Type.QString)]
+                    [("Name", FieldType_QString)]
                 )
                 if layer:
                     features = []
@@ -433,10 +435,10 @@ class ClaimsLayerGenerator:
                     self.MONUMENTS_LAYER,
                     crs,
                     [
-                        ("Claim", QMetaType.Type.QString),
-                        ("Name", QMetaType.Type.QString),
-                        ("Easting", QMetaType.Type.Double),
-                        ("Northing", QMetaType.Type.Double),
+                        ("Claim", FieldType_QString),
+                        ("Name", FieldType_QString),
+                        ("Easting", FieldType_Double),
+                        ("Northing", FieldType_Double),
                     ]
                 )
                 if layer:
@@ -474,10 +476,10 @@ class ClaimsLayerGenerator:
                     self.SIDELINE_MONUMENTS_LAYER,
                     crs,
                     [
-                        ("Claim", QMetaType.Type.QString),
-                        ("Name", QMetaType.Type.QString),
-                        ("Easting", QMetaType.Type.Double),
-                        ("Northing", QMetaType.Type.Double),
+                        ("Claim", FieldType_QString),
+                        ("Name", FieldType_QString),
+                        ("Easting", FieldType_Double),
+                        ("Northing", FieldType_Double),
                     ]
                 )
                 if layer:
@@ -515,10 +517,10 @@ class ClaimsLayerGenerator:
                     self.ENDLINE_MONUMENTS_LAYER,
                     crs,
                     [
-                        ("Claim", QMetaType.Type.QString),
-                        ("Name", QMetaType.Type.QString),
-                        ("Easting", QMetaType.Type.Double),
-                        ("Northing", QMetaType.Type.Double),
+                        ("Claim", FieldType_QString),
+                        ("Name", FieldType_QString),
+                        ("Easting", FieldType_Double),
+                        ("Northing", FieldType_Double),
                     ]
                 )
                 if layer:
@@ -1051,7 +1053,7 @@ class ClaimsLayerGenerator:
         self,
         name: str,
         crs: QgsCoordinateReferenceSystem,
-        fields: List[Tuple[str, QMetaType.Type]]
+        fields: List[Tuple[str, int]]
     ) -> Optional[QgsVectorLayer]:
         """Create a point layer with the given fields."""
         qgs_fields = QgsFields()
@@ -1085,7 +1087,7 @@ class ClaimsLayerGenerator:
         self,
         name: str,
         crs: QgsCoordinateReferenceSystem,
-        fields: List[Tuple[str, QMetaType.Type]]
+        fields: List[Tuple[str, int]]
     ) -> Optional[QgsVectorLayer]:
         """Create a line layer with the given fields."""
         qgs_fields = QgsFields()
@@ -1119,7 +1121,7 @@ class ClaimsLayerGenerator:
         self,
         name: str,
         crs: QgsCoordinateReferenceSystem,
-        fields: List[Tuple[str, QMetaType.Type]]
+        fields: List[Tuple[str, int]]
     ) -> Optional[QgsVectorLayer]:
         """
         Create a polygon layer with the given fields.

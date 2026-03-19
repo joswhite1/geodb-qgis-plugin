@@ -4,9 +4,12 @@ Field mapping and type conversion between API and QGIS.
 """
 from typing import Any, Dict, List
 from qgis.core import QgsField, QgsFields
-from qgis.PyQt.QtCore import QMetaType
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import (
+    FieldType_QString, FieldType_Int, FieldType_Double, FieldType_Bool,
+    FieldType_QDate, FieldType_QDateTime, FieldType_QTime,
+)
 
 
 class FieldProcessor:
@@ -14,18 +17,18 @@ class FieldProcessor:
     Handles field mapping and data type conversion.
     """
 
-    # Field type mapping: API type -> QMetaType.Type (for QgsField constructor)
-    # Note: QVariant types are deprecated since QGIS 3.38
+    # Field type mapping: API type -> QgsField type constant
+    # Uses compat layer for Qt5/Qt6 cross-version support
     TYPE_MAPPING = {
-        'string': QMetaType.Type.QString,
-        'text': QMetaType.Type.QString,
-        'integer': QMetaType.Type.Int,
-        'decimal': QMetaType.Type.Double,
-        'float': QMetaType.Type.Double,
-        'boolean': QMetaType.Type.Bool,
-        'date': QMetaType.Type.QDate,
-        'datetime': QMetaType.Type.QDateTime,
-        'time': QMetaType.Type.QTime
+        'string': FieldType_QString,
+        'text': FieldType_QString,
+        'integer': FieldType_Int,
+        'decimal': FieldType_Double,
+        'float': FieldType_Double,
+        'boolean': FieldType_Bool,
+        'date': FieldType_QDate,
+        'datetime': FieldType_QDateTime,
+        'time': FieldType_QTime
     }
 
     # Read-only fields that should not be edited
@@ -59,16 +62,14 @@ class FieldProcessor:
             field_type = field_def.get('type', 'string')
             field_length = field_def.get('length', 255)
 
-            # Map API type to QMetaType.Type (non-deprecated since QGIS 3.38)
-            qgs_type = self.TYPE_MAPPING.get(field_type, QMetaType.Type.QString)
+            qgs_type = self.TYPE_MAPPING.get(field_type, FieldType_QString)
 
-            # Create field with QMetaType.Type
             qgs_field = QgsField(field_name, qgs_type)
 
             # Set length for string fields
             # -1 or 0 means unlimited (for GeoPackage TEXT fields)
             # Positive value sets explicit length limit
-            if qgs_type == QMetaType.Type.QString:
+            if qgs_type == FieldType_QString:
                 if field_length <= 0:
                     # Use 0 for unlimited length (GeoPackage TEXT)
                     qgs_field.setLength(0)

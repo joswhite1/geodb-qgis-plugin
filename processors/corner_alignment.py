@@ -23,9 +23,8 @@ from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
     QgsField, QgsFields, QgsCoordinateReferenceSystem
 )
-from qgis.PyQt.QtCore import QMetaType
-
 from ..utils.logger import PluginLogger
+from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 
 
 class CornerAlignmentProcessor:
@@ -489,12 +488,12 @@ class CornerAlignmentProcessor:
 
         # Define fields
         fields = QgsFields()
-        fields.append(QgsField("distance_m", QMetaType.Type.Double))
-        fields.append(QgsField("feature1_name", QMetaType.Type.QString, len=100))
-        fields.append(QgsField("corner1_num", QMetaType.Type.Int))
-        fields.append(QgsField("feature2_name", QMetaType.Type.QString, len=100))
-        fields.append(QgsField("corner2_num", QMetaType.Type.Int))
-        fields.append(QgsField("description", QMetaType.Type.QString, len=255))
+        fields.append(QgsField("distance_m", FieldType_Double))
+        fields.append(QgsField("feature1_name", FieldType_QString, len=100))
+        fields.append(QgsField("corner1_num", FieldType_Int))
+        fields.append(QgsField("feature2_name", FieldType_QString, len=100))
+        fields.append(QgsField("corner2_num", FieldType_Int))
+        fields.append(QgsField("description", FieldType_QString, len=255))
 
         layer.dataProvider().addAttributes(fields)
         layer.updateFields()

@@ -180,6 +180,26 @@ class LoginDialog(QDialog):
             }
         """
 
+    def _get_input_error_style(self) -> str:
+        """Get stylesheet for input fields in error state."""
+        return """
+            QLineEdit {
+                padding: 10px 12px;
+                border: 2px solid #dc2626;
+                border-radius: 6px;
+                background-color: #fef2f2;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border-color: #dc2626;
+                outline: none;
+            }
+            QLineEdit:disabled {
+                background-color: #f3f4f6;
+                color: #9ca3af;
+            }
+        """
+
     def _get_primary_button_style(self) -> str:
         """Get stylesheet for primary button."""
         return """
@@ -270,14 +290,24 @@ class LoginDialog(QDialog):
         else:
             self.login_button.setText("Sign In")
 
-    def _show_error(self, message: str):
-        """Display error message."""
+    def _show_error(self, message: str, field: str = None):
+        """Display error message and optionally highlight the offending field."""
         self.error_label.setText(message)
         self.error_label.show()
 
+        # Highlight the relevant field with red border
+        if field == 'password':
+            self.password_input.setStyleSheet(self._get_input_error_style())
+            self.password_input.setFocus()
+        elif field == 'email':
+            self.email_input.setStyleSheet(self._get_input_error_style())
+            self.email_input.setFocus()
+
     def _hide_error(self):
-        """Hide error message."""
+        """Hide error message and reset field styles."""
         self.error_label.hide()
+        self.email_input.setStyleSheet(self._get_input_style())
+        self.password_input.setStyleSheet(self._get_input_style())
 
     def _validate_inputs(self) -> bool:
         """Validate email and password inputs."""
@@ -285,18 +315,15 @@ class LoginDialog(QDialog):
         password = self.password_input.text()
 
         if not email:
-            self._show_error("Please enter your email address.")
-            self.email_input.setFocus()
+            self._show_error("Please enter your email address.", field='email')
             return False
 
         if '@' not in email or '.' not in email:
-            self._show_error("Please enter a valid email address.")
-            self.email_input.setFocus()
+            self._show_error("Please enter a valid email address.", field='email')
             return False
 
         if not password:
-            self._show_error("Please enter your password.")
-            self.password_input.setFocus()
+            self._show_error("Please enter your password.", field='password')
             return False
 
         return True
@@ -355,7 +382,8 @@ class LoginDialog(QDialog):
                         delay_seconds = min(30, 2 ** (self._failed_attempts - 3) * 5)
                         self._lockout_until = QDateTime.currentDateTime().addSecs(delay_seconds)
                     error_msg = result.get('error', 'Login failed. Please try again.')
-                    self._show_error(error_msg)
+                    error_field = result.get('field')
+                    self._show_error(error_msg, field=error_field)
             else:
                 self._show_error("Authentication manager not available.")
 

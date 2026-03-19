@@ -37,6 +37,8 @@ from ..managers.data_manager import DataManager
 from ..managers.sync_manager import SyncManager
 from ..managers.storage_manager import StorageManager, StorageMode
 from ..managers.claims_manager import ClaimsManager
+from ..managers.blm_claims_manager import BLMClaimsManager, BLM_STREAMING_ACCESS_TYPES
+from ..managers.plss_streaming_manager import PLSSStreamingManager, PLSS_STREAMING_ACCESS_TYPES
 from ..models.auth import AuthSession, UserContext
 from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
@@ -149,6 +151,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         )
         self.style_processor = StyleProcessor()
         self.claims_manager = ClaimsManager(self.api_client, self.config)
+        self.blm_claims_manager = BLMClaimsManager(self.config, self.api_client)
+        self.plss_streaming_manager = PLSSStreamingManager(self.config, self.api_client)
 
         # Claims wizard widget
         self.claims_wizard: Optional[ClaimsWizardWidget] = None
@@ -379,6 +383,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 # Update context header
                 self._update_context_header()
 
+                # Set up BLM claims access for restored session
+                self._setup_blm_claims_access()
+
         except Exception as e:
             self.logger.error(f"Failed to restore session: {e}")
 
@@ -428,6 +435,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Check QClaims access level and update claims tab
             self._check_claims_access_and_update_tab()
 
+            # Set up BLM claims streaming layer access
+            self._setup_blm_claims_access()
+
+            # Set up PLSS grid streaming layer access
+            self._setup_plss_streaming_access()
+
             # Update context header
             self._update_context_header()
 
@@ -455,6 +468,55 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Default to wizard if access check fails
             self._show_claims_wizard()
 
+    def _setup_blm_claims_access(self):
+        """Check QClaims access and wire up BLM claims manager to basemaps widget."""
+        try:
+            access_info = self.claims_manager.check_access()
+            access_type = access_info.get('access_type')
+            has_access = access_type in BLM_STREAMING_ACCESS_TYPES
+
+            # Recreate BLM manager with current API client
+            self.blm_claims_manager = BLMClaimsManager(self.config, self.api_client)
+            # Connect log signal so BLM debug messages appear in plugin log panel
+            self.blm_claims_manager.log_message.connect(self._log_message)
+
+            if self.basemaps_widget:
+                self.basemaps_widget.set_blm_manager(self.blm_claims_manager, has_access)
+
+            if has_access:
+                self._log_message(f"BLM Claims streaming: enabled ({access_type})", "info")
+            else:
+                self._log_message("BLM Claims streaming: requires QClaims subscription", "info")
+
+        except Exception as e:
+            self.logger.warning(f"Could not check BLM claims access: {e}")
+            if self.basemaps_widget:
+                self.basemaps_widget.set_blm_manager(None, False)
+
+    def _setup_plss_streaming_access(self):
+        """Check QClaims access and wire up PLSS streaming manager to basemaps widget."""
+        try:
+            access_info = self.claims_manager.check_access()
+            access_type = access_info.get('access_type')
+            has_access = access_type in PLSS_STREAMING_ACCESS_TYPES
+
+            # Recreate PLSS manager with current API client
+            self.plss_streaming_manager = PLSSStreamingManager(self.config, self.api_client)
+            self.plss_streaming_manager.log_message.connect(self._log_message)
+
+            if self.basemaps_widget:
+                self.basemaps_widget.set_plss_stream_manager(self.plss_streaming_manager, has_access)
+
+            if has_access:
+                self._log_message(f"PLSS streaming: enabled ({access_type})", "info")
+            else:
+                self._log_message("PLSS streaming: requires QClaims subscription", "info")
+
+        except Exception as e:
+            self.logger.warning(f"Could not check PLSS streaming access: {e}")
+            if self.basemaps_widget:
+                self.basemaps_widget.set_plss_stream_manager(None, False)
+
     def _on_logout_clicked(self):
         """Handle logout button click."""
         try:
@@ -464,6 +526,16 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
             # Clear claims manager cache (tokens are now invalid)
             self.claims_manager.clear_cache()
+
+            # Cleanup BLM claims manager
+            self.blm_claims_manager.cleanup()
+            if self.basemaps_widget:
+                self.basemaps_widget.set_blm_manager(None, False)
+
+            # Cleanup PLSS streaming manager
+            self.plss_streaming_manager.cleanup()
+            if self.basemaps_widget:
+                self.basemaps_widget.set_plss_stream_manager(None, False)
 
             # Update UI
             self._update_auth_status(False)
@@ -497,6 +569,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.data_manager.api_client = self.api_client
             self.claims_manager.api = self.api_client
             self.claims_manager.clear_cache()
+            self.blm_claims_manager.cleanup()
+            self.plss_streaming_manager.cleanup()
 
             # Log the change
             mode = "LOCAL DEVELOPMENT" if is_enabled else "PRODUCTION"

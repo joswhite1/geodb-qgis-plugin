@@ -23,9 +23,8 @@ from qgis.core import (
     QgsFeature, QgsGeometry, QgsField, QgsFields,
     QgsCoordinateReferenceSystem, QgsPointXY
 )
-from qgis.PyQt.QtCore import QMetaType
-
 from ..utils.logger import PluginLogger
+from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 
 
 class ClaimsStorageManager:
@@ -197,11 +196,11 @@ class ClaimsStorageManager:
         )
 
         fields = QgsFields()
-        fields.append(QgsField("name", QMetaType.Type.QString, len=255))
-        fields.append(QgsField("easting", QMetaType.Type.Double))
-        fields.append(QgsField("northing", QMetaType.Type.Double))
-        fields.append(QgsField("epsg", QMetaType.Type.Int))
-        fields.append(QgsField("created_at", QMetaType.Type.QString, len=50))
+        fields.append(QgsField("name", FieldType_QString, len=255))
+        fields.append(QgsField("easting", FieldType_Double))
+        fields.append(QgsField("northing", FieldType_Double))
+        fields.append(QgsField("epsg", FieldType_Int))
+        fields.append(QgsField("created_at", FieldType_QString, len=50))
 
         layer.dataProvider().addAttributes(fields)
         layer.updateFields()

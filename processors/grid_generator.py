@@ -19,9 +19,8 @@ from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
     QgsPointXY, QgsCoordinateReferenceSystem, QgsField, QgsFields
 )
-from qgis.PyQt.QtCore import QMetaType
-
 from ..utils.logger import PluginLogger
+from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 
 
 class ClaimType(Enum):
@@ -273,11 +272,11 @@ class GridGenerator:
 
         # Define fields
         fields = QgsFields()
-        fields.append(QgsField("name", QMetaType.Type.QString, len=100))
-        fields.append(QgsField("claim_type", QMetaType.Type.QString, len=20))
-        fields.append(QgsField("status", QMetaType.Type.QString, len=20))
-        fields.append(QgsField("order", QMetaType.Type.Int))
-        fields.append(QgsField("notes", QMetaType.Type.QString, len=500))
+        fields.append(QgsField("name", FieldType_QString, len=100))
+        fields.append(QgsField("claim_type", FieldType_QString, len=20))
+        fields.append(QgsField("status", FieldType_QString, len=20))
+        fields.append(QgsField("order", FieldType_Int))
+        fields.append(QgsField("notes", FieldType_QString, len=500))
 
         # Use GeoPackage if configured, otherwise memory layer
         if self._geopackage_path and self.claims_storage_manager:
@@ -471,10 +470,10 @@ class GridGenerator:
         """Create a layer for claims (GeoPackage or memory)."""
         # Define fields
         fields = QgsFields()
-        fields.append(QgsField("name", QMetaType.Type.QString, len=100))
-        fields.append(QgsField("claim_type", QMetaType.Type.QString, len=20))
-        fields.append(QgsField("status", QMetaType.Type.QString, len=20))
-        fields.append(QgsField("notes", QMetaType.Type.QString, len=500))
+        fields.append(QgsField("name", FieldType_QString, len=100))
+        fields.append(QgsField("claim_type", FieldType_QString, len=20))
+        fields.append(QgsField("status", FieldType_QString, len=20))
+        fields.append(QgsField("notes", FieldType_QString, len=500))
 
         # Use GeoPackage if configured, otherwise memory layer
         if self._geopackage_path and self.claims_storage_manager:

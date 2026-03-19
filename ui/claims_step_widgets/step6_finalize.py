@@ -24,9 +24,8 @@ from qgis.core import (
     QgsCoordinateTransform, QgsMarkerSymbol, QgsCategorizedSymbolRenderer,
     QgsRendererCategory
 )
-from qgis.PyQt.QtCore import QMetaType
-
 from .step_base import ClaimsStepBase
+from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 from ...utils.layer_utils import is_layer_valid
 
 
@@ -696,16 +695,16 @@ class ClaimsStep6Widget(ClaimsStepBase):
             # Define fields to match QClaims Waypoints layer format
             # This enables GPX export compatibility and proper field navigation
             fields = QgsFields()
-            fields.append(QgsField("No", QMetaType.Type.Int))  # Sequential number (1, 2, 3...)
-            fields.append(QgsField("Name", QMetaType.Type.QString))  # "WP 1", "LM 3", "SL 2", etc.
-            fields.append(QgsField("Latitude", QMetaType.Type.Double))  # WGS84 latitude
-            fields.append(QgsField("Longitude", QMetaType.Type.Double))  # WGS84 longitude
-            fields.append(QgsField("Altitude", QMetaType.Type.Double))  # Always 0
-            fields.append(QgsField("Symbol", QMetaType.Type.QString))  # GPX symbol: "City (Medium)", "Navaid, Green"
-            fields.append(QgsField("Date", QMetaType.Type.QString))  # Generation date
-            fields.append(QgsField("Time", QMetaType.Type.QString))  # "00:00:00"
-            fields.append(QgsField("waypoint_type", QMetaType.Type.QString))  # For styling: corner, discovery, etc.
-            fields.append(QgsField("claim", QMetaType.Type.QString))  # Associated claim name(s)
+            fields.append(QgsField("No", FieldType_Int))  # Sequential number (1, 2, 3...)
+            fields.append(QgsField("Name", FieldType_QString))  # "WP 1", "LM 3", "SL 2", etc.
+            fields.append(QgsField("Latitude", FieldType_Double))  # WGS84 latitude
+            fields.append(QgsField("Longitude", FieldType_Double))  # WGS84 longitude
+            fields.append(QgsField("Altitude", FieldType_Double))  # Always 0
+            fields.append(QgsField("Symbol", FieldType_QString))  # GPX symbol: "City (Medium)", "Navaid, Green"
+            fields.append(QgsField("Date", FieldType_QString))  # Generation date
+            fields.append(QgsField("Time", FieldType_QString))  # "00:00:00"
+            fields.append(QgsField("waypoint_type", FieldType_QString))  # For styling: corner, discovery, etc.
+            fields.append(QgsField("claim", FieldType_QString))  # Associated claim name(s)
 
             # Use GeoPackage if configured, otherwise memory layer
             using_geopackage = bool(self.state.geopackage_path)

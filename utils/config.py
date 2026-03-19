@@ -154,6 +154,19 @@ class Config:
         return self.save()
 
     @property
+    def services_base_url(self) -> str:
+        """Base URL for /services/ endpoints (BLM claims, PLSS, etc.).
+
+        Uses geodb.io (not api.geodb.io) because the services app is mounted
+        at /services/ in the main URL conf, not under /api/.
+        The api.geodb.io subdomain rewrites paths (/* -> /api/*) which would
+        break these routes.
+        """
+        if self.get('api.use_local', False):
+            return "http://localhost:8000/services/api"
+        return "https://geodb.io/services/api"
+
+    @property
     def base_url(self) -> str:
         """Get the appropriate base URL (production or local)."""
         default_url = "https://api.geodb.io/api/v2"
@@ -247,6 +260,17 @@ class Config:
             'claims_submit_order': f"{base}/claims/submit-order/",
             'claims_orders': f"{base}/claims/orders/",
             'claims_documents': f"{base}/claims/documents/",
+
+            # BLM Claims (services API - different base, uses geodb.io not api.geodb.io)
+            'blm_claims_sections': f"{self.services_base_url}/blm-claims/sections/",
+            'blm_claims_density': f"{self.services_base_url}/blm-claims/density/",
+            'blm_claims_search': f"{self.services_base_url}/blm-claims/search/",
+            'blm_claims_stats': f"{self.services_base_url}/blm-claims/stats/",
+            'blm_claim_detail': f"{self.services_base_url}/blm-claims/",
+
+            # PLSS Grid (services API - same base as BLM claims)
+            'plss_townships': f"{self.services_base_url}/plss/townships/",
+            'plss_sections': f"{self.services_base_url}/plss/sections/",
         }
 
     def get_model_endpoint(self, model_name: str) -> str:

@@ -10,7 +10,7 @@ from typing import Optional
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QSlider, QGroupBox, QMessageBox, QFrame, QScrollArea,
-    QSizePolicy
+    QSizePolicy, QCheckBox
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.core import (
@@ -480,6 +480,145 @@ class BasemapsWidget(QWidget):
         mrds_layout.addWidget(mrds_note)
 
         layout.addWidget(mrds_group)
+
+        # BLM Mining Claims streaming section
+        self.blm_group = QGroupBox("BLM Mining Claims (from geodb.io)")
+        self.blm_group.setStyleSheet(self._get_group_style())
+        blm_layout = QVBoxLayout(self.blm_group)
+        blm_layout.setSpacing(8)
+
+        blm_desc = QLabel(
+            "Stream BLM mining claim density per PLSS section. "
+            "Sections are colored by number of active claims."
+        )
+        blm_desc.setWordWrap(True)
+        blm_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        blm_layout.addWidget(blm_desc)
+
+        # Toggle checkbox
+        self.blm_toggle = QCheckBox("Show BLM Claims")
+        self.blm_toggle.setEnabled(False)
+        self.blm_toggle.stateChanged.connect(self._on_blm_toggle_changed)
+        blm_layout.addWidget(self.blm_toggle)
+
+        # Filters row
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(8)
+
+        state_label = QLabel("State:")
+        state_label.setStyleSheet("font-weight: bold;")
+        filter_row.addWidget(state_label)
+
+        self.blm_state_combo = QComboBox()
+        self.blm_state_combo.setStyleSheet(self._get_combo_style())
+        self.blm_state_combo.setMinimumWidth(80)
+        self.blm_state_combo.addItem("All States", None)
+        for st in ['AZ', 'CA', 'CO', 'ID', 'MT', 'NM', 'NV', 'OR', 'SD', 'UT', 'WA', 'WY']:
+            self.blm_state_combo.addItem(st, st)
+        self.blm_state_combo.setEnabled(False)
+        self.blm_state_combo.currentIndexChanged.connect(self._on_blm_filter_changed)
+        filter_row.addWidget(self.blm_state_combo)
+
+        type_label = QLabel("Type:")
+        type_label.setStyleSheet("font-weight: bold;")
+        filter_row.addWidget(type_label)
+
+        self.blm_type_combo = QComboBox()
+        self.blm_type_combo.setStyleSheet(self._get_combo_style())
+        self.blm_type_combo.setMinimumWidth(100)
+        self.blm_type_combo.addItem("All Types", None)
+        self.blm_type_combo.addItem("Lode Claim", "Lode")
+        self.blm_type_combo.addItem("Placer Claim", "Placer")
+        self.blm_type_combo.addItem("Mill Site", "Mill Site")
+        self.blm_type_combo.addItem("Tunnel Site", "Tunnel Site")
+        self.blm_type_combo.setEnabled(False)
+        self.blm_type_combo.currentIndexChanged.connect(self._on_blm_filter_changed)
+        filter_row.addWidget(self.blm_type_combo)
+
+        filter_row.addStretch()
+        blm_layout.addLayout(filter_row)
+
+        # Snapshot button
+        blm_btn_row = QHBoxLayout()
+        blm_btn_row.setSpacing(8)
+
+        self.blm_snapshot_btn = QPushButton("Save to Layer")
+        self.blm_snapshot_btn.setToolTip("Save current BLM claims view as a persistent layer")
+        self.blm_snapshot_btn.setStyleSheet(self._get_secondary_button_style())
+        self.blm_snapshot_btn.setEnabled(False)
+        self.blm_snapshot_btn.clicked.connect(self._on_blm_snapshot)
+        blm_btn_row.addWidget(self.blm_snapshot_btn)
+
+        blm_btn_row.addStretch()
+        blm_layout.addLayout(blm_btn_row)
+
+        # Status label
+        self.blm_status_label = QLabel("")
+        self.blm_status_label.setWordWrap(True)
+        self.blm_status_label.setStyleSheet("color: #6b7280; font-size: 11px; font-style: italic;")
+        blm_layout.addWidget(self.blm_status_label)
+
+        # Color legend
+        legend_row = QHBoxLayout()
+        legend_row.setSpacing(4)
+        from ..managers.blm_claims_manager import BLM_CLAIM_COUNT_COLORS
+        for lower, upper, color_hex, _ in BLM_CLAIM_COUNT_COLORS:
+            swatch = QLabel()
+            swatch.setFixedSize(14, 14)
+            swatch.setStyleSheet(
+                f"background-color: {color_hex}; border: 1px solid #8B0000; border-radius: 2px;"
+            )
+            legend_row.addWidget(swatch)
+            if upper >= 999999:
+                lbl = QLabel(f"{lower}+")
+            elif lower == upper:
+                lbl = QLabel(f"{lower}")
+            else:
+                lbl = QLabel(f"{lower}-{upper}")
+            lbl.setStyleSheet("font-size: 10px; color: #6b7280;")
+            legend_row.addWidget(lbl)
+        legend_row.addStretch()
+        blm_layout.addLayout(legend_row)
+
+        layout.addWidget(self.blm_group)
+
+        # Store references for manager wiring
+        self._blm_manager = None
+        self._blm_has_access = False
+
+        # PLSS Grid streaming section
+        self.plss_stream_group = QGroupBox("PLSS Grid Streaming (from geodb.io)")
+        self.plss_stream_group.setStyleSheet(self._get_group_style())
+        plss_stream_layout = QVBoxLayout(self.plss_stream_group)
+        plss_stream_layout.setSpacing(8)
+
+        plss_stream_desc = QLabel(
+            "Stream PLSS township and section boundaries as you pan/zoom. "
+            "Townships appear at wider zoom, sections at closer zoom."
+        )
+        plss_stream_desc.setWordWrap(True)
+        plss_stream_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        plss_stream_layout.addWidget(plss_stream_desc)
+
+        # Toggle checkbox
+        self.plss_stream_toggle = QCheckBox("Show PLSS Grid")
+        self.plss_stream_toggle.setEnabled(False)
+        self.plss_stream_toggle.stateChanged.connect(self._on_plss_stream_toggle_changed)
+        plss_stream_layout.addWidget(self.plss_stream_toggle)
+
+        # Status label
+        self.plss_stream_status_label = QLabel("")
+        self.plss_stream_status_label.setWordWrap(True)
+        self.plss_stream_status_label.setStyleSheet(
+            "color: #6b7280; font-size: 11px; font-style: italic;"
+        )
+        plss_stream_layout.addWidget(self.plss_stream_status_label)
+
+        layout.addWidget(self.plss_stream_group)
+
+        # Store PLSS streaming manager reference
+        self._plss_stream_manager = None
+        self._plss_stream_has_access = False
 
         # Add stretch at the end to push content to the top
         layout.addStretch()
@@ -1279,6 +1418,170 @@ class BasemapsWidget(QWidget):
             'ok': max_dimension <= max_extent_km,
             'extent_km': max_dimension
         }
+
+    # ==================== BLM Claims Methods ====================
+
+    def set_blm_manager(self, blm_manager, has_access: bool):
+        """Wire up the BLM claims manager and set access state.
+
+        Args:
+            blm_manager: BLMClaimsManager instance (or None on logout)
+            has_access: Whether user has QClaims enterprise/staff access
+        """
+        self._blm_manager = blm_manager
+        self._blm_has_access = has_access
+
+        if blm_manager is None:
+            # Logout state
+            self.blm_toggle.setChecked(False)
+            self.blm_toggle.setEnabled(False)
+            self.blm_state_combo.setEnabled(False)
+            self.blm_type_combo.setEnabled(False)
+            self.blm_snapshot_btn.setEnabled(False)
+            self.blm_status_label.setText("Login required to view BLM claims")
+            return
+
+        if not has_access:
+            self.blm_toggle.setChecked(False)
+            self.blm_toggle.setEnabled(False)
+            self.blm_state_combo.setEnabled(False)
+            self.blm_type_combo.setEnabled(False)
+            self.blm_snapshot_btn.setEnabled(False)
+            self.blm_status_label.setText(
+                "BLM Claims requires a QClaims subscription. Visit geodb.io for details."
+            )
+            return
+
+        # Has access — enable controls
+        self.blm_toggle.setEnabled(True)
+        self.blm_state_combo.setEnabled(True)
+        self.blm_type_combo.setEnabled(True)
+        self.blm_snapshot_btn.setEnabled(True)
+        self.blm_status_label.setText("")
+
+        # Connect manager signals
+        blm_manager.status_changed.connect(self._on_blm_status_changed)
+        blm_manager.loading_changed.connect(self._on_blm_loading_changed)
+        blm_manager.access_denied.connect(self._on_blm_access_denied)
+
+    def _on_blm_toggle_changed(self, state):
+        """Handle BLM claims toggle checkbox."""
+        if not self._blm_manager:
+            return
+
+        if state == Qt.Checked:
+            self._blm_manager.enable()
+        else:
+            self._blm_manager.disable()
+            self.blm_status_label.setText("")
+
+    def _on_blm_filter_changed(self):
+        """Handle BLM filter combo changes."""
+        if not self._blm_manager or not self._blm_manager.is_enabled:
+            return
+
+        state = self.blm_state_combo.currentData()
+        claim_type = self.blm_type_combo.currentData()
+        self._blm_manager.set_filters(state=state, claim_type=claim_type)
+
+    def _on_blm_snapshot(self):
+        """Handle Save to Layer button click."""
+        if not self._blm_manager:
+            return
+
+        layer = self._blm_manager.snapshot_to_layer()
+        if layer:
+            QMessageBox.information(
+                self,
+                "Snapshot Saved",
+                f"Saved '{layer.name()}' with {layer.featureCount()} sections.\n\n"
+                f"The layer has been added to your Layers panel."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No BLM claims data to snapshot. Enable the layer and navigate to an area with claims first."
+            )
+
+    def _on_blm_status_changed(self, status: str):
+        """Update BLM status label."""
+        self.blm_status_label.setText(status)
+
+    def _on_blm_loading_changed(self, loading: bool):
+        """Update UI for loading state."""
+        if loading:
+            self.blm_snapshot_btn.setEnabled(False)
+        else:
+            self.blm_snapshot_btn.setEnabled(self._blm_has_access)
+
+    def _on_blm_access_denied(self, message: str):
+        """Handle 403 from server — show upsell in status, not a dialog."""
+        self.blm_status_label.setText(
+            "BLM Claims requires a QClaims subscription. Visit geodb.io for details."
+        )
+        self.blm_toggle.setChecked(False)
+        self.blm_toggle.setEnabled(False)
+
+    # ==================== PLSS Streaming Methods ====================
+
+    def set_plss_stream_manager(self, plss_manager, has_access: bool):
+        """Wire up the PLSS streaming manager and set access state."""
+        self._plss_stream_manager = plss_manager
+        self._plss_stream_has_access = has_access
+
+        if plss_manager is None:
+            # Logout state
+            self.plss_stream_toggle.setChecked(False)
+            self.plss_stream_toggle.setEnabled(False)
+            self.plss_stream_status_label.setText("Login required to stream PLSS grid")
+            return
+
+        if not has_access:
+            self.plss_stream_toggle.setChecked(False)
+            self.plss_stream_toggle.setEnabled(False)
+            self.plss_stream_status_label.setText(
+                "PLSS streaming requires a QClaims subscription. Visit geodb.io for details."
+            )
+            return
+
+        # Has access — enable controls
+        self.plss_stream_toggle.setEnabled(True)
+        self.plss_stream_status_label.setText("")
+
+        # Connect manager signals
+        plss_manager.status_changed.connect(self._on_plss_stream_status_changed)
+        plss_manager.loading_changed.connect(self._on_plss_stream_loading_changed)
+        plss_manager.access_denied.connect(self._on_plss_stream_access_denied)
+
+    def _on_plss_stream_toggle_changed(self, state):
+        """Handle PLSS streaming toggle checkbox."""
+        if not self._plss_stream_manager:
+            return
+
+        if state == Qt.Checked:
+            self._plss_stream_manager.enable()
+        else:
+            self._plss_stream_manager.disable()
+            self.plss_stream_status_label.setText("")
+
+    def _on_plss_stream_status_changed(self, status: str):
+        """Update PLSS streaming status label."""
+        self.plss_stream_status_label.setText(status)
+
+    def _on_plss_stream_loading_changed(self, loading: bool):
+        """Update UI for PLSS loading state."""
+        pass  # No snapshot button to toggle for PLSS
+
+    def _on_plss_stream_access_denied(self, message: str):
+        """Handle 403 from server."""
+        self.plss_stream_status_label.setText(
+            "PLSS streaming requires a QClaims subscription. Visit geodb.io for details."
+        )
+        self.plss_stream_toggle.setChecked(False)
+        self.plss_stream_toggle.setEnabled(False)
+
+    # ==================== Styling Helpers ====================
 
     def _get_group_style(self) -> str:
         """Get group box style."""

@@ -546,7 +546,9 @@ class ClaimsStep1Widget(ClaimsStepBase):
         from qgis.core import (
             QgsVectorLayer, QgsFeature, QgsGeometry, QgsField, QgsFields
         )
-        from qgis.PyQt.QtCore import QMetaType
+        from ...utils.compat import (
+            FieldType_QString, FieldType_Int, FieldType_Double, FieldType_Bool,
+        )
 
         claims = claims_data.get('claims', [])
         project_name = claims_data.get('project_name', 'Proposed')
@@ -564,12 +566,12 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Add fields
         fields = QgsFields()
-        fields.append(QgsField("name", QMetaType.Type.QString))
-        fields.append(QgsField("claim_type", QMetaType.Type.QString))
-        fields.append(QgsField("acreage", QMetaType.Type.Double))
-        fields.append(QgsField("plss_location", QMetaType.Type.QString))
-        fields.append(QgsField("approved", QMetaType.Type.Bool))
-        fields.append(QgsField("proposed_claim_id", QMetaType.Type.Int))
+        fields.append(QgsField("name", FieldType_QString))
+        fields.append(QgsField("claim_type", FieldType_QString))
+        fields.append(QgsField("acreage", FieldType_Double))
+        fields.append(QgsField("plss_location", FieldType_QString))
+        fields.append(QgsField("approved", FieldType_Bool))
+        fields.append(QgsField("proposed_claim_id", FieldType_Int))
         provider.addAttributes(fields)
         layer.updateFields()
 
@@ -621,7 +623,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
         from qgis.core import (
             QgsVectorLayer, QgsFeature, QgsGeometry, QgsField, QgsFields
         )
-        from qgis.PyQt.QtCore import QMetaType
+        from ...utils.compat import FieldType_QString, FieldType_Int
 
         claim_polygons = order_data.get('claim_polygons', {})
         order_number = order_data.get('order_number', 'Unknown')
@@ -651,9 +653,9 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Add fields
         fields = QgsFields()
-        fields.append(QgsField("name", QMetaType.Type.QString))
-        fields.append(QgsField("order_id", QMetaType.Type.Int))
-        fields.append(QgsField("order_type", QMetaType.Type.QString))
+        fields.append(QgsField("name", FieldType_QString))
+        fields.append(QgsField("order_id", FieldType_Int))
+        fields.append(QgsField("order_type", FieldType_QString))
         provider.addAttributes(fields)
         layer.updateFields()
 

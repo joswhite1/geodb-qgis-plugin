@@ -9,7 +9,7 @@ from qgis.core import QgsApplication, QgsAuthMethodConfig
 from qgis.PyQt.QtCore import QSettings
 
 from ..api.client import APIClient
-from ..api.exceptions import AuthenticationError
+from ..api.exceptions import AuthenticationError, ValidationError
 from ..models.auth import AuthSession, UserInfo, UserContext
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
@@ -95,9 +95,9 @@ class AuthManager:
             # Complete login with token
             return self._complete_login(username, token, user_data, save_password)
 
-        except AuthenticationError as e:
+        except (AuthenticationError, ValidationError) as e:
             self.logger.error(f"Authentication failed: {e}")
-            return (False, {'error': str(e)})
+            return (False, {'error': 'Incorrect email or password.', 'field': 'password'})
         except Exception as e:
             self.logger.error(f"Login failed: {e}")
             return (False, {'error': f"Login failed: {e}"})

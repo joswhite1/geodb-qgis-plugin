@@ -22,7 +22,6 @@ from qgis.core import (
     QgsCoordinateTransform, QgsVectorLayer, QgsFeature,
     QgsGeometry, QgsField, QgsFields, QgsWkbTypes
 )
-from qgis.PyQt.QtCore import QMetaType
 from qgis.gui import QgsMapToolEmitPoint, QgsVertexMarker, QgsMapCanvas
 
 if TYPE_CHECKING:
@@ -30,6 +29,7 @@ if TYPE_CHECKING:
 
 from ..utils.logger import PluginLogger
 from ..utils.layer_utils import is_layer_in_project
+from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 
 
 class ReferenceInputDialog(QDialog):
@@ -796,10 +796,10 @@ class ReferencePointsWidget(QWidget):
 
             # Add fields
             fields = QgsFields()
-            fields.append(QgsField("name", QMetaType.Type.QString, len=255))
-            fields.append(QgsField("easting", QMetaType.Type.Double))
-            fields.append(QgsField("northing", QMetaType.Type.Double))
-            fields.append(QgsField("epsg", QMetaType.Type.Int))
+            fields.append(QgsField("name", FieldType_QString, len=255))
+            fields.append(QgsField("easting", FieldType_Double))
+            fields.append(QgsField("northing", FieldType_Double))
+            fields.append(QgsField("epsg", FieldType_Int))
             layer.dataProvider().addAttributes(fields.toList())
             layer.updateFields()
 
