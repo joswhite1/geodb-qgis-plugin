@@ -313,6 +313,20 @@ class ClaimsStepBase(QWidget):
                 border: none;
                 width: 30px;
             }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #d1d5db;
+                selection-background-color: #2563eb;
+                selection-color: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 12px;
+                color: #374151;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #dbeafe;
+                color: #1d4ed8;
+            }
         """
 
     def _get_info_label_style(self) -> str:

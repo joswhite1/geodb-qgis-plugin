@@ -454,7 +454,15 @@ class ClaimsLayerGenerator:
                             QgsPointXY(easting, northing)
                         ))
                         feature.setAttribute("Claim", mon.get('claim_name', ''))
-                        feature.setAttribute("Name", f"LM {i +1}")
+                        # Use server-provided sequence_number (LM matches claim number)
+                        # Fallback: extract number from claim name for older servers
+                        lm_name = mon.get('sequence_number')
+                        if not lm_name:
+                            claim_name = mon.get('claim_name', '')
+                            parts = claim_name.rsplit(' ', 1)
+                            claim_num = parts[-1] if len(parts) == 2 else str(i + 1)
+                            lm_name = f"LM {claim_num}"
+                        feature.setAttribute("Name", lm_name)
                         feature.setAttribute("Easting", easting)
                         feature.setAttribute("Northing", northing)
                         features.append(feature)

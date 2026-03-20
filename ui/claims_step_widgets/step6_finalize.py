@@ -71,11 +71,12 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
     def _get_lode_claims_layer(self) -> Optional[QgsVectorLayer]:
         """
-        Find the Lode Claims layer in the current project.
+        Find the Lode Claims layer for the current wizard session.
 
-        The Lode Claims layer is created by Step 5 (ClaimsLayerGenerator) and contains
-        the "Notes" field that users edit for location notices. This layer should be
-        preferred over the original input layer when extracting claim data.
+        Prefers the layer tracked in state.claims_layer_id (set by Step 5 when
+        layers are generated). Falls back to scanning by name only if the state
+        reference is missing, so that multiple claim groups in the same project
+        don't collide.
 
         Returns:
             The Lode Claims layer if found, None otherwise.
@@ -85,17 +86,25 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
         project = QgsProject.instance()
 
-        # Look for layers matching the Lode Claims naming pattern
-        # The layer might have a project suffix like "Lode Claims [Project Name]"
+        # 1. Prefer the layer already tracked in wizard state (set by Step 5)
+        #    This ensures we use the correct layer when multiple claim groups exist
+        state_layer = self.state.claims_layer  # resolves claims_layer_id
+        if state_layer and is_layer_valid(state_layer) and state_layer.featureCount() > 0:
+            base_name = ClaimsLayerGenerator.LODE_CLAIMS_LAYER
+            layer_name = state_layer.name()
+            if layer_name == base_name or layer_name.startswith(f"{base_name} ["):
+                self.logger.info(f"[Step6] Using Lode Claims layer from state: {layer_name}")
+                return state_layer
+
+        # 2. Fallback: scan project layers by name (for backward compatibility)
         base_name = ClaimsLayerGenerator.LODE_CLAIMS_LAYER  # "Lode Claims"
 
         for layer in project.mapLayers().values():
             if isinstance(layer, QgsVectorLayer):
                 layer_name = layer.name()
-                # Match exact name or name with suffix (e.g., "Lode Claims [MAUD Lode Claims]")
                 if layer_name == base_name or layer_name.startswith(f"{base_name} ["):
                     if is_layer_valid(layer) and layer.featureCount() > 0:
-                        self.logger.info(f"[Step6] Using Lode Claims layer: {layer_name}")
+                        self.logger.info(f"[Step6] Using Lode Claims layer (fallback scan): {layer_name}")
                         return layer
 
         return None

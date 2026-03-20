@@ -860,6 +860,20 @@ class ClaimsOrderWidget(QWidget):
                 border: none;
                 width: 24px;
             }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #d1d5db;
+                selection-background-color: #2563eb;
+                selection-color: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 12px;
+                color: #374151;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #dbeafe;
+                color: #1d4ed8;
+            }
         """
 
     def _get_primary_button_style(self) -> str:

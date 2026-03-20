@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.4.3
+version=2.5.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,14 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.5.0 - Claims Wizard & UI Improvements
+        - Fix claims layer ownership tracking to prevent cross-group layer collisions
+        - Use session-based layer IDs instead of name matching in Step 5/Step 6
+        - Fix combo box signal blocking during refresh to prevent state corruption
+        - Add project name suffix to Claims Workflow layer group name
+        - Use server-provided sequence_number for location monument naming
+        - Style QComboBox dropdown menus across all claims and assay dialogs
+        - Add URL scheme validation for BLM and PLSS streaming requests
     2.4.3 - Qt6 Method Compatibility
         - Replace deprecated .exec_() with .exec() across all dialogs and event loops
         - Ensures forward compatibility with Qt6 / QGIS 4.0+

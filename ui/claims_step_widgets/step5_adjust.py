@@ -63,6 +63,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         )
         self.generated_layers = {}
         self._layers_generated = False
+        self._group_name = "Claims Workflow"
         self._setup_ui()
 
     def _setup_ui(self):
@@ -176,6 +177,9 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         """Refresh the claims layer combo box with polygon layers from the GeoPackage."""
         import os
         current_id = self.claims_layer_combo.currentData()
+        # Block signals while rebuilding the combo to prevent _on_claims_layer_changed
+        # from overwriting state.claims_layer with the wrong layer during clear/add
+        self.claims_layer_combo.blockSignals(True)
         self.claims_layer_combo.clear()
 
         gpkg_path = self.state.geopackage_path
@@ -226,6 +230,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
                 f"Available polygon layers: {all_polygon_layers}"
             )
 
+        self.claims_layer_combo.blockSignals(False)
         self._update_claims_layer_info()
 
     def _on_claims_layer_changed(self, index: int):
@@ -626,6 +631,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             end = layer_name.find(']')
             project_name = layer_name[start:end]
         self.layer_generator.set_project_name(project_name)
+        self._group_name = f"Claims Workflow [{project_name}]" if project_name else "Claims Workflow"
 
         # Detect state
         state = self._detect_state(claims_layer)
@@ -654,7 +660,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             # Add layers to project
             self.layer_generator.add_layers_to_project(
                 self.generated_layers,
-                group_name="Claims Workflow"
+                group_name=self._group_name
             )
 
             self._layers_generated = True
@@ -827,7 +833,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             if self.generated_layers:
                 self.layer_generator.add_layers_to_project(
                     self.generated_layers,
-                    group_name="Claims Workflow"
+                    group_name=self._group_name
                 )
 
                 # Update state.claims_layer to point to the new Lode Claims layer
@@ -976,52 +982,106 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         self._check_existing_layers()
 
     def _check_existing_layers(self):
-        """Check if generated layers already exist in the project."""
+        """Check if generated layers from THIS wizard session already exist.
+
+        Uses state monument layer IDs to verify ownership. If the state has
+        monument layer IDs (from a previous Step 5 run in this session), we
+        check those specific layers. If the state has no monument IDs (fresh
+        wizard or reset), we don't adopt layers by name alone — they likely
+        belong to a different claim group.
+        """
         project = QgsProject.instance()
+
+        # If state tracks specific monument layer IDs, verify those layers exist
+        # This means Step 5 was already run in this session
+        has_state_refs = (
+            self.state.monuments_layer_id
+            or self.state.sideline_monuments_layer_id
+            or self.state.endline_monuments_layer_id
+        )
+
+        if has_state_refs:
+            # Verify the tracked layers still exist in the project
+            existing = self._find_layers_by_state_ids(project)
+            if existing:
+                self.generated_layers = existing
+                self._layers_generated = True
+                self._update_layers_table()
+                self._store_monument_layer_references()
+
+                lode_claims = existing.get(ClaimsLayerGenerator.LODE_CLAIMS_LAYER)
+                if is_layer_valid(lode_claims):
+                    self.state.claims_layer = lode_claims
+                    self.logger.info(f"[CLAIMS] Restored claims_layer from session: {lode_claims.id()}")
+
+                claims_layer = lode_claims if is_layer_valid(lode_claims) else self.state.claims_layer
+                if is_layer_valid(claims_layer):
+                    state = self._detect_state(claims_layer)
+                    self._update_instructions(state)
+                    self._update_lm_corner_table()
+
+                self._refresh_claims_layers()
+
+                self.status_label.setText(f"Found {len(existing)} existing layers")
+                self.status_detail.setText(
+                    "Layers from a previous session were found. "
+                    "Click 'Reset All Layers' to regenerate them."
+                )
+                return
+
+        # No valid state references — don't adopt layers by name alone
+        # They may belong to a different claim group
+        self._layers_generated = False
+        self.generated_layers = {}
+        self.logger.info("[CLAIMS] No existing session layers found — will generate fresh")
+
+    def _find_layers_by_state_ids(self, project) -> dict:
+        """Find generated layers by their state-tracked IDs and sibling names.
+
+        Uses the monument layer IDs stored in state to find layers that belong
+        to this wizard session. Also finds sibling layers (Lode Claims, Corner
+        Points, etc.) by matching the project name suffix from the found layers.
+        """
         existing = {}
 
-        layer_names = [
+        # Map state IDs to their base names
+        id_to_name = {}
+        if self.state.monuments_layer_id:
+            id_to_name[self.state.monuments_layer_id] = ClaimsLayerGenerator.MONUMENTS_LAYER
+        if self.state.sideline_monuments_layer_id:
+            id_to_name[self.state.sideline_monuments_layer_id] = ClaimsLayerGenerator.SIDELINE_MONUMENTS_LAYER
+        if self.state.endline_monuments_layer_id:
+            id_to_name[self.state.endline_monuments_layer_id] = ClaimsLayerGenerator.ENDLINE_MONUMENTS_LAYER
+
+        # Find the tracked layers and detect the project suffix
+        project_suffix = None
+        for layer_id, base_name in id_to_name.items():
+            layer = project.mapLayer(layer_id)
+            if layer and is_layer_valid(layer):
+                existing[base_name] = layer
+                # Detect suffix from layer name (e.g., "Monuments [GE2 Lode]" -> " [GE2 Lode]")
+                lname = layer.name()
+                if '[' in lname:
+                    project_suffix = lname[lname.find('[') - 1:]  # includes the space
+
+        # Also find sibling layers (Lode Claims, Corner Points, etc.)
+        # Match by exact name or name with same project suffix
+        sibling_names = [
             ClaimsLayerGenerator.LODE_CLAIMS_LAYER,
             ClaimsLayerGenerator.CORNER_POINTS_LAYER,
             ClaimsLayerGenerator.LM_CORNERS_LAYER,
             ClaimsLayerGenerator.CENTERLINES_LAYER,
-            ClaimsLayerGenerator.MONUMENTS_LAYER,
-            ClaimsLayerGenerator.SIDELINE_MONUMENTS_LAYER,
-            ClaimsLayerGenerator.ENDLINE_MONUMENTS_LAYER,
         ]
 
         for layer in project.mapLayers().values():
-            if layer.name() in layer_names:
-                existing[layer.name()] = layer
+            if not is_layer_valid(layer):
+                continue
+            lname = layer.name()
+            for base_name in sibling_names:
+                if base_name in existing:
+                    continue  # already found
+                # Match exact base name or base name + same project suffix
+                if lname == base_name or (project_suffix and lname == base_name + project_suffix):
+                    existing[base_name] = layer
 
-        if existing:
-            self.generated_layers = existing
-            self._layers_generated = True
-            self._update_layers_table()
-
-            # Store monument layer IDs in state for reading in Step 6
-            self._store_monument_layer_references()
-
-            # Update state.claims_layer to point to the Lode Claims layer if it exists
-            # This ensures subsequent steps use the generated layer with all QClaims fields
-            lode_claims = existing.get(ClaimsLayerGenerator.LODE_CLAIMS_LAYER)
-            if is_layer_valid(lode_claims):
-                self.state.claims_layer = lode_claims
-                self.logger.info(f"[CLAIMS] Updated claims_layer to existing Lode Claims: {lode_claims.id()}")
-
-            # Detect state from generated Lode Claims layer (has State field from server)
-            # Fall back to original claims layer if Lode Claims not available
-            claims_layer = lode_claims if is_layer_valid(lode_claims) else self.state.claims_layer
-            if is_layer_valid(claims_layer):
-                state = self._detect_state(claims_layer)
-                self._update_instructions(state)
-                self._update_lm_corner_table()
-
-            # Refresh claims layer dropdown to show the correct selection
-            self._refresh_claims_layers()
-
-            self.status_label.setText(f"Found {len(existing)} existing layers")
-            self.status_detail.setText(
-                "Layers from a previous session were found. "
-                "Click 'Reset All Layers' to regenerate them."
-            )
+        return existing
