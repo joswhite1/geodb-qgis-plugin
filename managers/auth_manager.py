@@ -92,8 +92,8 @@ class AuthManager:
             if not token:
                 return (False, {'error': 'No token received from server'})
 
-            # Complete login with token
-            return self._complete_login(username, token, user_data, save_password)
+            # Complete login with token (pass password so it can be saved if requested)
+            return self._complete_login(username, token, user_data, save_password, password=password)
 
         except (AuthenticationError, ValidationError) as e:
             self.logger.error(f"Authentication failed: {e}")
@@ -136,7 +136,8 @@ class AuthManager:
         username: str,
         token: str,
         user_data: Dict[str, Any],
-        save_password: bool
+        save_password: bool,
+        password: str = None
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Complete the login process after obtaining a token.
@@ -148,6 +149,7 @@ class AuthManager:
             token: Knox authentication token
             user_data: User data from login response (may be empty for 2FA)
             save_password: Whether to save password
+            password: The user's password (available for direct login, None for 2FA)
 
         Returns:
             Tuple of (success: bool, result: dict)
@@ -173,8 +175,9 @@ class AuthManager:
             )
 
         # Store credentials in QGIS Auth Manager
-        # Note: For 2FA users, we don't save password (they'll need to re-auth anyway)
-        password_to_save = None  # Password not available after 2FA flow
+        # Password is saved only when save_password is True and password is available
+        # For 2FA users, password is None (they'll need to re-auth anyway)
+        password_to_save = password if save_password else None
         auth_config_id = self._store_credentials(username, token, password_to_save)
 
         # Create session with full context
@@ -289,33 +292,6 @@ class AuthManager:
             self._remove_credentials(auth_config_id)
             return None
 
-    def refresh_user_context(self) -> Optional[UserContext]:
-        """
-        Refresh user context from server.
-
-        Call this when user changes active project or settings.
-
-        Returns:
-            Updated UserContext or None if failed
-        """
-        if not self.is_authenticated():
-            return None
-
-        try:
-            context_response = self.api_client.get_user_context()
-            user_context = UserContext.from_api_response(context_response)
-
-            # Update session
-            if self.current_session:
-                self.current_session.user_context = user_context
-                self.current_session.user = user_context.user
-
-            return user_context
-
-        except Exception as e:
-            self.logger.error(f"Failed to refresh user context: {e}")
-            return None
-
     def set_active_project(self, project_id: int) -> Optional[UserContext]:
         """
         Set the active project and refresh context.
@@ -370,10 +346,6 @@ class AuthManager:
 
     def get_session(self) -> Optional[AuthSession]:
         """Get current authentication session."""
-        return self.current_session
-
-    def get_current_session(self) -> Optional[AuthSession]:
-        """Get current authentication session (alias for get_session)."""
         return self.current_session
 
     def is_authenticated(self) -> bool:

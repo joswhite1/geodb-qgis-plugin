@@ -9,10 +9,13 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from pathlib import Path
 import json
+import logging
 import sqlite3
 import re
 
 from qgis.core import QgsVectorLayer, QgsProject
+
+logger = logging.getLogger('geodb')
 
 
 @dataclass
@@ -68,6 +71,7 @@ class ClaimsWizardState:
     generated_documents: List[Dict[str, Any]] = field(default_factory=list)
     package_info: Optional[Dict[str, Any]] = None  # ClaimPackage info from server
     claim_package_id: Optional[int] = None  # ClaimPackage ID for linking claims to package
+    claims_pushed: bool = False  # Track whether claims have been pushed to server
 
     # License/TOS state (cached from server)
     access_info: Optional[Dict[str, Any]] = None
@@ -254,6 +258,7 @@ class ClaimsWizardState:
                 'reference_points': json.dumps(self.reference_points),
                 'completed_steps': json.dumps(self.completed_steps),
                 'claim_package_id': str(self.claim_package_id) if self.claim_package_id else '',
+                'claims_pushed': '1' if self.claims_pushed else '',
             }
 
             for key, value in metadata.items():
@@ -266,7 +271,7 @@ class ClaimsWizardState:
             return True
 
         except Exception as e:
-            print(f"Error saving to GeoPackage: {e}")
+            logger.error(f"Error saving to GeoPackage: {e}")
             return False
 
     def _extract_prefix_from_claims(self, path: str) -> Optional[str]:
@@ -322,7 +327,7 @@ class ClaimsWizardState:
             return most_common
 
         except Exception as e:
-            print(f"Error extracting prefix from claims: {e}")
+            logger.debug(f"Error extracting prefix from claims: {e}")
             return None
 
     def load_from_geopackage(self, path: str) -> bool:
@@ -400,10 +405,12 @@ class ClaimsWizardState:
             pkg_id_str = metadata.get('claim_package_id', '')
             self.claim_package_id = int(pkg_id_str) if pkg_id_str else None
 
+            self.claims_pushed = bool(metadata.get('claims_pushed', ''))
+
             return True
 
         except Exception as e:
-            print(f"Error loading from GeoPackage: {e}")
+            logger.error(f"Error loading from GeoPackage: {e}")
             return False
 
     def save_to_qgis_project(self):
@@ -465,6 +472,7 @@ class ClaimsWizardState:
         self.generated_documents = []
         self.package_info = None
         self.claim_package_id = None
+        self.claims_pushed = False
         self.completed_steps = []
         self.initial_layout_layer_id = None
         self.processed_claims_layer_id = None

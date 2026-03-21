@@ -22,6 +22,7 @@ from qgis.core import (
 
 from ..managers.claims_manager import ClaimsManager
 from ..processors.grid_generator import GridGenerator
+from ..utils.crs_utils import auto_detect_utm
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_NoFrame, QFrame_HLine, QDialog_Accepted
 
@@ -551,16 +552,11 @@ class ClaimsOrderWidget(QWidget):
             lon = wgs84_center.x()
             lat = wgs84_center.y()
 
-            # Calculate UTM zone
-            zone = int((lon + 180) / 6) + 1
-
-            # Determine if northern or southern hemisphere
-            if lat >= 0:
-                epsg = 32600 + zone  # Northern hemisphere
-                hemisphere = "N"
-            else:
-                epsg = 32700 + zone  # Southern hemisphere
-                hemisphere = "S"
+            # Calculate UTM zone using shared utility (prefers NAD83 for US)
+            epsg = auto_detect_utm(lon, lat, prefer_nad83=True)
+            import math
+            zone = int(math.floor((lon + 180) / 6)) + 1
+            hemisphere = "N" if lat >= 0 else "S"
 
             # Set project CRS
             utm_crs = QgsCoordinateReferenceSystem(f"EPSG:{epsg}")
@@ -760,45 +756,35 @@ class ClaimsOrderWidget(QWidget):
                 QMessageBox.warning(self, "No Claims", "The selected layer has no features.")
                 return
 
-            # Submit order
-            self.status_message.emit("Submitting order...", "info")
+            # Create checkout session
+            self.status_message.emit("Creating checkout session...", "info")
 
-            result = self.claims_manager.submit_order(
+            result = self.claims_manager.create_checkout_session(
                 claims=claims,
                 project_id=self._current_project_id,
                 company_id=self._current_company_id,
-                service_type='self_service',
                 claimant_info=claimant_info
             )
 
-            order_id = result.get('order_id')
-            status = result.get('status')
+            checkout_url = result.get('checkout_url')
+            session_id = result.get('session_id', 'unknown')
 
-            if status == 'approved' and result.get('payment_url'):
-                # Open payment URL in browser
-                QDesktopServices.openUrl(QUrl(result['payment_url']))
+            if checkout_url:
+                # Open checkout in browser
+                QDesktopServices.openUrl(QUrl(checkout_url))
                 QMessageBox.information(
                     self,
-                    "Order Submitted",
-                    f"Order #{order_id} has been submitted.\n\n"
+                    "Checkout Created",
+                    f"Checkout session created (ID: {session_id}).\n\n"
                     "A browser window has been opened for payment. "
                     "After payment, your claims will be processed by our team "
                     "and you'll receive an email when complete."
                 )
             else:
-                # Create checkout session
-                checkout = self.claims_manager.create_order_checkout(order_id)
-                if checkout.get('checkout_url'):
-                    QDesktopServices.openUrl(QUrl(checkout['checkout_url']))
-                    QMessageBox.information(
-                        self,
-                        "Order Submitted",
-                        f"Order #{order_id} has been submitted.\n\n"
-                        "A browser window has been opened for payment."
-                    )
+                raise ValueError("No checkout URL returned from server")
 
             self.order_submitted.emit(result)
-            self.status_message.emit(f"Order #{order_id} submitted", "info")
+            self.status_message.emit("Checkout session created", "info")
 
         except Exception as e:
             self.logger.error(f"[CLAIMS ORDER] Submit failed: {e}")

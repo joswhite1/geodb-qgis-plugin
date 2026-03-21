@@ -15,10 +15,9 @@ import sys
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QSizePolicy, QFrame
 
-# Debug logging — prints to QGIS Python console and stdout
+# Debug logging — logs to QGIS message log
 def _compat_log(msg):
-    """Log compat module debug info to QGIS message log and stdout."""
-    print(f"[geodb compat] {msg}")
+    """Log compat module debug info to QGIS message log."""
     try:
         from qgis.core import QgsMessageLog, Qgis
         QgsMessageLog.logMessage(f"[compat] {msg}", 'GeodbIO', Qgis.Info)

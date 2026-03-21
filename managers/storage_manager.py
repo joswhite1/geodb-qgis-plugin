@@ -75,22 +75,6 @@ class StorageManager:
 
         return default_dir
 
-    def set_default_directory(self, path: str) -> bool:
-        """
-        Set default directory for new GeoPackage files.
-
-        Args:
-            path: Directory path
-
-        Returns:
-            True if successful
-        """
-        if os.path.isdir(path):
-            self.settings.setValue(self.DEFAULT_DIR_KEY, path)
-            self.logger.info(f"Set default storage directory: {path}")
-            return True
-        return False
-
     def get_storage_mode(self, project_id: int) -> str:
         """
         Get storage mode for a project.
@@ -266,18 +250,6 @@ class StorageManager:
             f"mode={mode}, path={geopackage_path}"
         )
         return True
-
-    def clear_project_config(self, project_id: int):
-        """
-        Clear storage configuration for a project.
-
-        Args:
-            project_id: Project ID
-        """
-        prefix = f'{self.PROJECT_STORAGE_KEY}/{project_id}'
-        # Remove all keys for this project
-        self.settings.remove(prefix)
-        self.logger.info(f"Cleared storage config for project {project_id}")
 
     def has_unsaved_memory_layers(self) -> bool:
         """

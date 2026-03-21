@@ -12,6 +12,7 @@ Implements the QClaims GeoPackage schema for compatibility.
 
 Reference: QClaims q_claims.py (lines 1334-1609)
 """
+import contextlib
 import os
 import sqlite3
 from datetime import datetime
@@ -214,18 +215,17 @@ class ClaimsStorageManager:
         Args:
             gpkg_path: Path to the GeoPackage file
         """
-        conn = sqlite3.connect(gpkg_path)
-        cursor = conn.cursor()
+        with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(f'''
-            CREATE TABLE IF NOT EXISTS {self.METADATA_TABLE} (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        ''')
+            cursor.execute(f'''
+                CREATE TABLE IF NOT EXISTS {self.METADATA_TABLE} (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            ''')
 
-        conn.commit()
-        conn.close()
+            conn.commit()
 
     def _save_metadata(self, gpkg_path: str, metadata: Dict[str, str]):
         """
@@ -235,23 +235,22 @@ class ClaimsStorageManager:
             gpkg_path: Path to the GeoPackage file
             metadata: Dictionary of key-value pairs to save
         """
-        conn = sqlite3.connect(gpkg_path)
-        cursor = conn.cursor()
+        with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
+            cursor = conn.cursor()
 
-        for key, value in metadata.items():
+            for key, value in metadata.items():
+                cursor.execute(f'''
+                    INSERT OR REPLACE INTO {self.METADATA_TABLE} (key, value)
+                    VALUES (?, ?)
+                ''', (key, value))
+
+            # Update last modified
             cursor.execute(f'''
                 INSERT OR REPLACE INTO {self.METADATA_TABLE} (key, value)
                 VALUES (?, ?)
-            ''', (key, value))
+            ''', (self.KEY_LAST_MODIFIED, datetime.now().isoformat()))
 
-        # Update last modified
-        cursor.execute(f'''
-            INSERT OR REPLACE INTO {self.METADATA_TABLE} (key, value)
-            VALUES (?, ?)
-        ''', (self.KEY_LAST_MODIFIED, datetime.now().isoformat()))
-
-        conn.commit()
-        conn.close()
+            conn.commit()
 
     def is_qclaims_geopackage(self, gpkg_path: str) -> bool:
         """
@@ -267,29 +266,27 @@ class ClaimsStorageManager:
             return False
 
         try:
-            conn = sqlite3.connect(gpkg_path)
-            cursor = conn.cursor()
+            with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
+                cursor = conn.cursor()
 
-            # Check if metadata table exists
-            cursor.execute('''
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name=?
-            ''', (self.METADATA_TABLE,))
+                # Check if metadata table exists
+                cursor.execute('''
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name=?
+                ''', (self.METADATA_TABLE,))
 
-            if not cursor.fetchone():
-                conn.close()
-                return False
+                if not cursor.fetchone():
+                    return False
 
-            # Check for identifier
-            cursor.execute('''
-                SELECT value FROM qclaims_metadata
-                WHERE key = ?
-            ''', (self.KEY_IDENTIFIER,))
+                # Check for identifier
+                cursor.execute('''
+                    SELECT value FROM qclaims_metadata
+                    WHERE key = ?
+                ''', (self.KEY_IDENTIFIER,))
 
-            result = cursor.fetchone()
-            conn.close()
+                result = cursor.fetchone()
 
-            return result is not None and result[0] == 'true'
+                return result is not None and result[0] == 'true'
 
         except Exception as e:
             self.logger.warning(
@@ -324,15 +321,13 @@ class ClaimsStorageManager:
             return {}
 
         try:
-            conn = sqlite3.connect(gpkg_path)
-            cursor = conn.cursor()
+            with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute('SELECT key, value FROM qclaims_metadata')
-            rows = cursor.fetchall()
+                cursor.execute('SELECT key, value FROM qclaims_metadata')
+                rows = cursor.fetchall()
 
-            conn.close()
-
-            return {row[0]: row[1] for row in rows}
+                return {row[0]: row[1] for row in rows}
 
         except Exception as e:
             self.logger.error(f"[CLAIMS STORAGE] Failed to load metadata: {e}")
@@ -914,25 +909,24 @@ class ClaimsStorageManager:
             True if the file is a valid GeoPackage
         """
         try:
-            conn = sqlite3.connect(gpkg_path)
-            cursor = conn.cursor()
+            with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
+                cursor = conn.cursor()
 
-            # Check for required GeoPackage system tables
-            cursor.execute('''
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name IN ('gpkg_spatial_ref_sys', 'gpkg_contents')
-            ''')
+                # Check for required GeoPackage system tables
+                cursor.execute('''
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name IN ('gpkg_spatial_ref_sys', 'gpkg_contents')
+                ''')
 
-            tables = [row[0] for row in cursor.fetchall()]
-            conn.close()
+                tables = [row[0] for row in cursor.fetchall()]
 
-            # Both tables must exist for a valid GeoPackage
-            is_valid = 'gpkg_spatial_ref_sys' in tables and 'gpkg_contents' in tables
-            if not is_valid:
-                self.logger.debug(
-                    f"[CLAIMS STORAGE] File missing required GeoPackage tables: {gpkg_path}"
-                )
-            return is_valid
+                # Both tables must exist for a valid GeoPackage
+                is_valid = 'gpkg_spatial_ref_sys' in tables and 'gpkg_contents' in tables
+                if not is_valid:
+                    self.logger.debug(
+                        f"[CLAIMS STORAGE] File missing required GeoPackage tables: {gpkg_path}"
+                    )
+                return is_valid
 
         except Exception as e:
             self.logger.warning(
@@ -943,18 +937,17 @@ class ClaimsStorageManager:
     def _table_exists_in_geopackage(self, table_name: str, gpkg_path: str) -> bool:
         """Check if a table exists in the GeoPackage."""
         try:
-            conn = sqlite3.connect(gpkg_path)
-            cursor = conn.cursor()
+            with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute('''
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name=?
-            ''', (table_name,))
+                cursor.execute('''
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name=?
+                ''', (table_name,))
 
-            result = cursor.fetchone()
-            conn.close()
+                result = cursor.fetchone()
 
-            return result is not None
+                return result is not None
 
         except Exception as e:
             self.logger.warning(
@@ -995,22 +988,21 @@ class ClaimsStorageManager:
                 "[CLAIMS STORAGE] OGR not available, using SQLite fallback for table deletion"
             )
             try:
-                conn = sqlite3.connect(gpkg_path)
-                cursor = conn.cursor()
-                # Drop the table
-                cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
-                # Also clean up GeoPackage metadata tables
-                cursor.execute(
-                    'DELETE FROM gpkg_contents WHERE table_name = ?',
-                    (table_name,)
-                )
-                cursor.execute(
-                    'DELETE FROM gpkg_geometry_columns WHERE table_name = ?',
-                    (table_name,)
-                )
-                conn.commit()
-                conn.close()
-                return True
+                with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
+                    cursor = conn.cursor()
+                    # Drop the table
+                    cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+                    # Also clean up GeoPackage metadata tables
+                    cursor.execute(
+                        'DELETE FROM gpkg_contents WHERE table_name = ?',
+                        (table_name,)
+                    )
+                    cursor.execute(
+                        'DELETE FROM gpkg_geometry_columns WHERE table_name = ?',
+                        (table_name,)
+                    )
+                    conn.commit()
+                    return True
             except Exception as e:
                 self.logger.error(f"[CLAIMS STORAGE] SQLite table deletion failed: {e}")
                 return False

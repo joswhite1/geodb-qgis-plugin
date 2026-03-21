@@ -3,8 +3,7 @@
 Data models for GeodbIO plugin.
 """
 from .auth import AuthSession, UserInfo
-from .project import Company, Project, Permission
-from .api_response import APIResponse
+from .project import Company, Project
 from .schemas import (
     ModelSchema,
     FieldSchema,
@@ -22,8 +21,6 @@ __all__ = [
     'UserInfo',
     'Company',
     'Project',
-    'Permission',
-    'APIResponse',
     'ModelSchema',
     'FieldSchema',
     'FieldType',

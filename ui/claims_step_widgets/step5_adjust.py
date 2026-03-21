@@ -41,7 +41,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
     """
 
     def get_step_title(self) -> str:
-        return "Monument Adjustment"
+        return "Review & Adjust"
 
     def get_step_description(self) -> str:
         return (
@@ -608,8 +608,36 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             combo.setCurrentIndex(int(lm_corner) - 1)
             self.lm_corner_table.setCellWidget(row, 2, combo)
 
+    def _remove_old_generated_layers(self):
+        """Remove previously generated layers from the QGIS project.
+
+        Prevents duplicate layers when navigating back and regenerating.
+        """
+        if not self.generated_layers:
+            return
+
+        project = QgsProject.instance()
+        for layer_key, layer in self.generated_layers.items():
+            if layer and is_layer_valid(layer):
+                try:
+                    project.removeMapLayer(layer.id())
+                    self.logger.info(f"[CLAIMS] Removed old layer: {layer_key} ({layer.id()})")
+                except Exception:
+                    pass  # Layer may have already been removed
+
+        # Clear state references to old monument layers
+        self.state.monuments_layer_id = None
+        self.state.sideline_monuments_layer_id = None
+        self.state.endline_monuments_layer_id = None
+
+        self.generated_layers = {}
+        self._layers_generated = False
+
     def _generate_layers(self):
         """Generate all supporting layers using server-side calculations."""
+        # Remove any old layers first to prevent duplicates
+        self._remove_old_generated_layers()
+
         claims_layer = self.state.claims_layer
         if not claims_layer:
             self.status_label.setText("No claims layer found!")
@@ -958,6 +986,13 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
     def on_enter(self):
         """Called when step becomes active."""
+        # If this step is no longer marked complete (user went back and changed
+        # something upstream), force regeneration with fresh data
+        if not self.state.is_step_complete(5) and self._layers_generated:
+            self.logger.info("[CLAIMS] Step 5 invalidated — will regenerate layers")
+            self._layers_generated = False
+            # Don't clear generated_layers yet — _generate_layers will remove them
+
         self.load_state()
 
         # Refresh the claims layer dropdown

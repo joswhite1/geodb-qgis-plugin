@@ -16,14 +16,14 @@ from qgis.PyQt.QtWidgets import (
     QHeaderView, QFrame, QScrollArea, QMessageBox
 )
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtGui import QDesktopServices
-from qgis.PyQt.QtCore import QUrl
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
     QgsField, QgsFields, QgsPointXY, QgsCoordinateReferenceSystem,
     QgsCoordinateTransform, QgsMarkerSymbol, QgsCategorizedSymbolRenderer,
     QgsRendererCategory
 )
+from qgis.PyQt.QtCore import pyqtSignal
+
 from .step_base import ClaimsStepBase
 from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double, QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
 from ...utils.layer_utils import is_layer_valid
@@ -35,6 +35,9 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
     Validate, process, and generate documents for claims.
     """
+
+    # Emitted when claims processing completes successfully with result dict
+    processing_completed = pyqtSignal(dict)
 
     def get_step_title(self) -> str:
         return "Finalize Documents"
@@ -463,13 +466,9 @@ class ClaimsStep6Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Valid Claims", "No valid polygon geometries found.")
             return
 
-        # Check access level
-        can_process = self.state.access_info and self.state.access_info.get('can_process_immediately', False)
-
-        if can_process:
-            self._execute_processing(claims)
-        else:
-            self._submit_order(claims)
+        # Step 6 is only reached by enterprise/staff users who can process immediately.
+        # Pay-per-claim users are routed to step3_order.py instead.
+        self._execute_processing(claims)
 
     def _execute_processing(self, claims: List[Dict[str, Any]]):
         """Execute immediate processing (Enterprise/Staff)."""
@@ -513,138 +512,12 @@ class ClaimsStep6Widget(ClaimsStepBase):
             )
             self.emit_validation_changed()
 
+            # Notify wizard that processing completed successfully
+            self.processing_completed.emit(result)
+
         except Exception as e:
             QMessageBox.critical(self, "Processing Error", str(e))
             self.emit_status(f"Processing failed: {e}", "error")
-
-        finally:
-            self.progress_bar.hide()
-            self.process_btn.setEnabled(True)
-
-    def _submit_order(self, claims: List[Dict[str, Any]]):
-        """Submit order for pay-per-claim users."""
-        pricing = self.state.access_info.get('pricing', {})
-        price_cents = pricing.get('self_service_per_claim_cents', 0)
-        total_cents = price_cents * len(claims)
-        total_dollars = total_cents / 100
-
-        reply = QMessageBox.question(
-            self,
-            "Submit Order",
-            f"Submit order for {len(claims)} claims?\n\n"
-            f"Estimated total: ${total_dollars:.2f}\n\n"
-            "A browser window will open for payment after submission.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        self.progress_bar.show()
-        self.progress_bar.setValue(25)
-        self.process_btn.setEnabled(False)
-        # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
-
-        try:
-            # Step 1: Submit the order
-            result = self.claims_manager.submit_order(
-                claims=claims,
-                project_id=self.state.project_id,
-                company_id=self.state.company_id,
-                service_type='self_service'
-            )
-
-            self.progress_bar.setValue(50)
-            # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
-
-            order_id = result.get('order_id')
-            status = result.get('status', 'unknown')
-            total_display = result.get('total_display', f'${total_dollars:.2f}')
-
-            # Step 2: If order is approved (or auto-approved), create checkout and open browser
-            if status == 'approved':
-                self.progress_bar.setValue(75)
-                # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
-
-                try:
-                    # Get checkout URL from server
-                    checkout_result = self.claims_manager.create_order_checkout(order_id)
-                    checkout_url = checkout_result.get('checkout_url')
-
-                    if checkout_url:
-                        self.progress_bar.setValue(100)
-
-                        # Open browser for payment
-                        QDesktopServices.openUrl(QUrl(checkout_url))
-
-                        msg = (
-                            f"Order #{order_id} submitted!\n\n"
-                            f"Total: {total_display}\n"
-                            f"Claims: {len(claims)}\n\n"
-                            "A browser window has opened for payment.\n\n"
-                            "After completing payment, your claims will be processed "
-                            "and added to your project. You can close this message "
-                            "and continue working in QGIS."
-                        )
-                        QMessageBox.information(self, "Complete Payment in Browser", msg)
-                        self.emit_status(f"Order #{order_id} - payment window opened", "success")
-                    else:
-                        # No checkout URL returned - shouldn't happen
-                        msg = (
-                            f"Order #{order_id} submitted and approved!\n\n"
-                            f"Total: {total_display}\n\n"
-                            "Please log in to geodb.io to complete payment."
-                        )
-                        QMessageBox.information(self, "Order Submitted", msg)
-                        self.emit_status(f"Order #{order_id} submitted", "success")
-
-                except Exception as checkout_error:
-                    # Checkout creation failed - order still exists
-                    self.logger.warning(f"Checkout creation failed: {checkout_error}")
-                    msg = (
-                        f"Order #{order_id} submitted and approved!\n\n"
-                        f"Total: {total_display}\n\n"
-                        "Could not open payment window automatically.\n"
-                        "Please log in to geodb.io to complete payment."
-                    )
-                    QMessageBox.warning(self, "Payment Window Error", msg)
-                    self.emit_status(f"Order #{order_id} submitted (manual payment needed)", "warning")
-
-            elif status == 'pending_approval':
-                # Order requires manager approval before payment
-                self.progress_bar.setValue(100)
-                approvers = result.get('approvers', [])
-                approvers_text = ', '.join(approvers[:3]) if approvers else 'company managers'
-                if len(approvers) > 3:
-                    approvers_text += f' (+{len(approvers) - 3} more)'
-
-                msg = (
-                    f"Order #{order_id} submitted for approval.\n\n"
-                    f"Total: {total_display}\n"
-                    f"Claims: {len(claims)}\n\n"
-                    f"Approval required from: {approvers_text}\n\n"
-                    "You will receive an email when approved. "
-                    "You can then complete payment to process your claims."
-                )
-                QMessageBox.information(self, "Approval Required", msg)
-                self.emit_status(f"Order #{order_id} pending approval", "info")
-
-            else:
-                # Unknown status
-                self.progress_bar.setValue(100)
-                msg = (
-                    f"Order #{order_id} submitted.\n\n"
-                    f"Status: {status}\n"
-                    f"Total: {total_display}"
-                )
-                QMessageBox.information(self, "Order Submitted", msg)
-                self.emit_status(f"Order #{order_id} submitted ({status})", "info")
-
-        except Exception as e:
-            self.logger.error(f"Order submission failed: {e}")
-            QMessageBox.critical(self, "Order Error", str(e))
-            self.emit_status(f"Order failed: {e}", "error")
 
         finally:
             self.progress_bar.hide()
@@ -681,6 +554,15 @@ class ClaimsStep6Widget(ClaimsStepBase):
         # properly styled layers with all the processed data
         if not self.state.processed_waypoints:
             return
+
+        # Remove old waypoints layer if it exists (prevents duplicates
+        # when user goes back to Step 5 then forward and regenerates)
+        if self.state.waypoints_layer_id:
+            try:
+                QgsProject.instance().removeMapLayer(self.state.waypoints_layer_id)
+                self.state.waypoints_layer_id = None
+            except Exception:
+                pass
 
         try:
             # Create waypoints layer

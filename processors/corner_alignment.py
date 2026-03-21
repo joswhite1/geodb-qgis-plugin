@@ -120,7 +120,7 @@ class CornerAlignmentProcessor:
         claims_data = self._corners_to_claims_data(corners)
 
         # Build API endpoint URL
-        endpoint = self._get_claims_endpoint('analyze-corners/')
+        endpoint = self.api_client.config.get_claims_url('analyze-corners/')
 
         # Call server API
         response = self.api_client._make_request('POST', endpoint, data={
@@ -206,7 +206,7 @@ class CornerAlignmentProcessor:
         claims_data = self._corners_to_claims_data(corners)
 
         # Build API endpoint URL
-        endpoint = self._get_claims_endpoint('align-corners/')
+        endpoint = self.api_client.config.get_claims_url('align-corners/')
 
         # Call server API
         response = self.api_client._make_request('POST', endpoint, data={
@@ -321,7 +321,7 @@ class CornerAlignmentProcessor:
         claims_data = self._corners_to_claims_data(corners)
 
         # Build API endpoint URL
-        endpoint = self._get_claims_endpoint('analyze-corners/')
+        endpoint = self.api_client.config.get_claims_url('analyze-corners/')
 
         # Call server API
         response = self.api_client._make_request('POST', endpoint, data={
@@ -391,16 +391,6 @@ class CornerAlignmentProcessor:
     # =========================================================================
     # Helper methods
     # =========================================================================
-
-    def _get_claims_endpoint(self, path: str) -> str:
-        """Build full URL for claims endpoint."""
-        base = self.api_client.config.base_url
-        # Ensure we use v2 API for claims endpoints
-        if '/v1' in base:
-            base = base.replace('/v1', '/api/v2')
-        elif '/api/v2' not in base:
-            base = base.rstrip('/') + '/api/v2' if not base.endswith('/api/v2') else base
-        return f"{base}/claims/{path}"
 
     def _corners_to_claims_data(
         self,

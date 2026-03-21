@@ -19,7 +19,7 @@ from qgis.core import QgsNetworkAccessManager, QgsBlockingNetworkRequest
 from .exceptions import (
     NetworkError,
     AuthenticationError,
-    PermissionError,
+    APIPermissionError,
     ServerError,
     ValidationError,
     APIException
@@ -50,6 +50,23 @@ class APIClient:
     def set_token(self, token: str):
         """Set authentication token."""
         self.token = token
+
+    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Convenience method for GET requests to API endpoints.
+
+        Args:
+            endpoint: API path relative to base URL (e.g., 'custom-field-schemas/for_model/')
+            params: Optional query parameters
+
+        Returns:
+            Parsed JSON response
+        """
+        base_url = self.config.base_url.rstrip('/')
+        url = f"{base_url}/{endpoint.lstrip('/')}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
+        return self._make_request('GET', url)
 
     def _make_request(
         self,
@@ -204,6 +221,7 @@ class APIClient:
 
         if not reply.isFinished():
             reply.abort()
+            reply.deleteLater()
             raise NetworkError("PATCH request timed out")
 
         return self._process_response(reply)
@@ -252,7 +270,7 @@ class APIClient:
             elif status_code == 401:
                 raise AuthenticationError(error_msg, status_code, parsed_data)
             elif status_code == 403:
-                raise PermissionError(error_msg, status_code, parsed_data)
+                raise APIPermissionError(error_msg, status_code, parsed_data)
             elif status_code >= 500:
                 raise ServerError(error_msg, status_code, parsed_data)
             else:
@@ -273,62 +291,61 @@ class APIClient:
         Raises:
             APIException: On error response
         """
-        status_code = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
-        response_data = bytes(reply.readAll()).decode('utf-8')
-
-        # Parse JSON response first (even for errors, to get validation messages)
-        parsed_data = {}
         try:
-            parsed_data = json.loads(response_data) if response_data else {}
-        except json.JSONDecodeError:
-            pass  # Will handle below
+            status_code = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+            response_data = bytes(reply.readAll()).decode('utf-8')
 
-        # Check for network errors - but for HTTP errors (4xx, 5xx) process normally
-        # QNetworkReply reports 400/500 as errors, but we want to parse their response
-        if reply.error() != QNetworkReply.NoError:
-            # If we have a valid HTTP status code, handle as HTTP error below
+            # Parse JSON response first (even for errors, to get validation messages)
+            parsed_data = {}
+            try:
+                parsed_data = json.loads(response_data) if response_data else {}
+            except json.JSONDecodeError:
+                pass  # Will handle below
+
+            # Check for network errors - but for HTTP errors (4xx, 5xx) process normally
+            # QNetworkReply reports 400/500 as errors, but we want to parse their response
+            if reply.error() != QNetworkReply.NoError:
+                # If we have a valid HTTP status code, handle as HTTP error below
+                if status_code and status_code >= 400:
+                    pass  # Fall through to HTTP error handling
+                else:
+                    # True network error (connection refused, timeout, etc.)
+                    error_msg = reply.errorString()
+                    self.logger.error(f"Network error: {error_msg}")
+                    self.logger.error(f"Response body: {response_data}")
+                    raise NetworkError(f"Network error: {error_msg}", status_code=status_code)
+
+            # Handle HTTP errors
             if status_code and status_code >= 400:
-                pass  # Fall through to HTTP error handling
-            else:
-                # True network error (connection refused, timeout, etc.)
-                error_msg = reply.errorString()
-                self.logger.error(f"Network error: {error_msg}")
-                self.logger.error(f"Response body: {response_data}")
-                raise NetworkError(f"Network error: {error_msg}", status_code=status_code)
+                error_msg = parsed_data.get('error') or parsed_data.get('detail') or f'HTTP {status_code} error'
 
-        # Handle HTTP errors
-        if status_code and status_code >= 400:
-            error_msg = parsed_data.get('error') or parsed_data.get('detail') or f'HTTP {status_code} error'
+                # For 400 errors, include full validation details in the message
+                if status_code == 400:
+                    # DRF returns field errors as dict: {"field_name": ["error message"]}
+                    validation_details = []
+                    for field, errors in parsed_data.items():
+                        if field not in ('error', 'detail'):
+                            if isinstance(errors, list):
+                                validation_details.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                            else:
+                                validation_details.append(f"{field}: {errors}")
+                    if validation_details:
+                        error_msg = f"Validation failed - {'; '.join(validation_details)}"
+                    self.logger.error(f"[API 400] Validation error: {error_msg}")
+                    self.logger.error(f"[API 400] Full response: {parsed_data}")
+                    raise ValidationError(error_msg, status_code, parsed_data)
+                elif status_code == 401:
+                    raise AuthenticationError(error_msg, status_code, parsed_data)
+                elif status_code == 403:
+                    raise APIPermissionError(error_msg, status_code, parsed_data)
+                elif status_code >= 500:
+                    raise ServerError(error_msg, status_code, parsed_data)
+                else:
+                    raise APIException(error_msg, status_code, parsed_data)
 
-            # For 400 errors, include full validation details in the message
-            if status_code == 400:
-                # DRF returns field errors as dict: {"field_name": ["error message"]}
-                validation_details = []
-                for field, errors in parsed_data.items():
-                    if field not in ('error', 'detail'):
-                        if isinstance(errors, list):
-                            validation_details.append(f"{field}: {', '.join(str(e) for e in errors)}")
-                        else:
-                            validation_details.append(f"{field}: {errors}")
-                if validation_details:
-                    error_msg = f"Validation failed - {'; '.join(validation_details)}"
-                self.logger.error(f"[API 400] Validation error: {error_msg}")
-                self.logger.error(f"[API 400] Full response: {parsed_data}")
-                # Also print to console for immediate visibility
-                print(f"\n[API 400] Validation error: {error_msg}")
-                print(f"[API 400] Full response: {parsed_data}\n")
-                raise ValidationError(error_msg, status_code, parsed_data)
-            elif status_code == 401:
-                raise AuthenticationError(error_msg, status_code, parsed_data)
-            elif status_code == 403:
-                raise PermissionError(error_msg, status_code, parsed_data)
-            elif status_code >= 500:
-                raise ServerError(error_msg, status_code, parsed_data)
-            else:
-                raise APIException(error_msg, status_code, parsed_data)
-
-        reply.deleteLater()
-        return parsed_data
+            return parsed_data
+        finally:
+            reply.deleteLater()
 
     # =========================================================================
     # Multipart File Upload
@@ -585,48 +602,9 @@ class APIClient:
         url = self.config.endpoints['set_active_project']
         return self._make_request('POST', url, data={'project_id': project_id})
 
-    def set_assay_merge_settings(
-        self,
-        project_id: int,
-        settings: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Update assay merge settings for a project.
-
-        Args:
-            project_id: Project ID (required)
-            settings: Dict with optional keys:
-                - default_strategy: 'high', 'low', or 'average'
-                - default_units: 'ppm', 'ppb', 'pct', or 'opt'
-                - convert_bdl: bool
-                - bdl_multiplier: float 0.0-1.0
-                - element_configs: dict of per-element settings
-
-        Returns:
-            Updated user context
-        """
-        url = self.config.endpoints['set_assay_merge_settings']
-        data = {'project_id': project_id, **settings}
-        return self._make_request('POST', url, data=data)
-
     # =========================================================================
     # Projects Endpoints
     # =========================================================================
-
-    def get_projects(self, company_id: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Get list of projects.
-
-        Args:
-            company_id: Optional filter by company
-
-        Returns:
-            Paginated list of projects
-        """
-        url = self.config.endpoints['projects']
-        if company_id:
-            url = f"{url}?company_id={company_id}"
-        return self._make_request('GET', url)
 
     # =========================================================================
     # Security helpers
@@ -908,31 +886,6 @@ class APIClient:
     # Convenience methods for specific models
     # =========================================================================
 
-    def get_drill_collars(
-        self,
-        project_id: int,
-        merge_assays: bool = False
-    ) -> List[Dict[str, Any]]:
-        """Get all drill collars for a project."""
-        params = {'merge_assays': 'true'} if merge_assays else None
-        result = self.get_all_paginated('DrillCollar', project_id, params=params)
-        return result.get('results', []) if isinstance(result, dict) else result
-
-    def get_drill_samples(
-        self,
-        project_id: int,
-        merge_assays: bool = True
-    ) -> List[Dict[str, Any]]:
-        """Get all drill samples for a project with optional assay merging."""
-        params = {'merge_assays': 'true'} if merge_assays else None
-        result = self.get_all_paginated('DrillSample', project_id, params=params)
-        return result.get('results', []) if isinstance(result, dict) else result
-
-    def get_landholdings(self, project_id: int) -> List[Dict[str, Any]]:
-        """Get all land holdings for a project."""
-        result = self.get_all_paginated('LandHolding', project_id)
-        return result.get('results', []) if isinstance(result, dict) else result
-
     def get_landholding_types(self, company_id: int) -> List[Dict[str, Any]]:
         """
         Get land holding types for a company.
@@ -951,53 +904,6 @@ class APIClient:
         if isinstance(response, list):
             return response
         return response.get('results', [])
-
-    def find_record_by_natural_key(
-        self,
-        model_name: str,
-        natural_key: Dict[str, Any],
-        project_id: int
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Find a record by its natural key fields.
-
-        Args:
-            model_name: Model name
-            natural_key: Dict with natural key field values (e.g., {'name': 'DDH-001', 'project': 'MyProject'})
-            project_id: Project ID
-
-        Returns:
-            First matching record, or None if not found
-        """
-        endpoint = self.config.get_model_endpoint(model_name)
-        if not endpoint:
-            raise ValueError(f"Unknown model: {model_name}")
-
-        # Build query params
-        params = {'project_id': project_id}
-        params.update(natural_key)
-
-        # Build URL with properly encoded query string
-        url = f"{endpoint}?{urlencode(params)}"
-
-        response = self._make_request('GET', url)
-        # Handle both paginated (dict with 'results') and non-paginated (list) responses
-        if isinstance(response, list):
-            results = response
-        else:
-            results = response.get('results', [])
-
-        return results[0] if results else None
-
-    def get_point_samples(
-        self,
-        project_id: int,
-        merge_assays: bool = True
-    ) -> List[Dict[str, Any]]:
-        """Get all point samples for a project."""
-        params = {'merge_assays': 'true'} if merge_assays else None
-        result = self.get_all_paginated('PointSample', project_id, params=params)
-        return result.get('results', []) if isinstance(result, dict) else result
 
     def get_drill_pads(self, project_id: int) -> List[Dict[str, Any]]:
         """
@@ -1083,22 +989,6 @@ class APIClient:
             return response
         return response.get('results', [])
 
-    def create_assay_range_configuration(
-        self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Create a new assay range configuration.
-
-        Args:
-            data: Configuration data including name, project, element, ranges, etc.
-
-        Returns:
-            Created configuration
-        """
-        url = self.config.endpoints['assay_range_configurations']
-        return self._make_request('POST', url, data=data)
-
     def get_assay_merge_settings(
         self,
         project_id: Optional[int] = None,
@@ -1131,64 +1021,3 @@ class APIClient:
             return response
         return response.get('results', [])
 
-    # =========================================================================
-    # Legacy compatibility methods (deprecated)
-    # =========================================================================
-
-    def pull_data(
-        self,
-        project_id: int,
-        model_name: str,
-        last_sync: Optional[str] = None,
-        progress_callback: Optional[Callable[[int], None]] = None
-    ) -> Dict[str, Any]:
-        """
-        DEPRECATED: Use get_model_data() or get_all_paginated() instead.
-
-        Pull data from server using RESTful endpoints.
-        """
-        self.logger.warning(
-            "pull_data() is deprecated. Use get_model_data() or get_all_paginated()."
-        )
-        results = self.get_all_paginated(model_name, project_id, progress_callback=progress_callback)
-        return {'features': results, 'count': len(results)}
-
-    def push_data(
-        self,
-        project_id: int,
-        model_name: str,
-        features: list,
-        progress_callback: Optional[Callable[[int], None]] = None
-    ) -> Dict[str, Any]:
-        """
-        DEPRECATED: Use create_record() or update_record() instead.
-
-        Push data to server - creates or updates records individually.
-        """
-        self.logger.warning(
-            "push_data() is deprecated. Use create_record() or update_record()."
-        )
-        results = []
-        errors = []
-
-        for i, feature in enumerate(features):
-            try:
-                if 'id' in feature and feature['id']:
-                    # Update existing record
-                    result = self.update_record(model_name, feature['id'], feature)
-                else:
-                    # Create new record
-                    result = self.create_record(model_name, feature)
-                results.append(result)
-            except APIException as e:
-                errors.append({'feature': feature, 'error': str(e)})
-
-            if progress_callback:
-                progress = int(((i + 1) / len(features)) * 100)
-                progress_callback(progress)
-
-        return {
-            'success': len(results),
-            'errors': errors,
-            'results': results
-        }

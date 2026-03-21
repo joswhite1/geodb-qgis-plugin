@@ -22,6 +22,8 @@ from qgis.core import QgsProject, QgsCoordinateReferenceSystem
 
 from .step_base import ClaimsStepBase
 from ...utils.compat import QFrame_NoFrame
+from ...utils.crs_utils import is_utm_crs, auto_detect_utm
+from ...utils.geometry import geojson_to_wkt
 
 
 class ClaimsStep1Widget(ClaimsStepBase):
@@ -391,6 +393,10 @@ class ClaimsStep1Widget(ClaimsStepBase):
             else:
                 self.staff_orders_btn.hide()
 
+            # Notify the wizard that access level has been determined
+            # so it can rebuild steps for pay-per-claim vs enterprise
+            self.access_level_changed.emit(access_info)
+
             self.emit_validation_changed()
 
         except Exception as e:
@@ -585,7 +591,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             if not geom_data:
                 continue
 
-            geom = QgsGeometry.fromWkt(self._geojson_to_wkt(geom_data))
+            geom = QgsGeometry.fromWkt(geojson_to_wkt(geom_data))
             if not geom or geom.isEmpty():
                 continue
 
@@ -672,7 +678,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 geom_data = feat_data
                 props = {}
 
-            geom = QgsGeometry.fromWkt(self._geojson_to_wkt(geom_data))
+            geom = QgsGeometry.fromWkt(geojson_to_wkt(geom_data))
             if not geom or geom.isEmpty():
                 continue
 
@@ -699,29 +705,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             iface.mapCanvas().setExtent(layer.extent())
             iface.mapCanvas().refresh()
 
-    def _geojson_to_wkt(self, geom_data: dict) -> str:
-        """Convert GeoJSON geometry to WKT."""
-        geom_type = geom_data.get('type', '').lower()
-        coords = geom_data.get('coordinates', [])
-
-        if geom_type == 'polygon':
-            rings = []
-            for ring in coords:
-                points = ', '.join(f"{p[0]} {p[1]}" for p in ring)
-                rings.append(f"({points})")
-            return f"POLYGON({', '.join(rings)})"
-
-        elif geom_type == 'multipolygon':
-            polygons = []
-            for polygon in coords:
-                rings = []
-                for ring in polygon:
-                    points = ', '.join(f"{p[0]} {p[1]}" for p in ring)
-                    rings.append(f"({points})")
-                polygons.append(f"({', '.join(rings)})")
-            return f"MULTIPOLYGON({', '.join(polygons)})"
-
-        return ""
+    # GeoJSON-to-WKT conversion is now in utils.geometry.geojson_to_wkt
 
     # =========================================================================
     # UTM Methods
@@ -737,7 +721,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
             # Check if it's a UTM zone
             auth_id = crs.authid()
-            if self._is_utm_crs(auth_id):
+            if auth_id.startswith('EPSG:') and is_utm_crs(int(auth_id.split(':')[1])):
                 self.utm_status_label.setText("Project is in UTM projection")
                 self.utm_status_label.setStyleSheet(self._get_success_label_style())
                 self.state.project_epsg = crs.postgisSrid()
@@ -749,29 +733,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             self.utm_status_label.setText("Please set a UTM projection")
             self.utm_status_label.setStyleSheet(self._get_error_label_style())
 
-    def _is_utm_crs(self, auth_id: str) -> bool:
-        """Check if the given CRS is a UTM zone."""
-        if not auth_id:
-            return False
-
-        # NAD83 UTM zones (26901-26923)
-        # WGS84 UTM zones (32601-32660 for North, 32701-32760 for South)
-        try:
-            if auth_id.startswith('EPSG:'):
-                epsg = int(auth_id.split(':')[1])
-                # NAD83 UTM zones
-                if 26901 <= epsg <= 26923:
-                    return True
-                # WGS84 UTM North
-                if 32601 <= epsg <= 32660:
-                    return True
-                # WGS84 UTM South
-                if 32701 <= epsg <= 32760:
-                    return True
-        except (ValueError, IndexError):
-            pass
-
-        return False
+    # UTM CRS check is now in utils.crs_utils.is_utm_crs
 
     def _auto_detect_utm(self):
         """Auto-detect UTM zone from map center."""
@@ -798,20 +760,8 @@ class ClaimsStep1Widget(ClaimsStepBase):
             longitude = center.x()
             latitude = center.y()
 
-            # Calculate UTM zone
+            epsg = auto_detect_utm(longitude, latitude, prefer_nad83=True)
             zone = int(math.floor((longitude + 180) / 6)) + 1
-
-            # Determine hemisphere and EPSG code
-            # Using NAD83 for US locations (more accurate)
-            if latitude >= 0:  # Northern hemisphere
-                # NAD83 UTM zones for US (zones 1-19 for CONUS + Alaska)
-                if 1 <= zone <= 23:
-                    epsg = 26900 + zone
-                else:
-                    # Fall back to WGS84 UTM
-                    epsg = 32600 + zone
-            else:  # Southern hemisphere
-                epsg = 32700 + zone
 
             self._detected_epsg = epsg
             self.detected_zone_label.setText(

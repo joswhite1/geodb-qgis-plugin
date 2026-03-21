@@ -139,23 +139,6 @@ class ModelSchema:
 
         return errors
 
-    def get_natural_key(self, feature_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Extract natural key fields from feature data.
-
-        Args:
-            feature_data: Feature dictionary
-
-        Returns:
-            Dict with natural key field values, or None if no natural key defined
-        """
-        if not self.natural_key_fields:
-            return None
-        nk = {}
-        for field_name in self.natural_key_fields:
-            if field_name in feature_data:
-                nk[field_name] = feature_data[field_name]
-        return nk if nk else None
 
 
 # =============================================================================

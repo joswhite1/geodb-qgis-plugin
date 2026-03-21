@@ -541,15 +541,28 @@ class ClaimsStep7Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
 
-        # Confirm
-        reply = QMessageBox.question(
-            self,
-            "Push to Server",
-            f"Push {len(self.state.processed_claims)} claims as LandHoldings and "
-            f"{len(self.state.processed_waypoints)} waypoints as ClaimStakes to the server?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
+        # Stronger warning if already pushed (server uses create-or-update so
+        # it's safe, but the user should know they're re-pushing)
+        if self.state.claims_pushed:
+            reply = QMessageBox.question(
+                self,
+                "Already Pushed",
+                "These claims have already been pushed to the server.\n\n"
+                "Pushing again will update the existing LandHoldings and ClaimStakes. "
+                "Do you want to continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+        else:
+            # Confirm
+            reply = QMessageBox.question(
+                self,
+                "Push to Server",
+                f"Push {len(self.state.processed_claims)} claims as LandHoldings and "
+                f"{len(self.state.processed_waypoints)} waypoints as ClaimStakes to the server?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
 
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -644,6 +657,12 @@ class ClaimsStep7Widget(ClaimsStepBase):
             )
 
             self.emit_status("Claims pushed to server successfully", "success")
+
+            # Track that claims have been pushed (for double-push warning)
+            self.state.claims_pushed = True
+            self.state.save_to_qgis_project()
+            if self.state.geopackage_path:
+                self.state.save_to_geopackage()
 
         except Exception as e:
             self.push_status_label.setText(f"Push failed: {e}")

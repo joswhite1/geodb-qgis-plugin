@@ -13,6 +13,7 @@ from ..processors.field_processor import FieldProcessor
 from ..processors.layer_processor import LayerProcessor
 from ..models.schemas import get_schema, get_extended_schema, FieldType, GeometryType
 from ..utils.config import Config
+from ..utils.geometry import geojson_to_wkt
 from ..utils.logger import PluginLogger
 
 
@@ -152,7 +153,7 @@ class SyncManager:
         # QGIS returns geometry as EWKT: "SRID=4326;MULTIPOLYGON(...)"
         # We normalize both to uppercase WKT for comparison
         if isinstance(value, dict) and 'type' in value and 'coordinates' in value:
-            wkt = self._geojson_dict_to_wkt(value)
+            wkt = geojson_to_wkt(value)
             if wkt:
                 # Round and normalize the WKT
                 wkt = self._round_coordinates_in_wkt(wkt)
@@ -286,72 +287,7 @@ class SyncManager:
         pattern = r'-?\d+\.?\d*(?:[eE][+-]?\d+)?'
         return re.sub(pattern, round_match, wkt_string)
 
-    def _geojson_dict_to_wkt(self, geojson: Dict[str, Any]) -> Optional[str]:
-        """
-        Convert a GeoJSON geometry dict to WKT string.
-
-        Uses OGR for reliable conversion, with fallback to manual conversion.
-
-        Args:
-            geojson: GeoJSON geometry dict with 'type' and 'coordinates'
-
-        Returns:
-            WKT string or None if conversion fails
-        """
-        if not geojson or 'type' not in geojson or 'coordinates' not in geojson:
-            return None
-
-        try:
-            # Try OGR first (most reliable)
-            from osgeo import ogr
-            geojson_str = json.dumps(geojson)
-            ogr_geom = ogr.CreateGeometryFromJson(geojson_str)
-            if ogr_geom:
-                wkt = ogr_geom.ExportToWkt()
-                ogr_geom = None  # Release OGR geometry
-                return wkt
-        except Exception:
-            pass
-
-        # Fallback: manual conversion for common geometry types
-        try:
-            geom_type = geojson['type'].upper()
-            coords = geojson['coordinates']
-
-            if geom_type == 'POINT':
-                if len(coords) >= 3:
-                    return f"POINT Z ({coords[0]} {coords[1]} {coords[2]})"
-                return f"POINT ({coords[0]} {coords[1]})"
-
-            elif geom_type == 'MULTIPOLYGON':
-                polygons = []
-                for polygon in coords:
-                    rings = []
-                    for ring in polygon:
-                        points = ', '.join(f"{p[0]} {p[1]}" for p in ring)
-                        rings.append(f"({points})")
-                    polygons.append(f"({', '.join(rings)})")
-                return f"MULTIPOLYGON ({', '.join(polygons)})"
-
-            elif geom_type == 'POLYGON':
-                rings = []
-                for ring in coords:
-                    points = ', '.join(f"{p[0]} {p[1]}" for p in ring)
-                    rings.append(f"({points})")
-                return f"POLYGON ({', '.join(rings)})"
-
-            elif geom_type == 'LINESTRING':
-                points = ', '.join(f"{p[0]} {p[1]}" for p in coords)
-                return f"LINESTRING ({points})"
-
-            elif geom_type == 'MULTIPOINT':
-                points = ', '.join(f"({p[0]} {p[1]})" for p in coords)
-                return f"MULTIPOINT ({points})"
-
-        except Exception as e:
-            self.logger.debug(f"Manual GeoJSON to WKT conversion failed: {e}")
-
-        return None
+    # GeoJSON-to-WKT conversion is now in utils.geometry.geojson_to_wkt
 
     def _convert_geometry_to_ewkt(self, geom_value: Any, epsg_code: int) -> Optional[str]:
         """
@@ -382,7 +318,7 @@ class SyncManager:
 
         # If it's a GeoJSON dict, convert to WKT first then add SRID
         if isinstance(geom_value, dict) and 'type' in geom_value and 'coordinates' in geom_value:
-            wkt = self._geojson_dict_to_wkt(geom_value)
+            wkt = geojson_to_wkt(geom_value)
             if wkt:
                 return f"SRID={epsg_code};{wkt}"
 
@@ -1995,56 +1931,6 @@ class SyncManager:
         )
         return changed_features, total_count, skipped_unchanged
 
-    def sync_push_response(
-        self,
-        model_name: str,
-        response: Dict[str, Any],
-        project_name: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Process push response and update local records.
-
-        Args:
-            model_name: Model name
-            response: API response from push
-            project_name: Optional project name for layer lookup
-
-        Returns:
-            Summary of updates
-        """
-        self.logger.info(f"Processing push response for: {model_name}")
-
-        # Extract results - handle both paginated (dict) and non-paginated (list) responses
-        if isinstance(response, list):
-            results = response
-        else:
-            results = response.get('results', [])
-
-        layer = self._find_layer(model_name, project_name)
-        if not layer:
-            self.logger.warning(f"Layer not found: {model_name}")
-            return {'updated': 0, 'errors': 0}
-
-        updated = 0
-        errors = 0
-
-        # Update features with server IDs
-        for result in results:
-            if result.get('success'):
-                # Feature was successfully saved on server
-                result.get('id')
-                # TODO: Update local feature with server ID if it was new
-                updated += 1
-            else:
-                errors += 1
-                self.logger.error(f"Feature push failed: {result.get('error')}")
-
-        return {
-            'updated': updated,
-            'errors': errors,
-            'total': len(results)
-        }
-
     def has_local_changes(self, model_name: str, project_name: Optional[str] = None) -> bool:
         """
         Check if layer has unsaved changes.
@@ -2924,22 +2810,6 @@ class SyncManager:
 
         self.logger.info(f"Marked {synced_count} features as synced")
         return synced_count
-
-    def get_feature_count(self, model_name: str, project_name: Optional[str] = None) -> int:
-        """
-        Get number of features in a layer.
-
-        Args:
-            model_name: Model name
-            project_name: Optional project name for layer lookup
-
-        Returns:
-            Feature count or 0 if layer doesn't exist
-        """
-        layer = self._find_layer(model_name, project_name)
-        if not layer:
-            return 0
-        return layer.featureCount()
 
     def clear_layer(self, model_name: str, project_name: Optional[str] = None) -> bool:
         """

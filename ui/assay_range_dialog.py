@@ -14,6 +14,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QColor, QBrush
 
+from ..utils.format_helpers import format_merge_settings_html
 from ..utils.compat import (
     QFrame_HLine, QAbstractItemView_NoEditTriggers, QAbstractItemView_NoSelection,
     QHeaderView_Stretch, QDialog_Accepted,
@@ -465,57 +466,8 @@ class AssayRangeDialog(QDialog):
 
     def _display_merge_settings(self, config: Dict[str, Any]):
         """Display merge settings info for this configuration."""
-        merge_settings_id = config.get('assay_merge_settings')
-
-        if not merge_settings_id or merge_settings_id not in self.merge_settings_map:
-            self.merge_settings_label.setText(
-                "Merge settings information not available."
-            )
-            return
-
-        merge_settings = self.merge_settings_map[merge_settings_id]
-
-        # Extract merge settings details
-        name = merge_settings.get('name', 'Unknown')
-        default_strategy = merge_settings.get('default_strategy', 'high')
-        default_units = merge_settings.get('default_units', 'ppm')
-        convert_bdl = merge_settings.get('convert_bdl', True)
-        bdl_multiplier = merge_settings.get('bdl_multiplier', 0.5)
-
-        # Check for element-specific overrides
-        element = config.get('element', '')
-        element_overrides = merge_settings.get('element_overrides', [])
-
-        # Find override for this element
-        element_override = None
-        for override in element_overrides:
-            if override.get('element') == element:
-                element_override = override
-                break
-
-        # Build info text
-        info_parts = [
-            f"<b>Configuration:</b> {name}",
-            f"<b>Merge Strategy:</b> {default_strategy.title()}"
-        ]
-
-        if element_override:
-            override_strategy = element_override.get('strategy', default_strategy)
-            override_units = element_override.get('target_units', default_units)
-            info_parts.append(
-                f"<b>Element Override ({element}):</b> {override_strategy.title()}, {override_units}"
-            )
-        else:
-            info_parts.append(f"<b>Default Units:</b> {default_units}")
-
-        if convert_bdl:
-            info_parts.append(
-                f"<b>Below Detection Limit:</b> Convert to {bdl_multiplier * 100:.0f}% of detection limit"
-            )
-        else:
-            info_parts.append("<b>Below Detection Limit:</b> No conversion")
-
-        self.merge_settings_label.setText("<br>".join(info_parts))
+        html = format_merge_settings_html(config, self.merge_settings_map)
+        self.merge_settings_label.setText(html)
 
     def _clear_merge_settings(self):
         """Clear merge settings display."""

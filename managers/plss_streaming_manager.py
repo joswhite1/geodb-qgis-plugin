@@ -28,6 +28,7 @@ from qgis.PyQt.QtGui import QColor, QFont
 
 from ..api.client import APIClient
 from ..utils.config import Config
+from ..utils.geometry import geojson_to_wkt
 from ..utils.logger import PluginLogger
 from ..utils.compat import Qt_DashLine, Qt_SolidLine
 
@@ -366,7 +367,7 @@ class PLSSStreamingManager(QObject):
             if not geom_data:
                 continue
 
-            wkt = self._geojson_geom_to_wkt(geom_data)
+            wkt = geojson_to_wkt(geom_data)
             if not wkt:
                 continue
 
@@ -549,26 +550,4 @@ class PLSSStreamingManager(QObject):
             ]
         return '&'.join(fields)
 
-    @staticmethod
-    def _geojson_geom_to_wkt(geom: dict) -> str:
-        """Convert a GeoJSON geometry dict to WKT string."""
-        geom_type = geom.get('type', '')
-        coords = geom.get('coordinates', [])
-
-        if geom_type == 'Polygon':
-            rings = []
-            for ring in coords:
-                pts = ', '.join(f"{c[0]} {c[1]}" for c in ring)
-                rings.append(f"({pts})")
-            return f"POLYGON({', '.join(rings)})"
-        elif geom_type == 'MultiPolygon':
-            polys = []
-            for polygon in coords:
-                rings = []
-                for ring in polygon:
-                    pts = ', '.join(f"{c[0]} {c[1]}" for c in ring)
-                    rings.append(f"({pts})")
-                polys.append(f"({', '.join(rings)})")
-            return f"MULTIPOLYGON({', '.join(polys)})"
-
-        return ''
+    # GeoJSON-to-WKT conversion is now in utils.geometry.geojson_to_wkt

@@ -73,28 +73,3 @@ def clear_cache(project_id: Optional[int] = None):
             del _schema_cache[key]
 
 
-def get_cache_info() -> Dict[str, any]:
-    """
-    Get cache statistics for debugging.
-
-    Returns:
-        Dict with cache entries count and details
-    """
-    now = datetime.now()
-    entries = []
-    for (project_id, model_type), (fields, timestamp) in _schema_cache.items():
-        age_seconds = (now - timestamp).total_seconds()
-        expired = age_seconds > CACHE_TTL.total_seconds()
-        entries.append({
-            'project_id': project_id,
-            'model_type': model_type,
-            'field_count': len(fields),
-            'age_seconds': round(age_seconds, 1),
-            'expired': expired,
-        })
-
-    return {
-        'total_entries': len(_schema_cache),
-        'ttl_seconds': CACHE_TTL.total_seconds(),
-        'entries': entries,
-    }

@@ -11,10 +11,11 @@ Handles QClaims API interactions for:
 - Push to server (LandHoldings + ClaimStakes)
 """
 from typing import Dict, Any, List, Optional
+import json
 import time
 
 from ..api.client import APIClient
-from ..api.exceptions import APIException, PermissionError
+from ..api.exceptions import APIException, APIPermissionError
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
 
@@ -25,7 +26,7 @@ class ClaimsManager:
 
     Supports two user paths:
     1. Enterprise/Staff: Immediate processing via process_claims()
-    2. Pay-per-claim: Order submission via submit_order(), then fulfillment
+    2. Pay-per-claim: Checkout via create_checkout_session()
     """
 
     def __init__(self, api_client: APIClient, config: Config):
@@ -45,20 +46,6 @@ class ClaimsManager:
         self._cached_tos: Optional[Dict[str, Any]] = None
         self._last_access_check: float = 0  # Timestamp of last access check
         self._access_check_cooldown: float = 2.0  # Minimum seconds between checks
-
-    def _get_claims_endpoint(self, path: str) -> str:
-        """Build full URL for claims endpoint (always uses v2 API)."""
-        base = self.config.base_url
-        # Safety check - use default if base_url is None or empty
-        if not base:
-            base = "https://api.geodb.io/api/v2"
-            self.logger.warning("[QCLAIMS] base_url was empty in _get_claims_endpoint, using default")
-        # Ensure we use v2 API for claims endpoints
-        if '/v1' in base:
-            base = base.replace('/v1', '/api/v2')
-        elif '/api/v2' not in base:
-            base = base.rstrip('/') + '/api/v2' if not base.endswith('/api/v2') else base
-        return f"{base}/claims/{path}"
 
     # =========================================================================
     # License & Access
@@ -106,7 +93,7 @@ class ClaimsManager:
         self._last_access_check = current_time
 
         try:
-            url = self._get_claims_endpoint('check-access/')
+            url = self.config.get_claims_url('check-access/')
             self.logger.info(f"[QCLAIMS] Checking access at URL: {url}")
             result = self.api._make_request('GET', url)
             self._cached_license = result
@@ -177,7 +164,7 @@ class ClaimsManager:
             return self._cached_tos
 
         try:
-            url = self._get_claims_endpoint('tos-status/')
+            url = self.config.get_claims_url('tos-status/')
             result = self.api._make_request('GET', url)
             self._cached_tos = result
             return result
@@ -204,7 +191,7 @@ class ClaimsManager:
                 - accepted_at: str (ISO timestamp)
         """
         try:
-            url = self._get_claims_endpoint('accept-tos/')
+            url = self.config.get_claims_url('accept-tos/')
             result = self.api._make_request('POST', url, data={
                 'accepted': True,
                 'accepted_via': 'plugin'
@@ -235,7 +222,7 @@ class ClaimsManager:
                 - sections: list of {title, content}
         """
         try:
-            url = self._get_claims_endpoint('tos-content/')
+            url = self.config.get_claims_url('tos-content/')
             return self.api._make_request('GET', url)
         except APIException as e:
             self.logger.error(f"[QCLAIMS] Get TOS content failed: {e}")
@@ -261,7 +248,7 @@ class ClaimsManager:
                 - last_verified: str (ISO date)
         """
         try:
-            url = self._get_claims_endpoint(f'state-info/{state.upper()}/')
+            url = self.config.get_claims_url(f'state-info/{state.upper()}/')
             return self.api._make_request('GET', url)
         except APIException as e:
             self.logger.error(f"[QCLAIMS] Get state info failed for {state}: {e}")
@@ -308,7 +295,7 @@ class ClaimsManager:
             epsg = claims[0].get('epsg')
 
         try:
-            url = self._get_claims_endpoint('process/')
+            url = self.config.get_claims_url('process/')
             data = {
                 'claims': claims,
                 'project_id': project_id
@@ -324,134 +311,12 @@ class ClaimsManager:
             )
             return result
 
-        except PermissionError:
+        except APIPermissionError:
             # Pay-per-claim users get 403 - this is expected
             self.logger.info("[QCLAIMS] Pay-per-claim user - use submit_order instead")
             raise
         except APIException as e:
             self.logger.error(f"[QCLAIMS] Process claims failed: {e}")
-            raise
-
-    # =========================================================================
-    # Order Management (Pay-per-claim)
-    # =========================================================================
-
-    def submit_order(
-        self,
-        claims: List[Dict[str, Any]],
-        project_id: int,
-        company_id: int,
-        service_type: str = 'self_service',
-        claimant_info: Dict[str, str] = None
-    ) -> Dict[str, Any]:
-        """
-        Submit claim order for payment (Pay-per-claim users).
-
-        Args:
-            claims: List of claim dicts with name and geometry
-            project_id: Target project ID
-            company_id: Company ID for billing
-            service_type: 'self_service' or 'full_service'
-            claimant_info: Optional dict with claimant details for location notices:
-                - claimant_name: Name of claimant/locator
-                - address_1, address_2, address_3: Claimant address lines
-                - district: Mining district name
-                - monument_type: Description of monument type
-
-        Returns:
-            Dict with:
-                - order_id: int
-                - status: 'approved' or 'pending_approval'
-                - total_cents: int
-                - total_display: str (e.g., '$150.00')
-                - claim_count: int
-                - requires_approval: bool
-                - payment_url: str (if status is 'approved')
-                - message: str
-        """
-        try:
-            url = self._get_claims_endpoint('submit-order/')
-            data = {
-                'claims': claims,
-                'project_id': project_id,
-                'company_id': company_id,
-                'service_type': service_type
-            }
-            if claimant_info:
-                data['claimant_info'] = claimant_info
-            result = self.api._make_request('POST', url, data=data)
-
-            self.logger.info(
-                f"[QCLAIMS] Order submitted: #{result.get('order_id')} - "
-                f"{result.get('claim_count')} claims - {result.get('status')}"
-            )
-            return result
-
-        except APIException as e:
-            self.logger.error(f"[QCLAIMS] Submit order failed: {e}")
-            raise
-
-    def get_order_status(self, order_id: int) -> Dict[str, Any]:
-        """
-        Get status of a claim order.
-
-        Args:
-            order_id: Order ID
-
-        Returns:
-            Dict with:
-                - order_id: int
-                - status: str
-                - status_display: str
-                - claim_count: int
-                - total_cents: int
-                - total_display: str
-                - created_at: str
-                - requires_approval: bool
-                - documents: list (if fulfilled)
-        """
-        try:
-            url = self._get_claims_endpoint(f'orders/{order_id}/')
-            return self.api._make_request('GET', url)
-        except APIException as e:
-            self.logger.error(f"[QCLAIMS] Get order status failed: {e}")
-            raise
-
-    def create_order_checkout(self, order_id: int) -> Dict[str, Any]:
-        """
-        Create a Stripe checkout session for paying a claim order.
-
-        This is used for pay-per-claim users who need to pay for their
-        claim orders. The returned checkout_url should be opened in a
-        browser for the user to complete payment.
-
-        Args:
-            order_id: The ClaimOrder ID to pay for
-
-        Returns:
-            Dict with:
-                - checkout_url: str (Stripe Checkout URL to open in browser)
-                - session_id: str (Stripe session ID)
-                - order_id: int
-                - total_display: str (e.g., '$150.00')
-                - claim_count: int
-
-        Raises:
-            APIException: If checkout creation fails (order not approved,
-                         already paid, etc.)
-        """
-        try:
-            url = self._get_claims_endpoint(f'orders/{order_id}/create-checkout/')
-            result = self.api._make_request('POST', url, data={})
-
-            self.logger.info(
-                f"[QCLAIMS] Created checkout for order #{order_id}: "
-                f"{result.get('total_display')}"
-            )
-            return result
-
-        except APIException as e:
-            self.logger.error(f"[QCLAIMS] Create checkout failed: {e}")
             raise
 
     # =========================================================================
@@ -491,7 +356,7 @@ class ClaimsManager:
             APIException: If not staff or API call fails
         """
         try:
-            url = self._get_claims_endpoint('staff/pending-orders/')
+            url = self.config.get_claims_url('staff/pending-orders/')
             result = self.api._make_request('GET', url)
 
             count = result.get('count', len(result.get('orders', [])))
@@ -538,7 +403,7 @@ class ClaimsManager:
         # Check if user is staff
         access = self.check_access()
         if not access.get('is_staff'):
-            raise PermissionError("Staff access required to view proposed claims projects")
+            raise APIPermissionError("Staff access required to view proposed claims projects")
 
         try:
             # Build URL with query parameters
@@ -692,7 +557,7 @@ class ClaimsManager:
             document_types = ['location_notice']
 
         try:
-            url = self._get_claims_endpoint('documents/')
+            url = self.config.get_claims_url('documents/')
             data = {
                 'claims': claims,
                 'waypoints': waypoints or [],
@@ -832,8 +697,7 @@ class ClaimsManager:
             raise ValueError(f"Invalid project_id: {project_id}")
 
         try:
-            # Use print for immediate visibility in QGIS Python console
-            print(f"[QCLAIMS] push_to_server: {len(claims)} claims, {len(stakes)} stakes, project_id={project_id}")
+            self.logger.debug(f"[QCLAIMS] push_to_server: {len(claims)} claims, {len(stakes)} stakes, project_id={project_id}")
             self.logger.info(
                 f"[QCLAIMS] push_to_server: {len(claims)} claims, {len(stakes)} stakes, "
                 f"project_id={project_id}, epsg={epsg}, claim_package_id={claim_package_id}"
@@ -851,7 +715,7 @@ class ClaimsManager:
                 for stake in stakes
             ]
 
-            print(f"[QCLAIMS] Formatted {len(landholding_records)} LandHoldings, {len(stake_records)} ClaimStakes")
+            self.logger.debug(f"[QCLAIMS] Formatted {len(landholding_records)} LandHoldings, {len(stake_records)} ClaimStakes")
             self.logger.info(
                 f"[QCLAIMS] Formatted {len(landholding_records)} LandHoldings, "
                 f"{len(stake_records)} ClaimStakes"
@@ -875,7 +739,7 @@ class ClaimsManager:
                 # Debug: Log first stake record to verify format
                 if stake_records:
                     first_stake = stake_records[0]
-                    print(f"[QCLAIMS] First stake record: {first_stake}")
+                    self.logger.debug(f"[QCLAIMS] First stake record: {first_stake}")
                     self.logger.info(f"[QCLAIMS] First stake: seq={first_stake.get('sequence_number')}, "
                                      f"project={first_stake.get('project')}, "
                                      f"claim_package={first_stake.get('claim_package')}")
@@ -890,9 +754,11 @@ class ClaimsManager:
 
                 # Debug: Log upsert result summary
                 summary = stakes_result.get('summary', {})
-                print(f"[QCLAIMS] Stakes result: created={summary.get('created')}, "
-                      f"updated={summary.get('updated')}, errors={summary.get('errors')}, "
-                      f"orphans_deleted={stakes_result.get('orphan_stakes_deleted', 0)}")
+                self.logger.debug(
+                    f"[QCLAIMS] Stakes result: created={summary.get('created')}, "
+                    f"updated={summary.get('updated')}, errors={summary.get('errors')}, "
+                    f"orphans_deleted={stakes_result.get('orphan_stakes_deleted', 0)}"
+                )
             else:
                 self.logger.warning("[QCLAIMS] No stake_records to push")
 
@@ -1083,7 +949,7 @@ class ClaimsManager:
         This method is kept for backward compatibility but should not be used
         for normal operations.
         """
-        print(f"[QCLAIMS] _push_stakes_individually called with {len(stake_records)} records")
+        self.logger.debug(f"[QCLAIMS] _push_stakes_individually called with {len(stake_records)} records")
         self.logger.info(f"[QCLAIMS] Pushing {len(stake_records)} ClaimStakes individually")
 
         results = []
@@ -1091,7 +957,7 @@ class ClaimsManager:
 
         for i, record in enumerate(stake_records):
             try:
-                print(f"[QCLAIMS] Pushing stake {i +1}/{len(stake_records)}: {record.get('sequence_number')}")
+                self.logger.debug(f"[QCLAIMS] Pushing stake {i +1}/{len(stake_records)}: {record.get('sequence_number')}")
                 self.logger.info(
                     f"[QCLAIMS] Pushing stake {i +1}/{len(stake_records)}: "
                     f"seq={record.get('sequence_number')}, "
@@ -1100,18 +966,15 @@ class ClaimsManager:
                 )
                 result = self.api.upsert_record('ClaimStake', record)
                 results.append(result)
-                print(f"[QCLAIMS] Stake {record.get('sequence_number')} SUCCESS")
+                self.logger.debug(f"[QCLAIMS] Stake {record.get('sequence_number')} SUCCESS")
                 self.logger.info(f"[QCLAIMS] Stake {record.get('sequence_number')} created/updated successfully")
             except APIException as e:
-                print(f"[QCLAIMS] Stake {record.get('sequence_number')} FAILED: {e}")
                 self.logger.error(f"[QCLAIMS] Failed to push stake {record.get('sequence_number')}: {e}")
                 errors.append({'record': record, 'error': str(e)})
             except Exception as e:
-                print(f"[QCLAIMS] Stake {record.get('sequence_number')} UNEXPECTED ERROR: {e}")
                 self.logger.error(f"[QCLAIMS] Unexpected error pushing stake {record.get('sequence_number')}: {e}")
                 errors.append({'record': record, 'error': str(e)})
 
-        print(f"[QCLAIMS] Stakes push complete: {len(results)} created, {len(errors)} errors")
         self.logger.info(f"[QCLAIMS] Stakes push complete: {len(results)} created, {len(errors)} errors")
 
         return {
@@ -1155,7 +1018,7 @@ class ClaimsManager:
                 - summary: dict with counts
         """
         try:
-            url = self._get_claims_endpoint('preview-layers/')
+            url = self.config.get_claims_url('preview-layers/')
             data = {
                 'claims': claims,
                 'epsg': epsg,
@@ -1198,7 +1061,7 @@ class ClaimsManager:
             Same as get_preview_layers, with rotated geometries
         """
         try:
-            url = self._get_claims_endpoint('update-lm-corner-layers/')
+            url = self.config.get_claims_url('update-lm-corner-layers/')
             data = {
                 'claims': claims,
                 'epsg': epsg,
@@ -1245,7 +1108,7 @@ class ClaimsManager:
                 - message: str
         """
         try:
-            url = self._get_claims_endpoint('update-monument/')
+            url = self.config.get_claims_url('update-monument/')
             data = {
                 'claim_name': claim_name,
                 'monument_type': monument_type,
@@ -1292,7 +1155,7 @@ class ClaimsManager:
 
         try:
             # Use the packages detail endpoint - include deleted packages
-            url = self._get_claims_endpoint(f'packages/{package_id}/?include_deleted=true')
+            url = self.config.get_claims_url(f'packages/{package_id}/?include_deleted=true')
             result = self.api._make_request('GET', url)
 
             package_info = {
@@ -1328,7 +1191,7 @@ class ClaimsManager:
             return False
 
         try:
-            url = self._get_claims_endpoint(f'packages/{package_id}/restore/')
+            url = self.config.get_claims_url(f'packages/{package_id}/restore/')
             self.api._make_request('POST', url)
             self.logger.info(f"[QCLAIMS] Restored package {package_id}")
             return True
@@ -1369,10 +1232,10 @@ class ClaimsManager:
         # Check if user is staff
         access = self.check_access()
         if not access.get('is_staff'):
-            raise PermissionError("Staff access required to pull ClaimPackages")
+            raise APIPermissionError("Staff access required to pull ClaimPackages")
 
         try:
-            url = self._get_claims_endpoint('packages/incomplete/')
+            url = self.config.get_claims_url('packages/incomplete/')
             result = self.api._make_request('GET', url)
 
             packages = result.get('packages', [])
@@ -1407,10 +1270,10 @@ class ClaimsManager:
         # Check if user is staff
         access = self.check_access()
         if not access.get('is_staff'):
-            raise PermissionError("Staff access required to pull ClaimPackages")
+            raise APIPermissionError("Staff access required to pull ClaimPackages")
 
         try:
-            url = self._get_claims_endpoint(f'packages/{package_id}/pull/')
+            url = self.config.get_claims_url(f'packages/{package_id}/pull/')
             result = self.api._make_request('GET', url)
 
             pkg_name = result.get('package', {}).get('name', 'unknown')
@@ -1426,6 +1289,129 @@ class ClaimsManager:
         except APIException as e:
             self.logger.error(f"[QCLAIMS] Pull package {package_id} failed: {e}")
             raise
+
+    # =========================================================================
+    # Direct Checkout (Pay-per-claim via web purchase endpoint)
+    # =========================================================================
+
+    def create_checkout_session(
+        self,
+        claims: List[Dict[str, Any]],
+        project_id: int,
+        company_id: int,
+        claimant_info: Dict[str, Any] = None,
+        epsg: int = 4326
+    ) -> Dict[str, Any]:
+        """
+        Create Stripe checkout session via the unified web purchase endpoint.
+
+        This is used by pay-per-claim users to purchase claims. After payment,
+        the claims appear in the admin processing queue as ProposedMiningClaim records.
+        Staff then pulls and processes them through the plugin wizard.
+
+        Args:
+            claims: List of claim dicts with name and GeoJSON geometry
+            project_id: Target project ID
+            company_id: Company ID for billing
+            claimant_info: Optional dict with claimant details
+            epsg: EPSG code of claim geometries (default 4326)
+
+        Returns:
+            Dict with checkout_url and session_id
+        """
+        try:
+            # Build GeoJSON FeatureCollection from claims list
+            features = []
+            for claim in claims:
+                geometry = claim.get('geometry')
+
+                # If geometry is a WKT string, convert to GeoJSON dict
+                if isinstance(geometry, str):
+                    geometry = self._wkt_to_geojson(geometry)
+
+                if not geometry:
+                    self.logger.warning(
+                        f"[QCLAIMS] Skipping claim '{claim.get('name')}' - no valid geometry"
+                    )
+                    continue
+
+                feature = {
+                    'type': 'Feature',
+                    'properties': {
+                        'name': claim.get('name', ''),
+                    },
+                    'geometry': geometry
+                }
+                features.append(feature)
+
+            if not features:
+                raise ValueError("No valid claim geometries to submit")
+
+            generated_claims_data = {
+                'type': 'FeatureCollection',
+                'features': features
+            }
+
+            # Use services_base_url (geodb.io/services/api, not api.geodb.io)
+            # because the services app is mounted at /services/ in the main URL conf
+            url = f"{self.config.services_base_url}/purchase-claims/create-checkout-session/"
+
+            payload = {
+                'generated_claims_data': generated_claims_data,
+                'claim_count': len(features),
+                'project_id': project_id,
+                'company_id': company_id,
+                'source': 'plugin',
+                'epsg': epsg,
+                'is_authenticated': True,
+            }
+            if claimant_info:
+                payload['claimant_info'] = claimant_info
+
+            self.logger.info(
+                f"[QCLAIMS] Creating checkout session: {len(features)} claims, "
+                f"project={project_id}, company={company_id}"
+            )
+
+            result = self.api._make_request('POST', url, data=payload)
+
+            self.logger.info(
+                f"[QCLAIMS] Checkout session created: {result.get('session_id', 'unknown')}"
+            )
+            return result
+
+        except APIException as e:
+            self.logger.error(f"[QCLAIMS] Create checkout session failed: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"[QCLAIMS] Create checkout session error: {e}")
+            raise APIException(f"Failed to create checkout session: {e}")
+
+    @staticmethod
+    def _wkt_to_geojson(wkt_string: str) -> Optional[Dict[str, Any]]:
+        """
+        Convert a WKT string to a GeoJSON geometry dict.
+
+        Uses QGIS geometry parser for reliable handling of all WKT variants
+        (POLYGON, MULTIPOLYGON, single/multi-ring, 2D/3D coordinates).
+
+        Args:
+            wkt_string: WKT geometry string (e.g., "POLYGON((...))")
+
+        Returns:
+            GeoJSON geometry dict or None
+        """
+        if not wkt_string:
+            return None
+
+        try:
+            from qgis.core import QgsGeometry
+            geom = QgsGeometry.fromWkt(wkt_string)
+            if geom and not geom.isEmpty():
+                return json.loads(geom.asJson())
+            return None
+        except Exception:
+            return None
 
     # =========================================================================
     # Cache Management

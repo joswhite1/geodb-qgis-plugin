@@ -8,7 +8,7 @@ from typing import List, Optional, Dict
 from qgis.core import QgsProject
 
 from ..api.client import APIClient
-from ..models.project import Company, Project, Permission
+from ..models.project import Company, Project
 from ..models.auth import UserContext
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
@@ -45,8 +45,6 @@ class ProjectManager:
         self.active_company: Optional[Company] = None
         self.user_status: Optional[str] = None
         self.can_create: bool = False
-        # Keep for backwards compatibility
-        self.permissions: Dict[str, Permission] = {}
 
     def load_from_user_context(self, user_context: UserContext) -> None:
         """
@@ -71,12 +69,12 @@ class ProjectManager:
         for ap in user_context.accessible_projects:
             # Find company ID for this project
             for ac in user_context.accessible_companies:
-                if ac.name == ap.company:
+                if ac.name == ap.company_name:
                     project = Project(
                         id=ap.id,
                         name=ap.name,
                         company_id=ac.id,
-                        company_name=ap.company,
+                        company_name=ap.company_name,
                         crs=ap.crs
                     )
                     company_projects[ac.id].append(project)
@@ -103,7 +101,7 @@ class ProjectManager:
                 id=ap.id,
                 name=ap.name,
                 company_id=user_context.active_company.id if user_context.active_company else 0,
-                company_name=ap.company,
+                company_name=ap.company_name,
                 crs=ap.crs
             )
 
@@ -239,18 +237,9 @@ class ProjectManager:
         """Check if user can edit data."""
         return self.user_status in ['creator', 'owner', 'manager', 'admin', 'adder']
 
-    def can_admin_data(self) -> bool:
-        """Check if user has admin access."""
-        return self.user_status in ['creator', 'owner', 'manager', 'admin']
-
     def can_create_records(self) -> bool:
         """Check if user can create new records."""
         return self.can_create
-
-    # Legacy methods for backwards compatibility
-    def get_permission(self, model_name: str) -> Optional[Permission]:
-        """Get permission for a specific model (legacy)."""
-        return self.permissions.get(model_name)
 
     def can_view(self, model_name: str = None) -> bool:
         """Check if user can view a model."""
@@ -260,67 +249,13 @@ class ProjectManager:
         """Check if user can edit a model."""
         return self.can_edit_data()
 
-    def can_admin(self, model_name: str = None) -> bool:
-        """Check if user has admin access to a model."""
-        return self.can_admin_data()
-
-    def load_permissions(self, project_id: int) -> Dict[str, Permission]:
-        """
-        DEPRECATED: Permissions now come from user context.
-
-        The /api/v1/me/ endpoint returns user_status which determines
-        permissions across all models.
-        """
-        self.logger.warning("load_permissions() is deprecated. Use user_status from user context.")
-        return self.permissions
-
     def get_active_project(self) -> Optional[Project]:
         """Get currently active project."""
         return self.active_project
 
-    def get_active_company(self) -> Optional[Company]:
-        """Get currently active company."""
-        return self.active_company
-
     def get_companies(self) -> List[Company]:
         """Get list of loaded companies."""
         return self.companies
-
-    def get_projects_for_company(self, company_id: int) -> List[Project]:
-        """Get projects for a specific company."""
-        for company in self.companies:
-            if company.id == company_id:
-                return company.projects
-        return []
-
-    def restore_from_project_vars(self) -> Optional[Project]:
-        """
-        Restore project selection from QGIS project variables.
-
-        Returns:
-            Project if found, None otherwise
-        """
-        qgs_project = QgsProject.instance()
-
-        project_id, ok = qgs_project.readNumEntry(
-            self.PROJECT_VAR_SECTION,
-            self.PROJECT_ID_KEY,
-            0
-        )
-
-        if not ok or project_id == 0:
-            return None
-
-        # Find project in loaded companies
-        for company in self.companies:
-            for project in company.projects:
-                if project.id == project_id:
-                    self.active_project = project
-                    self.active_company = company
-                    self.logger.info(f"Restored project from vars: {project}")
-                    return project
-
-        return None
 
     def _save_to_project_vars(self, project: Project):
         """Save project selection to QGIS project variables."""

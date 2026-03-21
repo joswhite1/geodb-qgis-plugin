@@ -8,6 +8,7 @@ from typing import Optional, Callable, Dict, Any, List
 from datetime import datetime
 
 from ..api.client import APIClient
+from ..api.exceptions import APIPermissionError
 from .project_manager import ProjectManager
 from .sync_manager import SyncManager
 from ..utils.config import Config
@@ -76,15 +77,6 @@ class DataManager:
                 return True
         return False
 
-    def _assert_active_project_id(self, project_id: int) -> None:
-        """Raise if project_id doesn't match the active project."""
-        active = self.project_manager.get_active_project()
-        if not active or active.id != project_id:
-            raise PermissionError(
-                f"project_id {project_id} does not match active project "
-                f"({active.id if active else 'None'})"
-            )
-
     def _validate_pull_response(self, features: list, schema) -> list:
         """Validate and sanitize features from server response."""
         if not features or not schema:
@@ -149,7 +141,7 @@ class DataManager:
 
         # Check permissions
         if not self.project_manager.can_view():
-            raise PermissionError("No permission to view data")
+            raise APIPermissionError("No permission to view data")
 
         # Validate model name
         if model_name not in SUPPORTED_MODELS:
@@ -406,7 +398,7 @@ class DataManager:
 
         # Check permissions
         if not self.project_manager.can_edit():
-            raise PermissionError("No permission to edit data")
+            raise APIPermissionError("No permission to edit data")
 
         # Validate model name
         if model_name not in SUPPORTED_MODELS:
@@ -650,7 +642,7 @@ class DataManager:
 
         # Check permissions
         if not self.project_manager.can_edit():
-            raise PermissionError("No permission to edit data")
+            raise APIPermissionError("No permission to edit data")
 
         # Validate model name
         if model_name not in SUPPORTED_MODELS:
@@ -747,7 +739,7 @@ class DataManager:
 
         # Check permissions
         if not self.project_manager.can_edit():
-            raise PermissionError("No permission to edit data")
+            raise APIPermissionError("No permission to edit data")
 
         # Get queued deletions
         queue = self.sync_manager.get_deletion_queue(model_name)
@@ -1099,7 +1091,7 @@ class DataManager:
                 progress_callback(5, "Fetching field notes from server...")
 
             # Pull data from API
-            features = self.api_client.get_all_paginated(
+            api_response = self.api_client.get_all_paginated(
                 model_name='FieldNote',
                 project_id=project.id,
                 params={},
@@ -1107,6 +1099,11 @@ class DataManager:
                     5 + int(p * 0.25), "Downloading field notes..."
                 ) if progress_callback else None
             )
+            # Extract results list from paginated response dict
+            if isinstance(api_response, dict):
+                features = api_response.get('results', [])
+            else:
+                features = api_response or []
 
             if not features:
                 self.logger.info(f"No field notes found for project {project.name}")
@@ -1225,103 +1222,6 @@ class DataManager:
         except Exception as e:
             self.logger.error(f"Failed to pull FieldNote model: {e}")
             raise
-
-    def get_available_models(self) -> List[str]:
-        """
-        Get list of models user has access to.
-
-        Returns:
-            List of model names that can be synced
-        """
-        if not self.project_manager.can_view():
-            return []
-        return SUPPORTED_MODELS.copy()
-
-    def get_sync_status(self, model_name: str) -> Dict[str, Any]:
-        """
-        Get sync status for a model.
-
-        Args:
-            model_name: Model name
-
-        Returns:
-            Dictionary with sync status information
-        """
-        # Get active project for layer lookup
-        project = self.project_manager.get_active_project()
-        project_name = project.name if project else None
-
-        return {
-            'model': model_name,
-            'last_sync': self.sync_manager.get_last_sync_time(model_name),
-            'has_changes': self.sync_manager.has_local_changes(model_name, project_name),
-            'layer_exists': self.sync_manager.layer_exists(model_name, project_name)
-        }
-
-    def get_model_record_count(self, model_name: str) -> int:
-        """
-        Get count of records for a model from server.
-
-        Args:
-            model_name: Model name
-
-        Returns:
-            Number of records
-        """
-        project = self.project_manager.get_active_project()
-        if not project:
-            return 0
-
-        try:
-            response = self.api_client.get_model_data(
-                model_name=model_name,
-                project_id=project.id
-            )
-            return response.get('count', 0)
-        except Exception as e:
-            self.logger.warning(f"Failed to get record count for {model_name}: {e}")
-            return 0
-
-    def pull_all_data(
-        self,
-        progress_callback: Optional[Callable[[int, str], None]] = None
-    ) -> Dict[str, Any]:
-        """
-        Pull all supported models for the current project.
-
-        Args:
-            progress_callback: Optional callback(progress_percent, status_message)
-
-        Returns:
-            Dictionary with results for each model
-        """
-        results = {}
-        models = self.get_available_models()
-        total_models = len(models)
-
-        for i, model_name in enumerate(models):
-            try:
-                if progress_callback:
-                    base_progress = int((i / total_models) * 100)
-                    progress_callback(base_progress, f"Pulling {model_name}...")
-
-                model_result = self.pull_model_data(
-                    model_name=model_name,
-                    progress_callback=lambda p, s: progress_callback(
-                        int(base_progress + (p / total_models)),
-                        s
-                    ) if progress_callback else None
-                )
-                results[model_name] = {'success': True, **model_result}
-
-            except Exception as e:
-                results[model_name] = {'success': False, 'error': str(e)}
-                self.logger.warning(f"Failed to pull {model_name}: {e}")
-
-        if progress_callback:
-            progress_callback(100, "All data pulled")
-
-        return results
 
     def _get_coordinate_system_metadata(self) -> dict:
         """
@@ -1613,7 +1513,7 @@ class DataManager:
 
         # Check permissions
         if not self.project_manager.can_view():
-            raise PermissionError("No permission to view data")
+            raise APIPermissionError("No permission to view data")
 
         try:
             if progress_callback:
@@ -1720,7 +1620,7 @@ class DataManager:
             raise ValueError("No project selected")
 
         if not self.project_manager.can_edit():
-            raise PermissionError("No permission to edit data in this project")
+            raise APIPermissionError("No permission to edit data in this project")
 
         feature_count = source_layer.featureCount()
         if feature_count == 0:

@@ -78,7 +78,7 @@ class Config:
                 config = self._deep_merge(self.DEFAULT_CONFIG.copy(), user_config)
                 return config
             except Exception as e:
-                print(f"Error loading config: {e}. Using defaults.")
+                logger.warning(f"Error loading config: {e}. Using defaults.")
                 return self.DEFAULT_CONFIG.copy()
         else:
             # Create default config file
@@ -104,7 +104,7 @@ class Config:
                 json.dump(self._config, f, indent=2)
             return True
         except Exception as e:
-            print(f"Error saving config: {e}")
+            logger.error(f"Error saving config: {e}")
             return False
 
     def get(self, key_path: str, default: Any = None) -> Any:
@@ -203,7 +203,6 @@ class Config:
             'me': f"{base}/me/",
             'set_active_company': f"{base}/me/set-active-company/",
             'set_active_project': f"{base}/me/set-active-project/",
-            'set_assay_merge_settings': f"{base}/me/set-assay-merge-settings/",
 
             # Projects
             'projects': f"{base}/projects/",
@@ -308,6 +307,27 @@ class Config:
         if endpoint_key:
             return self.endpoints.get(endpoint_key, '')
         return ''
+
+    def get_claims_url(self, path: str) -> str:
+        """Build full URL for a claims API endpoint (always uses v2 API).
+
+        Args:
+            path: The claims sub-path, e.g. 'check-access/' or 'process/'
+
+        Returns:
+            Full URL like 'https://api.geodb.io/api/v2/claims/check-access/'
+        """
+        base = self.base_url
+        # Safety check - use default if base_url is None or empty
+        if not base:
+            base = "https://api.geodb.io/api/v2"
+            logger.warning("[QCLAIMS] base_url was empty in get_claims_url, using default")
+        # Ensure we use v2 API for claims endpoints
+        if '/api/v1' in base:
+            base = base.replace('/api/v1', '/api/v2')
+        elif '/api/v2' not in base:
+            base = base.rstrip('/') + '/api/v2' if not base.endswith('/api/v2') else base
+        return f"{base}/claims/{path}"
 
     def toggle_local_mode(self, enabled: bool = True):
         """Switch between production and local API."""

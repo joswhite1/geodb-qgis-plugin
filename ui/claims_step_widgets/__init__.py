@@ -17,6 +17,7 @@ from .step_base import ClaimsStepBase
 from .step1_project_setup import ClaimsStep1Widget
 from .step2_claim_layout import ClaimsStep2Widget
 from .step3_reference_point import ClaimsStep3Widget
+from .step3_order import ClaimsStep3OrderWidget
 from .step4_monument import ClaimsStep4Widget
 from .step5_adjust import ClaimsStep5AdjustWidget
 from .step6_finalize import ClaimsStep6Widget
@@ -27,6 +28,7 @@ __all__ = [
     'ClaimsStep1Widget',
     'ClaimsStep2Widget',
     'ClaimsStep3Widget',
+    'ClaimsStep3OrderWidget',
     'ClaimsStep4Widget',
     'ClaimsStep5AdjustWidget',
     'ClaimsStep6Widget',

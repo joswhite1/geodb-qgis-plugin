@@ -19,6 +19,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import QgsProject, QgsVectorLayer
 
 from .step_base import ClaimsStepBase
+from ...utils.crs_utils import is_utm_crs
 from ...utils.layer_utils import is_layer_valid
 from ...utils.compat import QFrame_NoFrame
 
@@ -281,29 +282,7 @@ class ClaimsStep2Widget(ClaimsStepBase):
     # Grid Generation
     # =========================================================================
 
-    def _is_utm_crs(self, auth_id: str) -> bool:
-        """Check if the given CRS is a UTM zone."""
-        if not auth_id:
-            return False
-
-        # NAD83 UTM zones (26901-26923)
-        # WGS84 UTM zones (32601-32660 for North, 32701-32760 for South)
-        try:
-            if auth_id.startswith('EPSG:'):
-                epsg = int(auth_id.split(':')[1])
-                # NAD83 UTM zones
-                if 26901 <= epsg <= 26923:
-                    return True
-                # WGS84 UTM North
-                if 32601 <= epsg <= 32660:
-                    return True
-                # WGS84 UTM South
-                if 32701 <= epsg <= 32760:
-                    return True
-        except (ValueError, IndexError):
-            pass
-
-        return False
+    # UTM CRS check is now in utils.crs_utils.is_utm_crs
 
     def _generate_grid(self):
         """Generate a claim grid at the map center."""
@@ -315,7 +294,14 @@ class ClaimsStep2Widget(ClaimsStepBase):
 
             # Check that project is in UTM CRS - required for accurate grid generation
             project_crs = QgsProject.instance().crs()
-            if not project_crs.isValid() or not self._is_utm_crs(project_crs.authid()):
+            auth_id = project_crs.authid() if project_crs.isValid() else ''
+            epsg_ok = False
+            if auth_id.startswith('EPSG:'):
+                try:
+                    epsg_ok = is_utm_crs(int(auth_id.split(':')[1]))
+                except (ValueError, IndexError):
+                    pass
+            if not project_crs.isValid() or not epsg_ok:
                 QMessageBox.warning(
                     self,
                     "UTM Required",

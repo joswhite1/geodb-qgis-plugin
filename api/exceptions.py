@@ -21,7 +21,7 @@ class AuthenticationError(APIException):
     """Raised when authentication fails."""
 
 
-class PermissionError(APIException):
+class APIPermissionError(APIException):
     """Raised when user lacks required permissions."""
 
 

@@ -17,6 +17,7 @@ from qgis.core import (
 )
 
 from ..api.exceptions import LayerError
+from ..utils.geometry import geojson_to_wkt
 from ..utils.logger import PluginLogger
 
 
@@ -26,23 +27,6 @@ class LayerProcessor:
 
     Supports both memory layers (temporary) and GeoPackage layers (persistent).
     """
-
-    # Geometry type mapping: API type -> QGIS type
-    # Includes both 2D and 3D (Z-dimension) geometry types
-    GEOMETRY_TYPE_MAPPING = {
-        'Point': QgsWkbTypes.Point,
-        'PointZ': QgsWkbTypes.PointZ,
-        'LineString': QgsWkbTypes.LineString,
-        'LineStringZ': QgsWkbTypes.LineStringZ,
-        'Polygon': QgsWkbTypes.Polygon,
-        'PolygonZ': QgsWkbTypes.PolygonZ,
-        'MultiPoint': QgsWkbTypes.MultiPoint,
-        'MultiPointZ': QgsWkbTypes.MultiPointZ,
-        'MultiLineString': QgsWkbTypes.MultiLineString,
-        'MultiLineStringZ': QgsWkbTypes.MultiLineStringZ,
-        'MultiPolygon': QgsWkbTypes.MultiPolygon,
-        'MultiPolygonZ': QgsWkbTypes.MultiPolygonZ
-    }
 
     # Reverse mapping for GeoPackage creation
     GEOMETRY_TYPE_NAMES = {
@@ -283,9 +267,6 @@ class LayerProcessor:
             self.logger.info(f"Creating new GeoPackage: {gpkg_path}")
         else:
             self.logger.info(f"Adding layer to existing GeoPackage: {gpkg_path}")
-
-        # Get the QGIS geometry type
-        self.GEOMETRY_TYPE_MAPPING.get(geometry_type, QgsWkbTypes.Point)
 
         # Create CRS object - supports both EPSG codes and proj4 strings
         crs_obj = QgsCoordinateReferenceSystem(crs)
@@ -561,7 +542,7 @@ class LayerProcessor:
         geom_failed = 0
         first_failure_logged = False
 
-        skipped_no_geom = 0
+        null_geom_count = 0
 
         for feature_data in features_data:
             feature = QgsFeature()
@@ -607,6 +588,9 @@ class LayerProcessor:
                         f"First geometry parse failure. Data: {preview}",
                         "GeodbIO", Qgis.Warning
                     )
+            else:
+                # No geometry data provided at all
+                null_geom_count += 1
 
             # For polygon/line layers, features without geometry are still added (with null geometry)
             # This allows viewing attributes even when geometry is missing
@@ -627,8 +611,8 @@ class LayerProcessor:
 
         # Log summary
         msg = f"Added {added_count} features (geometry: {geom_success} success, {geom_failed} failed)"
-        if skipped_no_geom > 0:
-            msg += f", {skipped_no_geom} skipped (no geometry)"
+        if null_geom_count > 0:
+            msg += f", {null_geom_count} with null geometry"
             QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.Warning)
         else:
             QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.Info)
@@ -702,7 +686,7 @@ class LayerProcessor:
 
                 # Fall back to manual conversion
                 try:
-                    wkt = self._geojson_to_wkt(geom_data)
+                    wkt = geojson_to_wkt(geom_data)
                     if wkt:
                         geometry = QgsGeometry.fromWkt(wkt)
                         if geometry and not geometry.isNull():
@@ -718,60 +702,7 @@ class LayerProcessor:
             self.logger.error(f"Error parsing geometry: {e}")
             return None
 
-    def _geojson_to_wkt(self, geojson: dict) -> str:
-        """
-        Convert simple GeoJSON geometry to WKT.
-
-        Args:
-            geojson: GeoJSON geometry dict with 'type' and 'coordinates'
-
-        Returns:
-            WKT string
-        """
-        geom_type = geojson.get('type', '').upper()
-        coords = geojson.get('coordinates', [])
-
-        if not geom_type or not coords:
-            return ''
-
-        if geom_type == 'POINT':
-            return f"POINT ({coords[0]} {coords[1]})"
-
-        elif geom_type == 'LINESTRING':
-            coord_str = ', '.join(f"{c[0]} {c[1]}" for c in coords)
-            return f"LINESTRING ({coord_str})"
-
-        elif geom_type == 'POLYGON':
-            rings = []
-            for ring in coords:
-                ring_str = ', '.join(f"{c[0]} {c[1]}" for c in ring)
-                rings.append(f"({ring_str})")
-            return f"POLYGON ({', '.join(rings)})"
-
-        elif geom_type == 'MULTIPOINT':
-            points = ', '.join(f"({c[0]} {c[1]})" for c in coords)
-            return f"MULTIPOINT ({points})"
-
-        elif geom_type == 'MULTILINESTRING':
-            lines = []
-            for line in coords:
-                line_str = ', '.join(f"{c[0]} {c[1]}" for c in line)
-                lines.append(f"({line_str})")
-            return f"MULTILINESTRING ({', '.join(lines)})"
-
-        elif geom_type == 'MULTIPOLYGON':
-            polygons = []
-            for polygon in coords:
-                rings = []
-                for ring in polygon:
-                    ring_str = ', '.join(f"{c[0]} {c[1]}" for c in ring)
-                    rings.append(f"({ring_str})")
-                polygons.append(f"({', '.join(rings)})")
-            return f"MULTIPOLYGON ({', '.join(polygons)})"
-
-        else:
-            self.logger.warning(f"Unsupported geometry type: {geom_type}")
-            return ''
+    # GeoJSON-to-WKT conversion is now in utils.geometry.geojson_to_wkt
 
     def _point_to_square_polygon(
         self,

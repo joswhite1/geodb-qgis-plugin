@@ -23,12 +23,13 @@ except ImportError:
     import sip
 
 # Import our new managers
+from ..utils.format_helpers import format_merge_settings_html
 from ..utils.config import Config, DEV_MODE
 from ..utils.compat import QAbstractItemView_NoEditTriggers, QTextCursor_End, QDialog_Accepted
 from ..utils.logger import PluginLogger
 from ..api.client import APIClient
 from ..api.exceptions import (
-    PermissionError as APIPermissionError,
+    APIPermissionError,
     NetworkError,
     ValidationError
 )
@@ -1060,58 +1061,13 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
     def _display_merge_settings(self, config: Dict[str, Any]):
         """Display merge settings info for the selected configuration."""
-        merge_settings_id = config.get('assay_merge_settings')
-
-        if not merge_settings_id or merge_settings_id not in self.merge_settings_map:
-            self.mergeSettingsLabel.setText("Merge settings information not available.")
-            return
-
-        merge_settings = self.merge_settings_map[merge_settings_id]
-
-        # Extract details
-        name = merge_settings.get('name', 'Unknown')
-        default_strategy = merge_settings.get('default_strategy', 'high')
-        default_units = merge_settings.get('default_units', 'ppm')
-        convert_bdl = merge_settings.get('convert_bdl', True)
-        bdl_multiplier = merge_settings.get('bdl_multiplier', 0.5)
-
-        # Check for element-specific override
-        element = config.get('element', '')
-        element_overrides = merge_settings.get('element_overrides', [])
-        element_override = None
-        for override in element_overrides:
-            if override.get('element') == element:
-                element_override = override
-                break
-
-        # Build info text
-        info_parts = [
-            f"<b>Configuration:</b> {name}",
-            f"<b>Merge Strategy:</b> {default_strategy.title()}"
-        ]
-
-        if element_override:
-            override_strategy = element_override.get('strategy', default_strategy)
-            override_units = element_override.get('target_units', default_units)
-            info_parts.append(
-                f"<b>Element Override ({element}):</b> {override_strategy.title()}, {override_units}"
-            )
-        else:
-            info_parts.append(f"<b>Default Units:</b> {default_units}")
-
-        if convert_bdl:
-            info_parts.append(
-                f"<b>Below Detection Limit:</b> Convert to {bdl_multiplier * 100:.0f}% of detection limit"
-            )
-        else:
-            info_parts.append("<b>Below Detection Limit:</b> No conversion")
-
-        self.mergeSettingsLabel.setText("<br>".join(info_parts))
+        html = format_merge_settings_html(config, self.merge_settings_map)
+        self.mergeSettingsLabel.setText(html)
 
     def _display_color_ranges(self, config: Dict[str, Any]):
         """Display color ranges in the table."""
         ranges = config.get('ranges', [])
-        config.get('units', '')
+        units = config.get('units', '')
 
         self.rangesTable.setRowCount(len(ranges))
 
@@ -1122,11 +1078,13 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             label = range_item.get('label', '')
 
             # From value
-            from_item = QTableWidgetItem(f"{from_val:.2f}")
+            from_text = f"{from_val:.2f} {units}".strip() if units else f"{from_val:.2f}"
+            from_item = QTableWidgetItem(from_text)
             self.rangesTable.setItem(row, 0, from_item)
 
             # To value
-            to_item = QTableWidgetItem(f"{to_val:.2f}")
+            to_text = f"{to_val:.2f} {units}".strip() if units else f"{to_val:.2f}"
+            to_item = QTableWidgetItem(to_text)
             self.rangesTable.setItem(row, 1, to_item)
 
             # Color (display with colored background)

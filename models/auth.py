@@ -31,6 +31,10 @@ class Company:
     """Company information from user context."""
     id: int
     name: str
+    projects: List['Project'] = field(default_factory=list)
+
+    def __str__(self):
+        return self.name
 
 
 @dataclass
@@ -38,9 +42,13 @@ class Project:
     """Project information from user context."""
     id: int
     name: str
-    company: str
+    company_id: Optional[int] = None
+    company_name: Optional[str] = None
     crs: str = "4326"  # Default to WGS84
     proj4_string: Optional[str] = None  # Custom proj4 string for local grid CRS
+
+    def __str__(self):
+        return f"{self.company_name} - {self.name}" if self.company_name else self.name
 
 
 @dataclass
@@ -115,7 +123,7 @@ class UserContext:
             active_project = Project(
                 id=ap['id'],
                 name=ap['name'],
-                company=ap.get('company', ''),
+                company_name=ap.get('company', ''),
                 crs=ap.get('crs', '4326'),
                 proj4_string=ap.get('proj4_string')
             )
@@ -131,7 +139,7 @@ class UserContext:
             accessible_projects.append(Project(
                 id=p['id'],
                 name=p['name'],
-                company=p.get('company', ''),
+                company_name=p.get('company', ''),
                 crs=p.get('crs', '4326')
             ))
 
@@ -189,7 +197,7 @@ class UserContext:
             result['active_project'] = {
                 'id': self.active_project.id,
                 'name': self.active_project.name,
-                'company': self.active_project.company,
+                'company': self.active_project.company_name,
                 'crs': self.active_project.crs
             }
 
@@ -199,7 +207,7 @@ class UserContext:
         ]
 
         result['accessible_projects'] = [
-            {'id': p.id, 'name': p.name, 'company': p.company, 'crs': p.crs}
+            {'id': p.id, 'name': p.name, 'company': p.company_name, 'crs': p.crs}
             for p in self.accessible_projects
         ]
 

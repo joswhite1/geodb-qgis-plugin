@@ -148,7 +148,7 @@ class GridGenerator:
     ) -> QgsVectorLayer:
         """Generate lode grid using server API."""
         # Build API endpoint URL
-        endpoint = self._get_claims_endpoint('generate-grid/')
+        endpoint = self.api_client.config.get_claims_url('generate-grid/')
 
         # Call server API
         response = self.api_client._make_request('POST', endpoint, data={
@@ -233,7 +233,7 @@ class GridGenerator:
     ) -> QgsVectorLayer:
         """Generate placer grid using server API."""
         # Build API endpoint URL
-        endpoint = self._get_claims_endpoint('generate-grid/')
+        endpoint = self.api_client.config.get_claims_url('generate-grid/')
 
         # Call server API
         response = self.api_client._make_request('POST', endpoint, data={
@@ -322,16 +322,6 @@ class GridGenerator:
         self.logger.info(f"[GRID] Created {storage_type} layer with {len(features)} claims from server")
 
         return layer
-
-    def _get_claims_endpoint(self, path: str) -> str:
-        """Build full URL for claims endpoint."""
-        base = self.api_client.config.base_url
-        # Ensure we use v2 API for claims endpoints
-        if '/v1' in base:
-            base = base.replace('/v1', '/api/v2')
-        elif '/api/v2' not in base:
-            base = base.rstrip('/') + '/api/v2' if not base.endswith('/api/v2') else base
-        return f"{base}/claims/{path}"
 
     def _get_epsg_code(self, crs: QgsCoordinateReferenceSystem) -> int:
         """Extract EPSG code from CRS."""

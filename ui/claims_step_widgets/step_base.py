@@ -40,6 +40,9 @@ class ClaimsStepBase(QWidget):
     # Signal emitted when project context changes (for main dialog to update dropdowns)
     # Emits: (company_id: int, project_id: int)
     project_context_switched = pyqtSignal(int, int)
+    # Signal emitted when access level is determined (Step 1 license check)
+    # Emits: (access_info: dict) - the wizard uses this to rebuild steps
+    access_level_changed = pyqtSignal(dict)
 
     def __init__(
         self,

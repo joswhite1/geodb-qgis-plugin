@@ -26,7 +26,7 @@ class ClaimsStep4Widget(ClaimsStepBase):
     """
 
     def get_step_title(self) -> str:
-        return "Monument Adjustment"
+        return "Monument Configuration"
 
     def get_step_description(self) -> str:
         return (

@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.5.0
+version=2.6.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,21 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.6.0 - Code audit, pay-per-claim wizard, and refactoring
+        - Add pay-per-claim 3-step wizard (Setup, Layout, Order) with Stripe checkout
+        - Dynamic wizard step rebuild based on user access level (enterprise vs pay-per-claim)
+        - Fix broken submit_order call in claims_order_widget (migrated to create_checkout_session)
+        - Fix Project.company AttributeError in UserContext.to_dict() serialization
+        - Fix null_geom_count double-counting geometry parse failures in layer_processor
+        - Rename PermissionError to APIPermissionError to avoid shadowing Python built-in
+        - Extract shared utilities: geometry.py, crs_utils.py, format_helpers.py
+        - Centralize claims endpoint URL building in config.get_claims_url()
+        - Fix SQLite connection resource leaks in claims_storage_manager (contextlib.closing)
+        - Fix QNetworkReply memory leak in API client timeout path
+        - Remove ~15 unused methods and 2 dead modules (api_response.py, photo_cache.py)
+        - Replace print() calls with proper logger throughout codebase
+        - Add claims_pushed state tracking with double-push warning in Step 7
+        - Add layer cleanup on wizard reset and step re-entry
     2.5.0 - Claims Wizard & UI Improvements
         - Fix claims layer ownership tracking to prevent cross-group layer collisions
         - Use session-based layer IDs instead of name matching in Step 5/Step 6

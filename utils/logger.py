@@ -167,22 +167,3 @@ class PluginLogger:
         if cls._ui_handler and cls._instance:
             cls._instance.removeHandler(cls._ui_handler)
             cls._ui_handler = None
-
-
-def log_function_call(func):
-    """Decorator to log function calls.
-
-    WARNING: Do NOT apply to functions that handle passwords, tokens,
-    or other secrets. This decorator logs all arguments.
-    """
-    def wrapper(*args, **kwargs):
-        logger = PluginLogger.get_logger()
-        logger.debug(f"Calling {func.__name__}")
-        try:
-            result = func(*args, **kwargs)
-            logger.debug(f"{func.__name__} completed successfully")
-            return result
-        except Exception as e:
-            logger.error(f"{func.__name__} failed with error: {e}", exc_info=True)
-            raise
-    return wrapper

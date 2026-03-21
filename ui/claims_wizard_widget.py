@@ -11,6 +11,7 @@ from qgis.PyQt.QtWidgets import (
     QStackedWidget, QFrame, QMessageBox, QSizePolicy
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.core import QgsProject
 
 from .claims_wizard_state import ClaimsWizardState
 from ..utils.logger import PluginLogger
@@ -188,7 +189,8 @@ class ClaimsWizardWidget(QWidget):
     # Emits: (company_id: int, project_id: int)
     project_context_switched = pyqtSignal(int, int)
 
-    STEP_NAMES = [
+    # Enterprise/Staff steps (full processing workflow)
+    ENTERPRISE_STEP_NAMES = [
         "Setup",
         "Layout",
         "Reference",
@@ -197,6 +199,16 @@ class ClaimsWizardWidget(QWidget):
         "Finalize",
         "Export"
     ]
+
+    # Pay-per-claim steps (simplified: setup, layout, purchase)
+    PAY_PER_CLAIM_STEP_NAMES = [
+        "Setup",
+        "Layout",
+        "Order"
+    ]
+
+    # Default to enterprise steps (rebuilt after access check)
+    STEP_NAMES = ENTERPRISE_STEP_NAMES
 
     def __init__(self, claims_manager: 'ClaimsManager', parent=None):
         """
@@ -352,8 +364,11 @@ class ClaimsWizardWidget(QWidget):
         return nav
 
     def _create_step_widgets(self):
-        """Create all step widgets."""
-        # Import step widgets here to avoid circular imports
+        """Create all step widgets (default enterprise/staff flow)."""
+        self._create_enterprise_steps()
+
+    def _create_enterprise_steps(self):
+        """Create the full enterprise/staff step sequence."""
         from .claims_step_widgets import (
             ClaimsStep1Widget, ClaimsStep2Widget, ClaimsStep3Widget,
             ClaimsStep4Widget, ClaimsStep5AdjustWidget, ClaimsStep6Widget,
@@ -365,18 +380,29 @@ class ClaimsWizardWidget(QWidget):
             ClaimsStep2Widget,
             ClaimsStep3Widget,
             ClaimsStep4Widget,
-            ClaimsStep5AdjustWidget,  # New: Monument Adjustment step
+            ClaimsStep5AdjustWidget,
             ClaimsStep6Widget,
             ClaimsStep7Widget,
         ]
 
         for StepClass in step_classes:
             step = StepClass(self.state, self.claims_manager, self)
-            step.status_message.connect(self._on_step_status)
-            step.validation_changed.connect(self._update_navigation_buttons)
-            step.project_context_switched.connect(self._on_project_context_switched)
+            self._connect_step_signals(step)
             self.step_widgets.append(step)
             self.stack.addWidget(step)
+
+    def _connect_step_signals(self, step):
+        """Connect common signals for a step widget."""
+        step.status_message.connect(self._on_step_status)
+        step.validation_changed.connect(self._update_navigation_buttons)
+        step.project_context_switched.connect(self._on_project_context_switched)
+
+        # Wire up access_level_changed from Step 1 to rebuild wizard steps
+        step.access_level_changed.connect(self._on_access_level_changed)
+
+        # Wire up processing_completed from Step 6 to emit claims_processed
+        if hasattr(step, 'processing_completed'):
+            step.processing_completed.connect(self._on_claims_processing_completed)
 
     def _connect_signals(self):
         """Connect signals."""
@@ -389,6 +415,130 @@ class ClaimsWizardWidget(QWidget):
     def _on_project_context_switched(self, company_id: int, project_id: int):
         """Forward project context switch signal from step widgets."""
         self.project_context_switched.emit(company_id, project_id)
+
+    def _on_claims_processing_completed(self, result: dict):
+        """Forward claims processing result from Step 6."""
+        self.claims_processed.emit(result)
+
+    def _on_access_level_changed(self, access_info: dict):
+        """
+        Handle access level determination from Step 1.
+
+        Rebuilds the wizard steps based on whether the user can process
+        claims immediately (enterprise/staff) or needs to purchase them
+        (pay-per-claim).
+        """
+        self._rebuild_steps_for_access(access_info)
+
+    def _rebuild_steps_for_access(self, access_info: dict):
+        """
+        Rebuild wizard steps based on user's access level.
+
+        If user can process immediately (enterprise/staff), keep full 7-step flow.
+        If pay-per-claim, rebuild with only 3 steps: Setup, Layout, Order.
+
+        Args:
+            access_info: Dict from check_access() with access_type, can_process_immediately, etc.
+        """
+        can_process = access_info.get('can_process_immediately', False)
+
+        if can_process:
+            target_step_names = self.ENTERPRISE_STEP_NAMES
+        else:
+            target_step_names = self.PAY_PER_CLAIM_STEP_NAMES
+
+        # Check if we need to rebuild (avoid unnecessary rebuilds)
+        if self.STEP_NAMES == target_step_names and len(self.step_widgets) > 0:
+            return
+
+        self.logger.info(
+            f"[WIZARD] Rebuilding steps for access: "
+            f"can_process_immediately={can_process}, "
+            f"steps={'enterprise' if can_process else 'pay-per-claim'}"
+        )
+
+        # Save Step 1 reference before clearing (we'll preserve it)
+        step1_widget = self.step_widgets[0] if self.step_widgets else None
+        step2_widget = self.step_widgets[1] if len(self.step_widgets) > 1 else None
+
+        # Clean up existing step widgets (except step 1 and 2 which we reuse)
+        for i in range(len(self.step_widgets) - 1, 1, -1):
+            widget = self.step_widgets[i]
+            if hasattr(widget, 'cleanup'):
+                try:
+                    widget.cleanup()
+                except Exception:
+                    pass
+            self.stack.removeWidget(widget)
+            widget.deleteLater()
+
+        # Keep step 1 and step 2, clear the rest from the list
+        self.step_widgets = self.step_widgets[:2]
+
+        # Update step names
+        self.STEP_NAMES = target_step_names
+
+        if can_process:
+            # Enterprise/Staff: add remaining steps 3-7
+            from .claims_step_widgets import (
+                ClaimsStep3Widget, ClaimsStep4Widget,
+                ClaimsStep5AdjustWidget, ClaimsStep6Widget, ClaimsStep7Widget
+            )
+            remaining_classes = [
+                ClaimsStep3Widget,
+                ClaimsStep4Widget,
+                ClaimsStep5AdjustWidget,
+                ClaimsStep6Widget,
+                ClaimsStep7Widget,
+            ]
+        else:
+            # Pay-per-claim: add only the Order step
+            from .claims_step_widgets import ClaimsStep3OrderWidget
+            remaining_classes = [
+                ClaimsStep3OrderWidget,
+            ]
+
+        for StepClass in remaining_classes:
+            step = StepClass(self.state, self.claims_manager, self)
+            self._connect_step_signals(step)
+            self.step_widgets.append(step)
+            self.stack.addWidget(step)
+
+        # Rebuild the step indicator with new step names
+        old_indicator = self.step_indicator
+        self.step_indicator = StepIndicator(self.STEP_NAMES)
+        self.step_indicator.setStyleSheet("""
+            QWidget {
+                background-color: #f9fafb;
+                border-bottom: 1px solid #e5e7eb;
+            }
+        """)
+
+        # Replace old indicator in layout
+        main_layout = self.layout()
+        main_layout.replaceWidget(old_indicator, self.step_indicator)
+        old_indicator.cleanup()
+        old_indicator.deleteLater()
+
+        # Reconnect step indicator signal
+        self.step_indicator.step_clicked.connect(self._on_step_indicator_clicked)
+
+        # Reset to current step (stay on step 1 if we're there)
+        current = min(self.current_step, len(self.step_widgets) - 1)
+        self.current_step = current
+        self.stack.setCurrentIndex(current)
+
+        # Update UI
+        self.step_indicator.set_current_step(current)
+        # Filter completed_steps to only include valid step indices
+        valid_completed = [s for s in self.state.completed_steps if s <= len(self.step_widgets)]
+        self.step_indicator.set_completed_steps(valid_completed)
+        self._update_navigation_buttons()
+
+        self.logger.info(
+            f"[WIZARD] Steps rebuilt: {len(self.step_widgets)} steps "
+            f"({', '.join(self.STEP_NAMES)})"
+        )
 
     def _update_from_state(self):
         """Update UI from state (after loading from project)."""
@@ -413,7 +563,22 @@ class ClaimsWizardWidget(QWidget):
     def _on_back_clicked(self):
         """Handle Back button click."""
         if self.current_step > 0:
-            self.go_to_step(self.current_step - 1)
+            # Save current step state before leaving
+            current_widget = self.step_widgets[self.current_step]
+            current_widget.save_state()
+
+            # Persist to project/GeoPackage (same as Next button)
+            self.state.save_to_qgis_project()
+            if self.state.geopackage_path:
+                self.state.save_to_geopackage()
+
+            # Invalidate all steps after the target step.
+            # Going back means the user may change something, so downstream
+            # steps that depended on previous input are no longer valid.
+            target = self.current_step - 1
+            self.state.mark_step_incomplete(target + 2)  # 1-indexed, invalidate from step after target
+
+            self.go_to_step(target)
 
     def _on_next_clicked(self):
         """Handle Next button click."""
@@ -449,7 +614,13 @@ class ClaimsWizardWidget(QWidget):
         # Can always go back to completed steps
         # Can only go forward if current step is valid
         if step_index < self.current_step:
-            # Going back - always allowed
+            # Going back - save current state and invalidate downstream steps
+            current_widget = self.step_widgets[self.current_step]
+            current_widget.save_state()
+            self.state.save_to_qgis_project()
+            if self.state.geopackage_path:
+                self.state.save_to_geopackage()
+            self.state.mark_step_incomplete(step_index + 2)  # 1-indexed, invalidate from step after target
             self.go_to_step(step_index)
         elif step_index > self.current_step:
             # Going forward - check if current step is valid
@@ -473,6 +644,9 @@ class ClaimsWizardWidget(QWidget):
             # Save current step and go to target
             current_widget.save_state()
             self.state.mark_step_complete(self.current_step + 1)
+            self.state.save_to_qgis_project()
+            if self.state.geopackage_path:
+                self.state.save_to_geopackage()
             self.go_to_step(step_index)
 
     def _on_reset_clicked(self):
@@ -537,6 +711,23 @@ class ClaimsWizardWidget(QWidget):
 
     def reset_wizard(self):
         """Reset the wizard to initial state."""
+        # Remove old generated layers from project before resetting state
+        # Step 5 (index 4) holds generated layers that need cleanup
+        if len(self.step_widgets) > 4:
+            step5 = self.step_widgets[4]
+            if hasattr(step5, '_remove_old_generated_layers'):
+                step5._remove_old_generated_layers()
+
+        # Remove old waypoints layer from Step 6 if it exists
+        if self.state.waypoints_layer_id:
+            try:
+                QgsProject.instance().removeMapLayer(self.state.waypoints_layer_id)
+            except Exception:
+                pass
+
+        # Remove the "Claims Workflow" layer group from the layer tree
+        self._remove_claims_layer_group()
+
         # Reset state
         self.state.reset()
 
@@ -555,6 +746,17 @@ class ClaimsWizardWidget(QWidget):
         self._update_navigation_buttons()
 
         self.status_message.emit("Wizard reset - starting fresh", "info")
+
+    def _remove_claims_layer_group(self):
+        """Remove the 'Claims Workflow' layer group from the QGIS layer tree."""
+        try:
+            root = QgsProject.instance().layerTreeRoot()
+            for child in root.children():
+                if hasattr(child, 'name') and child.name().startswith("Claims Workflow"):
+                    root.removeChildNode(child)
+                    break
+        except Exception:
+            pass
 
     def set_project(self, project_id: int, company_id: int):
         """

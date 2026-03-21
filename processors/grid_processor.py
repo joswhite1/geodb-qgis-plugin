@@ -127,7 +127,7 @@ class GridProcessor:
     ) -> List[Dict[str, Any]]:
         """Order claims using server API."""
         # Build API endpoint URL
-        endpoint = self._get_claims_endpoint('order-claims/')
+        endpoint = self.api_client.config.get_claims_url('order-claims/')
 
         # Prepare data for API
         api_claims = []
@@ -301,7 +301,7 @@ class GridProcessor:
     ) -> List[Dict[str, Any]]:
         """Validate grid using server API."""
         # Build API endpoint URL
-        endpoint = self._get_claims_endpoint('validate-grid/')
+        endpoint = self.api_client.config.get_claims_url('validate-grid/')
 
         # Prepare data for API
         api_claims = []
@@ -774,15 +774,6 @@ class GridProcessor:
 
         self.logger.debug(f"[GRID PROCESSOR] Refreshed spatial index for {layer.name()}")
 
-    def _get_claims_endpoint(self, path: str) -> str:
-        """Build full URL for claims endpoint."""
-        base = self.api_client.config.base_url
-        # Ensure we use v2 API for claims endpoints
-        if '/v1' in base:
-            base = base.replace('/v1', '/api/v2')
-        elif '/api/v2' not in base:
-            base = base.rstrip('/') + '/api/v2' if not base.endswith('/api/v2') else base
-        return f"{base}/claims/{path}"
 
     def _extract_claims_data(
         self,
