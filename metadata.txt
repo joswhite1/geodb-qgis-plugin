@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.6.0
+version=2.6.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,14 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.6.1 - Fix claims wizard step indicator and waypoint layer tracking
+        - Fix off-by-one in step indicator (completed steps showed green on wrong step)
+        - Fix step indicators not updating to gray when going back invalidates downstream steps
+        - Fix step circle showing checkmark instead of number when navigating back to current step
+        - Fix connector line coloring between steps
+        - Add confirmation dialog when Back button or step click would invalidate completed steps
+        - Fix Step 7 waypoints layer fallback picking wrong claim block in multi-block projects
+        - Fix Step 6 monument adjustment updating wrong waypoints layer in multi-block projects
     2.6.0 - Code audit, pay-per-claim wizard, and refactoring
         - Add pay-per-claim 3-step wizard (Setup, Layout, Order) with Stripe checkout
         - Dynamic wizard step rebuild based on user access level (enterprise vs pay-per-claim)

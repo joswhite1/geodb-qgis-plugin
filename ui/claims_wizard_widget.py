@@ -114,7 +114,11 @@ class StepIndicator(QWidget):
         self._update_styles()
 
     def set_completed_steps(self, completed: List[int]):
-        """Set the list of completed steps."""
+        """Set the list of completed steps.
+
+        Args:
+            completed: List of completed step indices (0-based).
+        """
         self.completed_steps = completed
         self._update_styles()
 
@@ -125,7 +129,8 @@ class StepIndicator(QWidget):
             label = widget.findChild(QLabel, f"step_label_{i}")
 
             if i == self.current_step:
-                # Current step - highlighted
+                # Current step - highlighted (restore number in case it was a checkmark)
+                circle.setText(str(i + 1))
                 circle.setStyleSheet("""
                     QLabel {
                         background-color: #2563eb;
@@ -163,8 +168,11 @@ class StepIndicator(QWidget):
                 label.setStyleSheet("font-size: 11px; color: #6b7280;")
 
         # Update connector colors
+        # Connector i sits between step i and step i+1; it should be green
+        # if the step to its right is completed or is the current step.
         for i, connector in enumerate(self.connector_widgets):
-            if i < self.current_step or i in self.completed_steps:
+            right_step = i + 1
+            if right_step <= self.current_step or right_step in self.completed_steps:
                 connector.setStyleSheet("background-color: #059669;")
             else:
                 connector.setStyleSheet("background-color: #e5e7eb;")
@@ -257,6 +265,10 @@ class ClaimsWizardWidget(QWidget):
                     widget.cleanup()
                 except Exception:
                     pass
+
+    def _completed_steps_for_indicator(self) -> List[int]:
+        """Convert 1-indexed state completed_steps to 0-indexed for the indicator."""
+        return [s - 1 for s in self.state.completed_steps if s >= 1]
 
     def _setup_ui(self):
         """Set up the wizard UI."""
@@ -530,8 +542,9 @@ class ClaimsWizardWidget(QWidget):
 
         # Update UI
         self.step_indicator.set_current_step(current)
-        # Filter completed_steps to only include valid step indices
-        valid_completed = [s for s in self.state.completed_steps if s <= len(self.step_widgets)]
+        # Convert 1-indexed state to 0-indexed for indicator, filter to valid range
+        valid_completed = [s - 1 for s in self.state.completed_steps
+                          if s >= 1 and s <= len(self.step_widgets)]
         self.step_indicator.set_completed_steps(valid_completed)
         self._update_navigation_buttons()
 
@@ -542,7 +555,7 @@ class ClaimsWizardWidget(QWidget):
 
     def _update_from_state(self):
         """Update UI from state (after loading from project)."""
-        self.step_indicator.set_completed_steps(self.state.completed_steps)
+        self.step_indicator.set_completed_steps(self._completed_steps_for_indicator())
         self._update_navigation_buttons()
 
     def _update_navigation_buttons(self):
@@ -563,6 +576,28 @@ class ClaimsWizardWidget(QWidget):
     def _on_back_clicked(self):
         """Handle Back button click."""
         if self.current_step > 0:
+            target = self.current_step - 1
+
+            # Check if going back would invalidate completed downstream steps
+            steps_to_invalidate = [s for s in self.state.completed_steps if s >= target + 2]
+            if steps_to_invalidate:
+                step_names = []
+                for s in sorted(steps_to_invalidate):
+                    idx = s - 1  # Convert to 0-indexed
+                    if idx < len(self.STEP_NAMES):
+                        step_names.append(f"Step {s}: {self.STEP_NAMES[idx]}")
+                reply = QMessageBox.question(
+                    self,
+                    "Go Back?",
+                    f"Going back will invalidate:\n\n"
+                    + "\n".join(f"• {n}" for n in step_names)
+                    + "\n\nYou'll need to redo these steps. Continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
             # Save current step state before leaving
             current_widget = self.step_widgets[self.current_step]
             current_widget.save_state()
@@ -575,7 +610,6 @@ class ClaimsWizardWidget(QWidget):
             # Invalidate all steps after the target step.
             # Going back means the user may change something, so downstream
             # steps that depended on previous input are no longer valid.
-            target = self.current_step - 1
             self.state.mark_step_incomplete(target + 2)  # 1-indexed, invalidate from step after target
 
             self.go_to_step(target)
@@ -614,6 +648,26 @@ class ClaimsWizardWidget(QWidget):
         # Can always go back to completed steps
         # Can only go forward if current step is valid
         if step_index < self.current_step:
+            # Check if going back would invalidate any completed downstream steps
+            steps_to_invalidate = [s for s in self.state.completed_steps if s >= step_index + 2]
+            if steps_to_invalidate:
+                step_names = []
+                for s in sorted(steps_to_invalidate):
+                    idx = s - 1  # Convert to 0-indexed
+                    if idx < len(self.STEP_NAMES):
+                        step_names.append(f"Step {s}: {self.STEP_NAMES[idx]}")
+                reply = QMessageBox.question(
+                    self,
+                    "Go Back?",
+                    f"Going back to Step {step_index + 1} will invalidate:\n\n"
+                    + "\n".join(f"• {n}" for n in step_names)
+                    + "\n\nYou'll need to redo these steps. Continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
             # Going back - save current state and invalidate downstream steps
             current_widget = self.step_widgets[self.current_step]
             current_widget.save_state()
@@ -704,7 +758,7 @@ class ClaimsWizardWidget(QWidget):
 
         # Update UI
         self.step_indicator.set_current_step(step_index)
-        self.step_indicator.set_completed_steps(self.state.completed_steps)
+        self.step_indicator.set_completed_steps(self._completed_steps_for_indicator())
         self._update_navigation_buttons()
 
         return True

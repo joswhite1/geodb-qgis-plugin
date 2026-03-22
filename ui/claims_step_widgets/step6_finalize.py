@@ -1105,11 +1105,29 @@ class ClaimsStep6Widget(ClaimsStepBase):
             waypoints_layer = QgsProject.instance().mapLayer(self.state.waypoints_layer_id)
 
         if not waypoints_layer:
-            # Try to find by name
+            # Try to find by project-suffixed name (avoids picking up a
+            # waypoints layer from a different claim block)
+            base_name = "Claims Waypoints"
+            expected_name = base_name
+            if self.state.claims_layer and is_layer_valid(self.state.claims_layer):
+                cl_name = self.state.claims_layer.name()
+                if '[' in cl_name and ']' in cl_name:
+                    start = cl_name.index('[') + 1
+                    end = cl_name.index(']')
+                    expected_name = f"{base_name} [{cl_name[start:end]}]"
+
+            # Prefer exact project-suffixed match, then fall back to any
             for layer in QgsProject.instance().mapLayers().values():
-                if isinstance(layer, QgsVectorLayer) and layer.name().startswith("Claims Waypoints"):
-                    waypoints_layer = layer
-                    break
+                if isinstance(layer, QgsVectorLayer) and is_layer_valid(layer):
+                    if layer.name() == expected_name:
+                        waypoints_layer = layer
+                        break
+            else:
+                for layer in QgsProject.instance().mapLayers().values():
+                    if isinstance(layer, QgsVectorLayer) and is_layer_valid(layer):
+                        if layer.name() == base_name or layer.name().startswith(f"{base_name} ["):
+                            waypoints_layer = layer
+                            break
 
         if not is_layer_valid(waypoints_layer):
             self.logger.debug("[CLAIMS] No waypoints layer found to update")

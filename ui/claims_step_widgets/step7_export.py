@@ -480,21 +480,49 @@ class ClaimsStep7Widget(ClaimsStepBase):
             self.logger.info(f"[CLAIMS] Synced {len(new_waypoints)} waypoints from layer")
 
     def _get_waypoints_layer(self) -> QgsVectorLayer:
-        """Find the Claims Waypoints layer.
+        """Find the Claims Waypoints layer for the current claim block.
+
+        Uses the state-tracked layer ID first (set by Step 6 when the layer
+        is created), then falls back to matching by project-suffixed name
+        to avoid returning a waypoints layer from a previous claim block.
 
         Returns:
             The waypoints layer, or None if not found.
         """
-        # First try by stored layer ID
+        # 1. Prefer the layer already tracked in wizard state (set by Step 6)
         if self.state.waypoints_layer_id:
             layer = QgsProject.instance().mapLayer(self.state.waypoints_layer_id)
             if is_layer_valid(layer):
+                self.logger.debug(f"[Step7] Using waypoints layer from state: {layer.name()}")
                 return layer
 
-        # Fallback: search by name pattern
+        # 2. Fallback: match by name, preferring project-suffixed name
+        #    Derive expected suffix from the claims layer name
+        base_name = "Claims Waypoints"
+        expected_name = base_name
+        if self.state.claims_layer and is_layer_valid(self.state.claims_layer):
+            layer_name = self.state.claims_layer.name()
+            if '[' in layer_name and ']' in layer_name:
+                start = layer_name.index('[') + 1
+                end = layer_name.index(']')
+                project_name = layer_name[start:end]
+                expected_name = f"{base_name} [{project_name}]"
+
+        # First pass: look for exact project-suffixed match
+        if expected_name != base_name:
+            for layer in QgsProject.instance().mapLayers().values():
+                if isinstance(layer, QgsVectorLayer) and is_layer_valid(layer):
+                    if layer.name() == expected_name:
+                        self.logger.info(f"[Step7] Using waypoints layer (name match): {layer.name()}")
+                        self.state.waypoints_layer_id = layer.id()
+                        return layer
+
+        # Second pass: fall back to any "Claims Waypoints" layer (single block scenario)
         for layer in QgsProject.instance().mapLayers().values():
             if isinstance(layer, QgsVectorLayer) and is_layer_valid(layer):
-                if layer.name().startswith("Claims Waypoints"):
+                if layer.name() == base_name or layer.name().startswith(f"{base_name} ["):
+                    self.logger.info(f"[Step7] Using waypoints layer (fallback scan): {layer.name()}")
+                    self.state.waypoints_layer_id = layer.id()
                     return layer
 
         return None
