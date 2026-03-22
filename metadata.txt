@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.6.1
+version=2.6.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,9 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.6.2 - Streamline claims wizard finish flow
+        - Remove redundant Download Documents button from Step 7
+        - Finish button now opens Claim Packages page in browser and returns to Sync Data tab
     2.6.1 - Fix claims wizard step indicator and waypoint layer tracking
         - Fix off-by-one in step indicator (completed steps showed green on wrong step)
         - Fix step indicators not updating to gray when going back invalidates downstream steps

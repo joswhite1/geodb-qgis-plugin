@@ -2441,8 +2441,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self._update_claims_wizard_context()
 
     def _on_wizard_completed(self):
-        """Handle claims wizard completion."""
+        """Handle claims wizard completion — switch to Sync Data tab."""
         self._log_message("Claims workflow completed successfully!", "success")
+        self._hide_claims_ui()
 
     def _show_claims_ui(self):
         """Switch to claims tab."""

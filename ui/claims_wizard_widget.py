@@ -10,7 +10,8 @@ from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QStackedWidget, QFrame, QMessageBox, QSizePolicy
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import Qt, QUrl, pyqtSignal
+from qgis.PyQt.QtGui import QDesktopServices
 from qgis.core import QgsProject
 
 from .claims_wizard_state import ClaimsWizardState
@@ -718,19 +719,20 @@ class ClaimsWizardWidget(QWidget):
             self.reset_wizard()
 
     def _on_wizard_completed(self):
-        """Handle wizard completion."""
+        """Handle wizard completion — open Claim Packages page and return to Sync Data."""
         self.status_message.emit("Claims workflow complete!", "success")
-        self.wizard_completed.emit()
+
+        # Open the Claim Packages page so the user can download documents
+        QDesktopServices.openUrl(QUrl("https://geodb.io/geodata/claim-packages/"))
 
         QMessageBox.information(
             self,
             "Claims Complete",
             "Congratulations! Your claims workflow is complete.\n\n"
-            "You can:\n"
-            "• Go back to review any step\n"
-            "• Export additional documents\n"
-            "• Start a new claims project"
+            "Your Claim Packages page has been opened in the browser."
         )
+
+        self.wizard_completed.emit()
 
     def go_to_step(self, step_index: int) -> bool:
         """

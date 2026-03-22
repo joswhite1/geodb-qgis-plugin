@@ -14,8 +14,6 @@ from qgis.PyQt.QtWidgets import (
     QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QFrame, QScrollArea, QMessageBox, QProgressBar
 )
-from qgis.PyQt.QtCore import QUrl
-from qgis.PyQt.QtGui import QDesktopServices
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsCoordinateReferenceSystem,
     QgsCoordinateTransform
@@ -68,9 +66,6 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         # Waypoints Table Group
         layout.addWidget(self._create_waypoints_group())
-
-        # Documents Download Group
-        layout.addWidget(self._create_documents_group())
 
         # Push to Server Group
         layout.addWidget(self._create_push_group())
@@ -143,43 +138,6 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.waypoint_count_label = QLabel("")
         self.waypoint_count_label.setStyleSheet(self._get_info_label_style())
         layout.addWidget(self.waypoint_count_label)
-
-        return group
-
-    def _create_documents_group(self) -> QGroupBox:
-        """Create the documents download group."""
-        group = QGroupBox("Claim Documents")
-        group.setStyleSheet(self._get_group_style())
-        layout = QVBoxLayout(group)
-        layout.setSpacing(8)
-
-        # Info
-        info_label = QLabel(
-            "Download your generated claim documents (location notices, corner certificates) "
-            "from the server. Documents are bundled into a Claim Package for easy access."
-        )
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet(self._get_info_label_style())
-        layout.addWidget(info_label)
-
-        # Button
-        btn_layout = QHBoxLayout()
-
-        self.download_docs_btn = QPushButton("Download Documents")
-        self.download_docs_btn.setToolTip("Open the Claim Package page to download documents")
-        self.download_docs_btn.setStyleSheet(self._get_success_button_style())
-        self.download_docs_btn.clicked.connect(self._download_documents)
-        self.download_docs_btn.setEnabled(False)
-        btn_layout.addWidget(self.download_docs_btn)
-
-        btn_layout.addStretch()
-
-        layout.addLayout(btn_layout)
-
-        # Status
-        self.docs_status_label = QLabel("")
-        self.docs_status_label.setStyleSheet(self._get_info_label_style())
-        layout.addWidget(self.docs_status_label)
 
         return group
 
@@ -544,18 +502,6 @@ class ClaimsStep7Widget(ClaimsStepBase):
         )
 
     # =========================================================================
-    # Export Methods
-    # =========================================================================
-
-    def _download_documents(self):
-        """Open browser to Claim Packages page for document download."""
-        url = "https://geodb.io/geodata/claim-packages/"
-        QDesktopServices.openUrl(QUrl(url))
-        self.docs_status_label.setText("Opened Claim Packages in browser")
-        self.docs_status_label.setStyleSheet(self._get_success_label_style())
-        self.emit_status("Opened Claim Packages page in browser", "success")
-
-    # =========================================================================
     # Push Methods
     # =========================================================================
 
@@ -732,16 +678,4 @@ class ClaimsStep7Widget(ClaimsStepBase):
         """Load widget state from shared state."""
         # Update button states
         has_processed = len(self.state.processed_claims) > 0
-        has_documents = len(self.state.generated_documents) > 0 or self.state.package_info is not None
-
-        self.download_docs_btn.setEnabled(has_documents)
         self.push_btn.setEnabled(has_processed)
-
-        # Update documents status label
-        if self.state.package_info:
-            pkg_num = self.state.package_info.get('package_number', '')
-            doc_count = len(self.state.generated_documents)
-            self.docs_status_label.setText(f"{doc_count} document(s) in Package {pkg_num}")
-        elif has_documents:
-            doc_count = len(self.state.generated_documents)
-            self.docs_status_label.setText(f"{doc_count} document(s) available")
