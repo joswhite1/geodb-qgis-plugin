@@ -243,9 +243,8 @@ class ClaimsWizardWidget(QWidget):
         self.state.load_from_qgis_project()
         self._update_from_state()
 
-        # Activate first step to populate form fields from loaded state
-        if self.step_widgets:
-            self.step_widgets[0].set_active(True)
+        # Auto-resume to the appropriate step, or start at step 1
+        self._auto_resume()
 
     def cleanup(self):
         """Clean up resources before deletion to prevent crashes.
@@ -558,6 +557,91 @@ class ClaimsWizardWidget(QWidget):
         """Update UI from state (after loading from project)."""
         self.step_indicator.set_completed_steps(self._completed_steps_for_indicator())
         self._update_navigation_buttons()
+
+    def _auto_resume(self):
+        """
+        Auto-resume to the appropriate step when the wizard opens.
+
+        If there are completed steps from a previous session, offer to
+        resume where the user left off. Otherwise start at step 1.
+        """
+        if not self.step_widgets:
+            return
+
+        completed = sorted(self.state.completed_steps)
+        if not completed:
+            # No previous progress — start at step 1
+            self.step_widgets[0].set_active(True)
+            return
+
+        # Find the first incomplete step (the next one to work on)
+        # completed_steps are 1-indexed
+        num_steps = len(self.step_widgets)
+        resume_step = 0  # 0-indexed, default to step 1
+        for step_num in range(1, num_steps + 1):
+            if step_num not in self.state.completed_steps:
+                resume_step = step_num - 1  # Convert to 0-indexed
+                break
+        else:
+            # All steps completed — go to the last step
+            resume_step = num_steps - 1
+
+        # Build a description of progress
+        prefix = self.state.grid_name_prefix or ""
+        project_desc = f" ({prefix} Lode Claims)" if prefix else ""
+
+        if resume_step == 0:
+            # Only step 1 is incomplete, just start there
+            self.step_widgets[0].set_active(True)
+            return
+
+        # All steps complete — offer to review or start over
+        if all(s in self.state.completed_steps for s in range(1, num_steps + 1)):
+            reply = QMessageBox.question(
+                self,
+                "Resume Claims Project",
+                f"Previous claims project{project_desc} is complete "
+                f"(all {num_steps} steps finished).\n\n"
+                "Would you like to review from Step 1, or continue "
+                "from the last step?\n\n"
+                "You can also use the step indicators to jump to any step.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                # "Yes" = continue from last step
+                self.go_to_step(resume_step)
+            else:
+                # "No" = start from step 1
+                self.step_widgets[0].set_active(True)
+            return
+
+        # Partially complete — offer to resume at the next incomplete step
+        resume_name = self.STEP_NAMES[resume_step] if resume_step < len(self.STEP_NAMES) else f"Step {resume_step + 1}"
+        completed_names = []
+        for s in sorted(completed):
+            idx = s - 1
+            if idx < len(self.STEP_NAMES):
+                completed_names.append(f"  Step {s}: {self.STEP_NAMES[idx]}")
+
+        reply = QMessageBox.question(
+            self,
+            "Resume Claims Project",
+            f"Found previous claims project{project_desc} with progress:\n\n"
+            + "\n".join(completed_names)
+            + f"\n\nResume at Step {resume_step + 1}: {resume_name}?\n\n"
+            "Choose Yes to resume, or No to start from Step 1.\n"
+            "You can also use the step indicators to jump to any step.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.go_to_step(resume_step)
+        else:
+            # Start from step 1 — don't invalidate completed steps,
+            # user can still jump forward via step indicators
+            self.step_widgets[0].set_active(True)
 
     def _update_navigation_buttons(self):
         """Update Back/Next button states."""

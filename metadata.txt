@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.6.2
+version=2.7.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.7.0 - Claims workflow layer group consistency and auto-resume
+        - Unify all claims layer group management under shared utility (get_or_create_claims_group)
+        - All wizard steps now use the same "Claims Workflow [XX Lode Claims]" group
+        - Add Claim Name Prefix field to Step 1 (used for GeoPackage filename and group naming)
+        - Auto-suggest GeoPackage filename from prefix (e.g. GE_claims.gpkg)
+        - Auto-resume wizard to next incomplete step when reopening a previous project
+        - Resume dialog shows completed steps and offers to continue or start from Step 1
+        - Step indicators still allow jumping to any completed step
+        - Remove duplicate _add_layer_to_claims_group implementations across files
     2.6.2 - Streamline claims wizard finish flow
         - Remove redundant Download Documents button from Step 7
         - Finish button now opens Claim Packages page in browser and returns to Sync Data tab

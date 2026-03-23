@@ -218,6 +218,28 @@ class ClaimsStep1Widget(ClaimsStepBase):
         info_label.setStyleSheet(self._get_info_label_style())
         layout.addWidget(info_label)
 
+        # Claim Name Prefix
+        prefix_layout = QHBoxLayout()
+        prefix_label = QLabel("Claim Name Prefix:")
+        prefix_label.setToolTip(
+            "Short prefix for claim names (e.g. 'GE' produces claims named GE 1, GE 2, ...).\n"
+            "Also used to name the GeoPackage file and layer group."
+        )
+        prefix_layout.addWidget(prefix_label)
+
+        self.name_prefix_edit = QLineEdit()
+        self.name_prefix_edit.setStyleSheet(self._get_input_style())
+        self.name_prefix_edit.setPlaceholderText("GE")
+        self.name_prefix_edit.setText(self.state.grid_name_prefix or "GE")
+        self.name_prefix_edit.setMaximumWidth(100)
+        self.name_prefix_edit.setToolTip(
+            "Short prefix for claim names (e.g. 'GE' produces claims named GE 1, GE 2, ...)"
+        )
+        prefix_layout.addWidget(self.name_prefix_edit)
+        prefix_layout.addStretch()
+
+        layout.addLayout(prefix_layout)
+
         # Current file
         file_layout = QHBoxLayout()
 
@@ -812,8 +834,10 @@ class ClaimsStep1Widget(ClaimsStepBase):
             self._load_geopackage(path)
 
     def _create_geopackage(self):
-        """Create a new GeoPackage."""
-        default_path = str(Path.home() / "Documents" / "claims.gpkg")
+        """Create a new GeoPackage, using the claim prefix for the default filename."""
+        prefix = self.name_prefix_edit.text().strip() or "claims"
+        default_name = f"{prefix}_claims.gpkg"
+        default_path = str(Path.home() / "Documents" / default_name)
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Create Claims GeoPackage",
@@ -826,6 +850,9 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 path += '.gpkg'
 
             try:
+                # Save prefix to state before creating the GeoPackage
+                self.state.grid_name_prefix = self.name_prefix_edit.text().strip() or "GE"
+
                 # Create empty GeoPackage by initializing state storage
                 # IMPORTANT: Clear claim_package_id since this is a fresh GeoPackage
                 # Any previous package ID from another GeoPackage is now invalid
@@ -863,6 +890,13 @@ class ClaimsStep1Widget(ClaimsStepBase):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load GeoPackage: {e}")
 
+    def _get_claims_group_name(self) -> str:
+        """Build the Claims Workflow group name from the current prefix."""
+        prefix = self.name_prefix_edit.text().strip()
+        if prefix:
+            return f"Claims Workflow [{prefix} Lode Claims]"
+        return "Claims Workflow"
+
     def _load_claims_layers_from_geopackage(self, gpkg_path: str):
         """
         Load all claims layers from a GeoPackage with their saved styles.
@@ -883,10 +917,10 @@ class ClaimsStep1Widget(ClaimsStepBase):
             )
 
             # Load all claims layers from the GeoPackage
-            # Styles saved as defaults will be auto-applied by QGIS
+            # Use prefix-based group name so layers go into the right group
             loaded_layers = generator.load_layers_from_geopackage(
                 gpkg_path,
-                group_name="Claims Layers"
+                group_name=self._get_claims_group_name()
             )
 
             if loaded_layers:
@@ -960,6 +994,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
     def save_state(self):
         """Save widget state to shared state."""
+        self.state.grid_name_prefix = self.name_prefix_edit.text().strip() or "GE"
         self.state.claimant_name = self.claimant_name_edit.text().strip()
         self.state.address_line1 = self.address1_edit.text().strip()
         self.state.address_line2 = self.address2_edit.text().strip()
@@ -973,6 +1008,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
     def load_state(self):
         """Load widget state from shared state."""
+        self.name_prefix_edit.setText(self.state.grid_name_prefix or "GE")
         self.claimant_name_edit.setText(self.state.claimant_name)
         self.address1_edit.setText(self.state.address_line1)
         self.address2_edit.setText(self.state.address_line2)

@@ -363,17 +363,19 @@ class ClaimsStep2Widget(ClaimsStepBase):
         """
         Add a layer to the Claims Workflow group in the QGIS project.
 
+        Finds any existing "Claims Workflow [...]" group rather than
+        creating a duplicate bare "Claims Workflow" group.
+
         Args:
             layer: The layer to add
         """
         try:
+            from ...utils.layer_utils import get_or_create_claims_group
+
             project = QgsProject.instance()
-            root = project.layerTreeRoot()
 
             # Find or create the Claims Workflow group
-            group = root.findGroup("Claims Workflow")
-            if not group:
-                group = root.insertGroup(0, "Claims Workflow")
+            group = get_or_create_claims_group()
 
             # Add layer to project (without adding to layer tree automatically)
             project.addMapLayer(layer, False)

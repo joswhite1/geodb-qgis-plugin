@@ -1539,7 +1539,7 @@ class ClaimsLayerGenerator:
     def add_layers_to_project(
         self,
         layers: Dict[str, QgsVectorLayer],
-        group_name: str = "Claims Layers"
+        group_name: str = "Claims Workflow"
     ) -> bool:
         """
         Add generated layers to the QGIS project with styling.
@@ -1558,13 +1558,13 @@ class ClaimsLayerGenerator:
             True if successful
         """
         try:
+            from ..utils.layer_utils import get_or_create_claims_group
+
             project = QgsProject.instance()
             root = project.layerTreeRoot()
 
-            # Create or find group
-            group = root.findGroup(group_name)
-            if not group:
-                group = root.insertGroup(0, group_name)
+            # Find or create the Claims Workflow group
+            group = get_or_create_claims_group(group_name, root)
 
             # Add layers in specific order (bottom to top in the layer tree)
             # Later items in this list will be higher in the tree (drawn on top)
@@ -1689,7 +1689,7 @@ class ClaimsLayerGenerator:
     def load_layers_from_geopackage(
         self,
         gpkg_path: str,
-        group_name: str = "Claims Layers"
+        group_name: str = "Claims Workflow"
     ) -> Dict[str, QgsVectorLayer]:
         """
         Load all claims layers from a GeoPackage with their saved styles.
@@ -1707,6 +1707,8 @@ class ClaimsLayerGenerator:
             Dict mapping layer names to loaded QgsVectorLayer objects
         """
         import os
+        from ..utils.layer_utils import get_or_create_claims_group
+
         if not os.path.exists(gpkg_path):
             self.logger.error(f"[CLAIMS] GeoPackage not found: {gpkg_path}")
             return {}
@@ -1737,10 +1739,8 @@ class ClaimsLayerGenerator:
         project = QgsProject.instance()
         root = project.layerTreeRoot()
 
-        # Create or find group
-        group = root.findGroup(group_name)
-        if not group:
-            group = root.insertGroup(0, group_name)
+        # Find or create the Claims Workflow group
+        group = get_or_create_claims_group(group_name, root)
 
         # Try to load each layer
         for table_name, display_name in layer_tables.items():

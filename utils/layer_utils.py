@@ -7,7 +7,7 @@ the claims workflow steps.
 """
 from typing import Optional
 
-from qgis.core import QgsVectorLayer, QgsProject
+from qgis.core import QgsLayerTreeGroup, QgsVectorLayer, QgsProject
 
 try:
     from qgis.PyQt import sip
@@ -120,3 +120,74 @@ def get_layer_in_project_or_none(layer: Optional[QgsVectorLayer]) -> Optional[Qg
         ...     self._layer = self._load_or_create_layer()
     """
     return layer if is_layer_in_project(layer) else None
+
+
+# Claims Workflow group prefix used across the claims wizard
+CLAIMS_GROUP_PREFIX = "Claims Workflow"
+
+
+def find_claims_workflow_group(
+    root: Optional[QgsLayerTreeGroup] = None
+) -> Optional[QgsLayerTreeGroup]:
+    """
+    Find an existing Claims Workflow group in the layer tree.
+
+    Searches for any group whose name starts with "Claims Workflow",
+    matching both "Claims Workflow" and "Claims Workflow [XX Lode Claims]".
+
+    Args:
+        root: Layer tree root (uses project root if not provided)
+
+    Returns:
+        The first matching group, or None if not found
+    """
+    if root is None:
+        root = QgsProject.instance().layerTreeRoot()
+    for child in root.children():
+        if isinstance(child, QgsLayerTreeGroup) and child.name().startswith(CLAIMS_GROUP_PREFIX):
+            return child
+    return None
+
+
+def get_or_create_claims_group(
+    group_name: Optional[str] = None,
+    root: Optional[QgsLayerTreeGroup] = None
+) -> QgsLayerTreeGroup:
+    """
+    Find or create the Claims Workflow layer group.
+
+    If a group_name is provided (e.g. "Claims Workflow [XX Lode Claims]"),
+    looks for that exact group first. If not found, looks for any existing
+    "Claims Workflow*" group and renames it. If no existing group is found,
+    creates a new one.
+
+    If no group_name is provided, returns any existing "Claims Workflow*"
+    group, or creates a plain "Claims Workflow" group.
+
+    Args:
+        group_name: Desired group name (e.g. "Claims Workflow [XX Lode Claims]")
+        root: Layer tree root (uses project root if not provided)
+
+    Returns:
+        The Claims Workflow layer tree group
+    """
+    if root is None:
+        root = QgsProject.instance().layerTreeRoot()
+
+    target_name = group_name or CLAIMS_GROUP_PREFIX
+
+    # First, try exact match
+    exact = root.findGroup(target_name)
+    if exact:
+        return exact
+
+    # Look for any existing "Claims Workflow*" group
+    existing = find_claims_workflow_group(root)
+    if existing:
+        # Rename to the desired name if a specific name was requested
+        if group_name and existing.name() != group_name:
+            existing.setName(group_name)
+        return existing
+
+    # No existing group — create a new one at the top
+    return root.insertGroup(0, target_name)
