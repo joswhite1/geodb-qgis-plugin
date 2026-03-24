@@ -1393,19 +1393,17 @@ class ClaimsStep6Widget(ClaimsStepBase):
     # =========================================================================
 
     def validate(self) -> List[str]:
-        """Validate the step."""
+        """Validate the step.
+
+        Note: tos_accepted is validated in Step 1 and is required to reach
+        this step, so we don't re-check it here. Doing so caused the Next
+        button to be permanently disabled in resume scenarios because
+        tos_accepted is not persisted in the GeoPackage.
+        """
         errors = []
 
         if not self.state.claims_layer:
             errors.append("Claims layer is required")
-
-        if not self.state.tos_accepted:
-            errors.append("Terms of Service must be accepted")
-
-        # Processing is not required to proceed, but recommended
-        if not self.state.processed_claims:
-            # This is a soft warning, not an error
-            pass
 
         return errors
 

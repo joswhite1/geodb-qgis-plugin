@@ -340,7 +340,7 @@ class FieldWorkDialog(QDialog):
 
         self._execute_push(layer)
 
-    def _execute_push(self, layer: QgsVectorLayer):
+    def _execute_push(self, layer: QgsVectorLayer, skip_conflict_check: bool = False):
         """Execute the push operation."""
         self._set_pushing(True)
         self.message_browser.clear()
@@ -361,14 +361,20 @@ class FieldWorkDialog(QDialog):
                 start_number=start,
                 padding=padding,
                 sample_type=sample_type,
-                progress_callback=self._on_progress
+                progress_callback=self._on_progress,
+                skip_conflict_check=skip_conflict_check
             )
+
+            # Check if data manager returned conflict info instead of pushing
+            if result.get('has_conflicts'):
+                self._set_pushing(False)
+                self._handle_conflicts(layer, result['conflicts'])
+                return
 
             # Show results
             created = result.get('created', 0)
             updated = result.get('updated', 0)
             errors = result.get('errors', 0)
-            created + updated
 
             if errors == 0:
                 # Build success message
@@ -412,6 +418,59 @@ class FieldWorkDialog(QDialog):
 
         finally:
             self._set_pushing(False)
+
+    def _handle_conflicts(self, layer: QgsVectorLayer, conflicts: dict):
+        """
+        Show a warning dialog when existing samples would be overwritten.
+
+        Gives the user the choice to overwrite, cancel, or adjust their
+        sequence numbers to avoid the conflict.
+        """
+        would_update = conflicts.get('would_update', 0)
+        would_create = conflicts.get('would_create', 0)
+        conflict_list = conflicts.get('conflicts', [])
+
+        # Build a readable list of the first few conflicts
+        detail_lines = []
+        for c in conflict_list[:10]:
+            seq = c.get('sequence_number', '?')
+            status_display = c.get('existing_status_display', 'Unknown')
+            existing_name = c.get('existing_name', '')
+            if existing_name:
+                detail_lines.append(f"  {seq} ({status_display}, name: {existing_name})")
+            else:
+                detail_lines.append(f"  {seq} ({status_display})")
+        if len(conflict_list) > 10:
+            detail_lines.append(f"  ... and {len(conflict_list) - 10} more")
+
+        details = "\n".join(detail_lines)
+
+        self._log_message(
+            f"<span style='color: #d97706;'><b>Warning:</b> "
+            f"{would_update} existing samples would be overwritten.</span>"
+        )
+
+        msg = (
+            f"{would_update} existing sample(s) already use these sequence numbers "
+            f"and will be OVERWRITTEN:\n\n"
+            f"{details}\n\n"
+            f"{would_create} new sample(s) would be created.\n\n"
+            f"Do you want to overwrite the existing samples?\n\n"
+            f"Tip: Change the start number or prefix to avoid conflicts."
+        )
+
+        reply = QMessageBox.warning(
+            self, "Existing Samples Found",
+            msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self._log_message("User confirmed overwrite. Pushing...")
+            self._execute_push(layer, skip_conflict_check=True)
+        else:
+            self._log_message("Push cancelled by user.")
 
     def _on_progress(self, percent: int, message: str):
         """Handle progress updates."""

@@ -204,12 +204,13 @@ class ClaimsWizardState:
 
         elif step == 5:
             # Finalize validation
+            # Note: tos_accepted and access_info are validated in Step 1
+            # and are required to reach this step, so they are not re-checked
+            # here. Re-checking caused the Next button to be permanently
+            # disabled in resume scenarios because these fields are not
+            # persisted in the GeoPackage.
             if not self.claims_layer:
                 errors.append("Claims layer is required")
-            if not self.tos_accepted:
-                errors.append("Terms of Service must be accepted")
-            if not self.access_info:
-                errors.append("License access must be verified")
 
         elif step == 6:
             # Export validation
@@ -259,6 +260,7 @@ class ClaimsWizardState:
                 'completed_steps': json.dumps(self.completed_steps),
                 'claim_package_id': str(self.claim_package_id) if self.claim_package_id else '',
                 'claims_pushed': '1' if self.claims_pushed else '',
+                'tos_accepted': '1' if self.tos_accepted else '',
             }
 
             for key, value in metadata.items():
@@ -406,6 +408,7 @@ class ClaimsWizardState:
             self.claim_package_id = int(pkg_id_str) if pkg_id_str else None
 
             self.claims_pushed = bool(metadata.get('claims_pushed', ''))
+            self.tos_accepted = bool(metadata.get('tos_accepted', ''))
 
             return True
 

@@ -867,6 +867,47 @@ class APIClient:
         url = f"{endpoint}bulk/"
         return self._make_request('POST', url, data=records)
 
+    def check_conflicts(
+        self,
+        model_name: str,
+        records: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Check which records would be overwritten by a bulk push.
+
+        Calls the /check-conflicts/ endpoint which performs a dry-run lookup
+        without making any changes.
+
+        Args:
+            model_name: Model name (e.g., 'PointSample')
+            records: List of record data dicts (same format as bulk_upsert_records)
+
+        Returns:
+            Dict with 'would_create', 'would_update', and 'conflicts' keys:
+            {
+                'would_create': N,
+                'would_update': N,
+                'conflicts': [
+                    {
+                        'index': 0,
+                        'sequence_number': 'SS-001',
+                        'existing_id': 123,
+                        'existing_status': 'PL',
+                        'existing_status_display': 'Planned',
+                        'existing_name': '',
+                        'matched_by': 'sequence_number'
+                    },
+                    ...
+                ]
+            }
+        """
+        endpoint = self.config.get_model_endpoint(model_name)
+        if not endpoint:
+            raise ValueError(f"Unknown model: {model_name}")
+
+        url = f"{endpoint}check-conflicts/"
+        return self._make_request('POST', url, data=records)
+
     def delete_record(self, model_name: str, record_id: int) -> None:
         """
         Delete a record (soft delete).

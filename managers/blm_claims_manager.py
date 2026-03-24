@@ -18,7 +18,6 @@ from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal, QThread, QUrl, QByteAr
 from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry, QgsField,
-    QgsCoordinateReferenceSystem, QgsCoordinateTransform,
     QgsSimpleFillSymbolLayer, QgsSymbol, QgsGraduatedSymbolRenderer,
     QgsRendererRange, QgsApplication
 )
@@ -27,6 +26,7 @@ from qgis.PyQt.QtGui import QColor
 
 from ..api.client import APIClient
 from ..utils.config import Config
+from ..utils.crs_utils import extent_to_wgs84
 from ..utils.geometry import geojson_to_wkt
 from ..utils.logger import PluginLogger
 
@@ -322,10 +322,12 @@ class BLMClaimsManager(QObject):
         extent = self._canvas.extent()
         map_crs = self._canvas.mapSettings().destinationCrs()
 
-        if map_crs.authid() != 'EPSG:4326':
-            wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
-            transform = QgsCoordinateTransform(map_crs, wgs84, QgsProject.instance())
-            extent = transform.transformBoundingBox(extent)
+        extent = extent_to_wgs84(extent, map_crs)
+        if extent is None:
+            self._log("Could not transform canvas extent to WGS84", "warning")
+            self.status_changed.emit("Cannot determine extent")
+            self.loading_changed.emit(False)
+            return
 
         # Check if zoomed out too far (>4 degrees span)
         lon_span = extent.xMaximum() - extent.xMinimum()

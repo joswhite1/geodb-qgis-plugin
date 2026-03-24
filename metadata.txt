@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.7.0
+version=2.7.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,14 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.7.1 - Fix CRS transform crashes and claims wizard Next button
+        - Fix QgsCsException crash when BLM/PLSS streaming layers transform extent with wide-extent basemaps
+        - Add extent_to_wgs84() utility that clamps to CRS valid bounds before transforming
+        - Apply safe transform to all 4 bounding box transform sites (BLM, PLSS, basemaps PLSS/MRDS)
+        - Fix Step 6 (Finalize) Next button permanently disabled after processing and doc generation
+        - Remove redundant tos_accepted/access_info validation from Step 6 (already validated in Step 1)
+        - Persist tos_accepted in GeoPackage metadata for proper resume across sessions
+        - Add conflict check before pushing planned samples (warns before overwriting existing records)
     2.7.0 - Claims workflow layer group consistency and auto-resume
         - Unify all claims layer group management under shared utility (get_or_create_claims_group)
         - All wizard steps now use the same "Claims Workflow [XX Lode Claims]" group

@@ -1586,7 +1586,8 @@ class DataManager:
         start_number: int,
         padding: int,
         sample_type: str,
-        progress_callback: Optional[Callable[[int, str], None]] = None
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+        skip_conflict_check: bool = False
     ) -> Dict[str, Any]:
         """
         Push points from any QGIS layer as planned PointSample records.
@@ -1729,8 +1730,34 @@ class DataManager:
                     progress = 10 + int((i + 1) / feature_count * 20)
                     progress_callback(progress, f"Prepared {i + 1} of {feature_count} samples...")
 
+            # Check for conflicts before pushing (would any existing samples be overwritten?)
+            if not skip_conflict_check:
+                if progress_callback:
+                    progress_callback(30, f"Checking for existing samples on server...")
+
+                conflict_result = None
+                try:
+                    conflict_result = self.api_client.check_conflicts(
+                        model_name='PointSample',
+                        records=samples_to_push
+                    )
+                except Exception as e:
+                    # If check-conflicts endpoint not available (older server), skip the check
+                    self.logger.warning(f"Conflict check failed (server may not support it): {e}")
+
+                if conflict_result and conflict_result.get('would_update', 0) > 0:
+                    # Return early with conflict info so the UI can prompt the user
+                    return {
+                        'created': 0,
+                        'updated': 0,
+                        'errors': 0,
+                        'error_details': None,
+                        'has_conflicts': True,
+                        'conflicts': conflict_result,
+                    }
+
             if progress_callback:
-                progress_callback(30, f"Pushing {len(samples_to_push)} samples to server...")
+                progress_callback(35, f"Pushing {len(samples_to_push)} samples to server...")
 
             # Push in batches using bulk endpoint (much faster than individual requests)
             # Batch size of 500 balances between request size and server processing

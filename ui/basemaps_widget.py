@@ -22,6 +22,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor, QFont
 
+from ..utils.crs_utils import extent_to_wgs84
 from ..utils.logger import PluginLogger
 from ..utils.compat import (
     Qt_ScrollBarAlwaysOff, Qt_ScrollBarAsNeeded, Qt_Horizontal,
@@ -761,10 +762,17 @@ class BasemapsWidget(QWidget):
                 return
 
             # Transform extent to WGS84 for the API (if needed)
-            if map_crs.authid() != 'EPSG:4326':
-                wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
-                transform = QgsCoordinateTransform(map_crs, wgs84, QgsProject.instance())
-                extent = transform.transformBoundingBox(extent)
+            extent = extent_to_wgs84(extent, map_crs)
+            if extent is None:
+                QMessageBox.warning(
+                    self,
+                    "Transform Error",
+                    "Could not transform the current map extent to WGS84.\n\n"
+                    "This can happen when a wide-extent layer (e.g. national basemap) "
+                    "is loaded in a local CRS like UTM. Try zooming in or "
+                    "switching the project CRS to EPSG:4326."
+                )
+                return
 
             # Build bbox string (minx,miny,maxx,maxy)
             bbox = f"{extent.xMinimum()},{extent.yMinimum()},{extent.xMaximum()},{extent.yMaximum()}"
@@ -1236,10 +1244,17 @@ class BasemapsWidget(QWidget):
                 return
 
             # Transform extent to WGS84 for the API
-            if map_crs.authid() != 'EPSG:4326':
-                wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
-                transform = QgsCoordinateTransform(map_crs, wgs84, QgsProject.instance())
-                extent = transform.transformBoundingBox(extent)
+            extent = extent_to_wgs84(extent, map_crs)
+            if extent is None:
+                QMessageBox.warning(
+                    self,
+                    "Transform Error",
+                    "Could not transform the current map extent to WGS84.\n\n"
+                    "This can happen when a wide-extent layer (e.g. national basemap) "
+                    "is loaded in a local CRS like UTM. Try zooming in or "
+                    "switching the project CRS to EPSG:4326."
+                )
+                return
 
             # Build bbox string
             bbox = f"{extent.xMinimum()},{extent.yMinimum()},{extent.xMaximum()},{extent.yMaximum()}"
