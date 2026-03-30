@@ -157,12 +157,12 @@ def get_or_create_claims_group(
     Find or create the Claims Workflow layer group.
 
     If a group_name is provided (e.g. "Claims Workflow [XX Lode Claims]"),
-    looks for that exact group first. If not found, looks for any existing
-    "Claims Workflow*" group and renames it. If no existing group is found,
-    creates a new one.
+    looks for that exact group first. If not found, creates a new one.
+    This allows multiple claim groups to coexist in the same project.
 
     If no group_name is provided, returns any existing "Claims Workflow*"
-    group, or creates a plain "Claims Workflow" group.
+    group (for backward compatibility), or creates a plain "Claims Workflow"
+    group.
 
     Args:
         group_name: Desired group name (e.g. "Claims Workflow [XX Lode Claims]")
@@ -176,18 +176,16 @@ def get_or_create_claims_group(
 
     target_name = group_name or CLAIMS_GROUP_PREFIX
 
-    # First, try exact match
+    # Try exact match first
     exact = root.findGroup(target_name)
     if exact:
         return exact
 
-    # Look for any existing "Claims Workflow*" group
-    existing = find_claims_workflow_group(root)
-    if existing:
-        # Rename to the desired name if a specific name was requested
-        if group_name and existing.name() != group_name:
-            existing.setName(group_name)
-        return existing
+    # When no specific name was requested, fall back to any existing group
+    if not group_name:
+        existing = find_claims_workflow_group(root)
+        if existing:
+            return existing
 
-    # No existing group — create a new one at the top
+    # No matching group — create a new one at the top
     return root.insertGroup(0, target_name)

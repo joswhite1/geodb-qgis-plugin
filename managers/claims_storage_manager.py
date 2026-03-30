@@ -80,6 +80,19 @@ class ClaimsStorageManager:
         """Initialize the claims storage manager."""
         self.logger = PluginLogger.get_logger()
         self._current_gpkg: Optional[str] = None
+        self._claims_group_name: Optional[str] = None
+
+    def set_claims_group_name(self, group_name: Optional[str]):
+        """Set the Claims Workflow group name for layer organization.
+
+        When set, layers added to the project will go into this specific
+        group (e.g. "Claims Workflow [CM Lode Claims]") instead of a
+        generic "Claims Workflow" group.
+
+        Args:
+            group_name: Full group name, or None for default behavior
+        """
+        self._claims_group_name = group_name
 
     def get_or_create_geopackage(
         self,
@@ -1050,11 +1063,9 @@ class ClaimsStorageManager:
         """
         Add a layer to the Claims Workflow group in the QGIS project.
 
-        Finds any existing "Claims Workflow [...]" group rather than
-        creating a duplicate bare "Claims Workflow" group.
-
-        Args:
-            layer: The layer to add
+        Uses the group name set via set_claims_group_name() so that layers
+        go into the correct project-specific group (e.g.
+        "Claims Workflow [CM Lode Claims]").
         """
         try:
             from ..utils.layer_utils import get_or_create_claims_group
@@ -1062,7 +1073,7 @@ class ClaimsStorageManager:
             project = QgsProject.instance()
 
             # Find or create the Claims Workflow group
-            group = get_or_create_claims_group()
+            group = get_or_create_claims_group(self._claims_group_name)
 
             # Add layer to project (without adding to layer tree automatically)
             project.addMapLayer(layer, False)

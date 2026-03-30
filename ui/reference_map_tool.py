@@ -821,19 +821,25 @@ class ReferencePointsWidget(QWidget):
         """
         Add a layer to the Claims Workflow group in the QGIS project.
 
-        Finds any existing "Claims Workflow [...]" group rather than
-        creating a duplicate bare "Claims Workflow" group.
+        Uses the project name to build a specific group name so that
+        multiple claim groups don't overlap.
 
         Args:
             layer: The layer to add
         """
         try:
-            from ...utils.layer_utils import get_or_create_claims_group
+            from ...utils.layer_utils import get_or_create_claims_group, CLAIMS_GROUP_PREFIX
 
             project = QgsProject.instance()
 
+            # Build project-specific group name
+            if self._project_name:
+                group_name = f"{CLAIMS_GROUP_PREFIX} [{self._project_name}]"
+            else:
+                group_name = None
+
             # Find or create the Claims Workflow group
-            group = get_or_create_claims_group()
+            group = get_or_create_claims_group(group_name)
 
             # Add layer to project (without adding to layer tree automatically)
             project.addMapLayer(layer, False)

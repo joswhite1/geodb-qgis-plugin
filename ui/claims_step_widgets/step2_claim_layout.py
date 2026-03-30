@@ -57,11 +57,14 @@ class ClaimsStep2Widget(ClaimsStepBase):
                 claims_storage_manager=storage_manager
             )
 
-        # Update GeoPackage path from state
+        # Update GeoPackage path and group name from state
         if self.state.geopackage_path:
             self._grid_generator.set_geopackage_path(self.state.geopackage_path)
         else:
             self._grid_generator.set_geopackage_path(None)
+        self._grid_generator.claims_storage_manager.set_claims_group_name(
+            self.state.claims_group_name
+        )
 
         return self._grid_generator
 
@@ -363,8 +366,8 @@ class ClaimsStep2Widget(ClaimsStepBase):
         """
         Add a layer to the Claims Workflow group in the QGIS project.
 
-        Finds any existing "Claims Workflow [...]" group rather than
-        creating a duplicate bare "Claims Workflow" group.
+        Uses the project-specific group name from wizard state so that
+        multiple claim groups don't overlap.
 
         Args:
             layer: The layer to add
@@ -374,8 +377,8 @@ class ClaimsStep2Widget(ClaimsStepBase):
 
             project = QgsProject.instance()
 
-            # Find or create the Claims Workflow group
-            group = get_or_create_claims_group()
+            # Find or create the Claims Workflow group with project-specific name
+            group = get_or_create_claims_group(self.state.claims_group_name)
 
             # Add layer to project (without adding to layer tree automatically)
             project.addMapLayer(layer, False)

@@ -626,6 +626,63 @@ class BasemapsWidget(QWidget):
         self._plss_stream_manager = None
         self._plss_stream_has_access = False
 
+        # Federal Lands streaming section
+        self.federal_lands_group = QGroupBox("Federal Lands (BLM + Forest Service)")
+        self.federal_lands_group.setStyleSheet(self._get_group_style())
+        federal_lands_layout = QVBoxLayout(self.federal_lands_group)
+        federal_lands_layout.setSpacing(8)
+
+        federal_lands_desc = QLabel(
+            "Stream BLM and Forest Service land boundaries as you pan/zoom. "
+            "BLM lands shown in yellow, Forest Service in green."
+        )
+        federal_lands_desc.setWordWrap(True)
+        federal_lands_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        federal_lands_layout.addWidget(federal_lands_desc)
+
+        # Toggle checkbox
+        self.federal_lands_toggle = QCheckBox("Show Federal Lands")
+        self.federal_lands_toggle.setEnabled(False)
+        self.federal_lands_toggle.stateChanged.connect(self._on_federal_lands_toggle_changed)
+        federal_lands_layout.addWidget(self.federal_lands_toggle)
+
+        # Color legend
+        legend_layout = QHBoxLayout()
+        legend_layout.setSpacing(12)
+
+        blm_swatch = QLabel()
+        blm_swatch.setFixedSize(14, 14)
+        blm_swatch.setStyleSheet(
+            "background-color: #FFEB3B; border: 1px solid #F9A825; border-radius: 2px;"
+        )
+        legend_layout.addWidget(blm_swatch)
+        legend_layout.addWidget(QLabel("BLM"))
+
+        fs_swatch = QLabel()
+        fs_swatch.setFixedSize(14, 14)
+        fs_swatch.setStyleSheet(
+            "background-color: #4CAF50; border: 1px solid #2E7D32; border-radius: 2px;"
+        )
+        legend_layout.addWidget(fs_swatch)
+        legend_layout.addWidget(QLabel("Forest Service"))
+
+        legend_layout.addStretch()
+        federal_lands_layout.addLayout(legend_layout)
+
+        # Status label
+        self.federal_lands_status_label = QLabel("")
+        self.federal_lands_status_label.setWordWrap(True)
+        self.federal_lands_status_label.setStyleSheet(
+            "color: #6b7280; font-size: 11px; font-style: italic;"
+        )
+        federal_lands_layout.addWidget(self.federal_lands_status_label)
+
+        layout.addWidget(self.federal_lands_group)
+
+        # Store Federal Lands streaming manager reference
+        self._federal_lands_manager = None
+        self._federal_lands_has_access = False
+
         # Add stretch at the end to push content to the top
         layout.addStretch()
 
@@ -1600,6 +1657,64 @@ class BasemapsWidget(QWidget):
         )
         self.plss_stream_toggle.setChecked(False)
         self.plss_stream_toggle.setEnabled(False)
+
+    # ==================== Federal Lands Streaming Methods ====================
+
+    def set_federal_lands_manager(self, manager, has_access: bool):
+        """Wire up the Federal Lands streaming manager and set access state."""
+        self._federal_lands_manager = manager
+        self._federal_lands_has_access = has_access
+
+        if manager is None:
+            # Logout state
+            self.federal_lands_toggle.setChecked(False)
+            self.federal_lands_toggle.setEnabled(False)
+            self.federal_lands_status_label.setText("Login required to stream Federal Lands")
+            return
+
+        if not has_access:
+            self.federal_lands_toggle.setChecked(False)
+            self.federal_lands_toggle.setEnabled(False)
+            self.federal_lands_status_label.setText(
+                "Federal Lands streaming requires a QClaims subscription. Visit geodb.io for details."
+            )
+            return
+
+        # Has access — enable controls
+        self.federal_lands_toggle.setEnabled(True)
+        self.federal_lands_status_label.setText("")
+
+        # Connect manager signals
+        manager.status_changed.connect(self._on_federal_lands_status_changed)
+        manager.loading_changed.connect(self._on_federal_lands_loading_changed)
+        manager.access_denied.connect(self._on_federal_lands_access_denied)
+
+    def _on_federal_lands_toggle_changed(self, state):
+        """Handle Federal Lands streaming toggle checkbox."""
+        if not self._federal_lands_manager:
+            return
+
+        if state == Qt_Checked:
+            self._federal_lands_manager.enable()
+        else:
+            self._federal_lands_manager.disable()
+            self.federal_lands_status_label.setText("")
+
+    def _on_federal_lands_status_changed(self, status: str):
+        """Update Federal Lands streaming status label."""
+        self.federal_lands_status_label.setText(status)
+
+    def _on_federal_lands_loading_changed(self, loading: bool):
+        """Update UI for Federal Lands loading state."""
+        pass
+
+    def _on_federal_lands_access_denied(self, message: str):
+        """Handle 403 from server."""
+        self.federal_lands_status_label.setText(
+            "Federal Lands streaming requires a QClaims subscription. Visit geodb.io for details."
+        )
+        self.federal_lands_toggle.setChecked(False)
+        self.federal_lands_toggle.setEnabled(False)
 
     # ==================== Styling Helpers ====================
 

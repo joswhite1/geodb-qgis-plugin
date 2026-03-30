@@ -259,6 +259,7 @@ class Config:
             'claims_submit_order': f"{base}/claims/submit-order/",
             'claims_orders': f"{base}/claims/orders/",
             'claims_documents': f"{base}/claims/documents/",
+            'claims_generate_witnesses': f"{base}/claims/generate-witnesses/",
 
             # BLM Claims (services API - different base, uses geodb.io not api.geodb.io)
             'blm_claims_sections': f"{self.services_base_url}/blm-claims/sections/",
@@ -270,6 +271,9 @@ class Config:
             # PLSS Grid (services API - same base as BLM claims)
             'plss_townships': f"{self.services_base_url}/plss/townships/",
             'plss_sections': f"{self.services_base_url}/plss/sections/",
+
+            # Federal Lands (BLM + Forest Service boundaries)
+            'federal_lands': f"{self.services_base_url}/federal-lands/",
         }
 
     def get_model_endpoint(self, model_name: str) -> str:

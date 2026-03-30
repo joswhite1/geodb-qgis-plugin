@@ -119,8 +119,16 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Buttons
         btn_layout = QHBoxLayout()
 
-        self.add_witness_btn = QPushButton("Instructions")
-        self.add_witness_btn.setToolTip("How to add a witness waypoint")
+        self.auto_witness_btn = QPushButton("Auto-generate Witness Points")
+        self.auto_witness_btn.setToolTip(
+            "Automatically generate witness waypoints for stakes on private land"
+        )
+        self.auto_witness_btn.setStyleSheet(self._get_secondary_button_style())
+        self.auto_witness_btn.clicked.connect(self._auto_generate_witnesses)
+        btn_layout.addWidget(self.auto_witness_btn)
+
+        self.add_witness_btn = QPushButton("Manual Instructions")
+        self.add_witness_btn.setToolTip("How to add a witness waypoint manually")
         self.add_witness_btn.setStyleSheet(self._get_secondary_button_style())
         self.add_witness_btn.clicked.connect(self._add_witness_waypoint)
         btn_layout.addWidget(self.add_witness_btn)
@@ -485,20 +493,204 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         return None
 
+    def _auto_generate_witnesses(self):
+        """Auto-generate witness waypoints for stakes on private land."""
+        if not self.state.processed_waypoints:
+            QMessageBox.warning(
+                self, "No Waypoints",
+                "Process claims first to generate waypoints."
+            )
+            return
+
+        if not self.state.processed_claims:
+            QMessageBox.warning(
+                self, "No Claims",
+                "Process claims first."
+            )
+            return
+
+        # Confirm
+        reply = QMessageBox.question(
+            self,
+            "Auto-generate Witness Points",
+            "This will check each corner, sideline, and endline waypoint against "
+            "federal land boundaries.\n\n"
+            "For any stake on private land, a witness waypoint will be generated "
+            "on nearby public land (preferring claim boundary edges).\n\n"
+            "Requires federal lands data to be imported on the server.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.auto_witness_btn.setEnabled(False)
+        self.auto_witness_btn.setText("Generating...")
+
+        try:
+            endpoint = self.claims_manager.config.endpoints.get(
+                'claims_generate_witnesses', ''
+            )
+            if not endpoint:
+                raise ValueError("Witness generation endpoint not configured")
+
+            import json
+            import urllib.request
+            import ssl
+
+            token = self.claims_manager.api.token
+            if not token:
+                raise ValueError("Not logged in")
+
+            payload = json.dumps({
+                'waypoints': self.state.processed_waypoints,
+                'claims': self.state.processed_claims,
+                'epsg': self.state.project_epsg,
+            }).encode('utf-8')
+
+            req = urllib.request.Request(
+                endpoint,
+                data=payload,
+                method='POST'
+            )
+            req.add_header('Authorization', f'Token {token}')
+            req.add_header('Content-Type', 'application/json')
+            req.add_header('Accept', 'application/json')
+            req.add_header('User-Agent', 'GeodbIO-QGIS-Plugin/2.0')
+
+            ctx = ssl.create_default_context()
+            if 'localhost' in endpoint or '127.0.0.1' in endpoint:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+
+            with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
+                result = json.loads(response.read().decode('utf-8'))
+
+            witnesses = result.get('witnesses', [])
+            witness_count = result.get('witness_count', 0)
+            private_count = result.get('private_stake_count', 0)
+
+            if not witnesses:
+                QMessageBox.information(
+                    self,
+                    "No Witnesses Needed",
+                    "All stakes are on public land. No witness waypoints needed."
+                )
+                return
+
+            # Append witness waypoints to state
+            self.state.processed_waypoints.extend(witnesses)
+
+            # Add witnesses to the QGIS waypoints layer
+            self._add_witnesses_to_layer(witnesses)
+
+            # Refresh table
+            self._refresh_waypoints_table()
+
+            QMessageBox.information(
+                self,
+                "Witness Points Generated",
+                f"Generated {witness_count} witness point(s) for "
+                f"{private_count} stake(s) on private land.\n\n"
+                "Witness points have been added to the waypoints table."
+            )
+
+            self.emit_status(
+                f"Generated {witness_count} witness points",
+                "success"
+            )
+
+        except urllib.error.HTTPError as e:
+            body = ''
+            try:
+                body = e.read().decode('utf-8', errors='replace')
+            except Exception:
+                pass
+            QMessageBox.critical(
+                self, "Error",
+                f"Server error ({e.code}): {body or str(e)}"
+            )
+
+        except Exception as e:
+            self.logger.error(f"[CLAIMS] Witness generation error: {e}")
+            QMessageBox.critical(self, "Error", str(e))
+
+        finally:
+            self.auto_witness_btn.setEnabled(True)
+            self.auto_witness_btn.setText("Auto-generate Witness Points")
+
+    def _add_witnesses_to_layer(self, witnesses):
+        """Add witness waypoints to the QGIS waypoints layer."""
+        from qgis.core import QgsFeature, QgsGeometry, QgsPointXY
+
+        waypoints_layer = self._get_waypoints_layer()
+        if not is_layer_valid(waypoints_layer):
+            self.logger.warning("[CLAIMS] No waypoints layer to add witnesses to")
+            return
+
+        source_crs = waypoints_layer.crs()
+        wgs84 = QgsCoordinateReferenceSystem('EPSG:4326')
+        transform = None
+        if source_crs and source_crs != wgs84:
+            transform = QgsCoordinateTransform(
+                wgs84, source_crs, QgsProject.instance()
+            )
+
+        was_editing = waypoints_layer.isEditable()
+        if not was_editing:
+            waypoints_layer.startEditing()
+
+        field_names = waypoints_layer.fields().names()
+
+        for wit in witnesses:
+            lat = wit.get('lat')
+            lon = wit.get('lon')
+            if lat is None or lon is None:
+                continue
+
+            point = QgsPointXY(lon, lat)
+            if transform:
+                point = transform.transform(point)
+
+            feat = QgsFeature(waypoints_layer.fields())
+            feat.setGeometry(QgsGeometry.fromPointXY(point))
+
+            if 'Name' in field_names:
+                feat.setAttribute('Name', wit.get('sequence_number', wit.get('name', '')))
+            if 'waypoint_type' in field_names:
+                feat.setAttribute('waypoint_type', 'witness')
+            if 'Symbol' in field_names:
+                feat.setAttribute('Symbol', 'Navaid, Amber')
+            if 'Latitude' in field_names:
+                feat.setAttribute('Latitude', lat)
+            if 'Longitude' in field_names:
+                feat.setAttribute('Longitude', lon)
+
+            waypoints_layer.addFeature(feat)
+
+        if not was_editing:
+            waypoints_layer.commitChanges()
+        else:
+            waypoints_layer.triggerRepaint()
+
+        self.logger.info(
+            f"[CLAIMS] Added {len(witnesses)} witness points to waypoints layer"
+        )
+
     def _add_witness_waypoint(self):
-        """Add a custom witness waypoint."""
-        # For now, show info message
-        # Full implementation would open a dialog to add custom waypoints
+        """Show instructions for manually adding a witness waypoint."""
         QMessageBox.information(
             self,
-            "Add Witness Waypoint",
-            "To add a witness waypoint:\n\n"
+            "Manual Witness Waypoint",
+            "To add a witness waypoint manually:\n\n"
             "1. Click on the 'Claims Waypoints' layer in QGIS\n"
             "2. Enable editing mode\n"
             "3. Use the Add Point tool to add a waypoint\n"
-            "4. Enter the waypoint name in the attribute table\n"
+            "4. Enter the waypoint name (e.g., 'WIT 32') in the Name field\n"
             "5. Click 'Refresh Table' to update this list\n\n"
-            "Witness waypoints help locate claim monuments from recognizable features."
+            "Or use 'Auto-generate Witness Points' to let the server\n"
+            "identify private-land stakes and place witnesses automatically."
         )
 
     # =========================================================================

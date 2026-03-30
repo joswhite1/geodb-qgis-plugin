@@ -63,7 +63,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         )
         self.generated_layers = {}
         self._layers_generated = False
-        self._group_name = "Claims Workflow"
+        self._group_name = self.state.claims_group_name
         self._setup_ui()
 
     def _setup_ui(self):
@@ -660,6 +660,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             project_name = layer_name[start:end]
         self.layer_generator.set_project_name(project_name)
         self._group_name = f"Claims Workflow [{project_name}]" if project_name else "Claims Workflow"
+        self._storage_manager.set_claims_group_name(self._group_name)
 
         # Detect state
         state = self._detect_state(claims_layer)

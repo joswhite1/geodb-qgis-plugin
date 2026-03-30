@@ -88,6 +88,18 @@ class ClaimsWizardState:
     fulfillment_claimant_info: Optional[Dict[str, Any]] = None  # Pre-populated from order
 
     @property
+    def claims_group_name(self) -> str:
+        """Get the Claims Workflow group name including the project prefix.
+
+        Returns names like "Claims Workflow [CM Lode Claims]" so that
+        multiple claim groups in the same QGIS project don't overlap.
+        """
+        prefix = self.grid_name_prefix.strip() if self.grid_name_prefix else ""
+        if prefix:
+            return f"Claims Workflow [{prefix} Lode Claims]"
+        return "Claims Workflow"
+
+    @property
     def claims_layer(self) -> Optional[QgsVectorLayer]:
         """Get the claims layer from QGIS project."""
         if not self.claims_layer_id:
@@ -543,6 +555,7 @@ class ClaimsWizardState:
 
         from ..managers.claims_storage_manager import ClaimsStorageManager
         storage_manager = ClaimsStorageManager()
+        storage_manager.set_claims_group_name(self.claims_group_name)
 
         layers = {}
 

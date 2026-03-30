@@ -41,6 +41,7 @@ from ..managers.storage_manager import StorageManager, StorageMode
 from ..managers.claims_manager import ClaimsManager
 from ..managers.blm_claims_manager import BLMClaimsManager, BLM_STREAMING_ACCESS_TYPES
 from ..managers.plss_streaming_manager import PLSSStreamingManager, PLSS_STREAMING_ACCESS_TYPES
+from ..managers.federal_lands_manager import FederalLandsStreamingManager, FEDERAL_LANDS_ACCESS_TYPES
 from ..models.auth import AuthSession, UserContext
 from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
@@ -155,6 +156,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.claims_manager = ClaimsManager(self.api_client, self.config)
         self.blm_claims_manager = BLMClaimsManager(self.config, self.api_client)
         self.plss_streaming_manager = PLSSStreamingManager(self.config, self.api_client)
+        self.federal_lands_manager = FederalLandsStreamingManager(self.config, self.api_client)
 
         # Claims wizard widget
         self.claims_wizard: Optional[ClaimsWizardWidget] = None
@@ -522,6 +524,29 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if self.basemaps_widget:
                 self.basemaps_widget.set_plss_stream_manager(None, False)
 
+        # ---- Federal Lands streaming ----
+        try:
+            if not access_info:
+                access_info = self.claims_manager.check_access()
+            access_type = access_info.get('access_type')
+            has_access = access_type in FEDERAL_LANDS_ACCESS_TYPES
+
+            self.federal_lands_manager = FederalLandsStreamingManager(self.config, self.api_client)
+            self.federal_lands_manager.log_message.connect(self._log_message)
+
+            if self.basemaps_widget:
+                self.basemaps_widget.set_federal_lands_manager(self.federal_lands_manager, has_access)
+
+            if has_access:
+                self._log_message(f"Federal Lands streaming: enabled ({access_type})", "info")
+            else:
+                self._log_message("Federal Lands streaming: requires QClaims subscription", "info")
+
+        except Exception as e:
+            self.logger.warning(f"Could not check Federal Lands streaming access: {e}")
+            if self.basemaps_widget:
+                self.basemaps_widget.set_federal_lands_manager(None, False)
+
     def _on_logout_clicked(self):
         """Handle logout button click."""
         try:
@@ -541,6 +566,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.plss_streaming_manager.cleanup()
             if self.basemaps_widget:
                 self.basemaps_widget.set_plss_stream_manager(None, False)
+
+            # Cleanup Federal Lands streaming manager
+            self.federal_lands_manager.cleanup()
+            if self.basemaps_widget:
+                self.basemaps_widget.set_federal_lands_manager(None, False)
 
             # Update UI
             self._update_auth_status(False)
@@ -576,6 +606,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.claims_manager.clear_cache()
             self.blm_claims_manager.cleanup()
             self.plss_streaming_manager.cleanup()
+            self.federal_lands_manager.cleanup()
 
             # Log the change
             mode = "LOCAL DEVELOPMENT" if is_enabled else "PRODUCTION"

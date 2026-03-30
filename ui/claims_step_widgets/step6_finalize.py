@@ -602,6 +602,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             if using_geopackage:
                 from ...managers.claims_storage_manager import ClaimsStorageManager
                 storage_manager = ClaimsStorageManager()
+                storage_manager.set_claims_group_name(self.state.claims_group_name)
                 waypoints_layer = storage_manager.create_or_update_layer(
                     table_name=ClaimsStorageManager.CLAIM_WAYPOINTS_TABLE,
                     layer_display_name=display_name,
