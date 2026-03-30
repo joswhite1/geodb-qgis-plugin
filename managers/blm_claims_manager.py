@@ -69,34 +69,20 @@ class BLMFetchWorker(QThread):
     def run(self):
         import urllib.request
         import ssl
-        from urllib.parse import urlparse
+        from ..utils.http import safe_urlopen
 
         try:
-            parsed = urlparse(self.url)
-            if parsed.scheme not in ('http', 'https'):
-                self.error.emit(self.generation, f"Invalid URL scheme: {parsed.scheme}")
-                return
-
             req = urllib.request.Request(self.url)
             req.add_header('Authorization', f'Token {self.token}')
             req.add_header('Accept', 'application/json')
             req.add_header('User-Agent', 'GeodbIO-QGIS-Plugin/2.0')
 
-            # Use default SSL context
             ctx = ssl.create_default_context()
-
-            # For local dev, allow unverified
             if 'localhost' in self.url or '127.0.0.1' in self.url:
-                ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
 
-            # Validate scheme at point of use (defense-in-depth with
-            # urlparse check above) to satisfy static analysis scanners
-            if not req.full_url.startswith(('https://', 'http://')):
-                raise ValueError(f"Unsupported URL scheme: {req.full_url}")
-
-            with urllib.request.urlopen(req, context=ctx, timeout=30) as response:  # noqa: S310
+            with safe_urlopen(req, context=ctx, timeout=30) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 self.finished.emit(self.generation, data)
 

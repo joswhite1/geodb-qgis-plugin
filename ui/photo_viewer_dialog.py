@@ -52,15 +52,9 @@ class PhotoLoader(QThread):
             # Download from URL
             import urllib.request
             import ssl
-            from urllib.parse import urlparse
-
-            # Validate URL scheme to prevent file:// or other unsafe schemes
-            parsed = urlparse(self.url)
-            if parsed.scheme not in ('https', 'http'):
-                return
-
-            # Create SSL context - only bypass verification in dev mode
+            from ..utils.http import safe_urlopen
             from ..utils.config import DEV_MODE
+
             ctx = ssl.create_default_context()
             if DEV_MODE:
                 ctx.check_hostname = False
@@ -71,7 +65,7 @@ class PhotoLoader(QThread):
                 headers={'User-Agent': 'QGIS-GeodbPlugin/2.0'}
             )
 
-            with urllib.request.urlopen(request, context=ctx, timeout=30) as response:  # nosec B310 - scheme validated above
+            with safe_urlopen(request, context=ctx, timeout=30) as response:
                 data = response.read()
 
             if self._cancelled:

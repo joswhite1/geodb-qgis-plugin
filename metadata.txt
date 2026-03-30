@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.8.1
+version=2.8.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,7 +24,7 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.8.1 - UI improvements, map generation, and security cleanup
+    2.8.2 - UI improvements, map generation, and security cleanup
         - Reorganize Basemaps widget into unified sections (Basemaps, PLSS Grid, Public Lands, MRDS)
         - Consolidate PLSS/Federal Lands streaming controls into Public Lands section
         - Add Federal Lands streaming with color legend (BLM yellow, Forest Service green)
@@ -32,7 +32,8 @@ changelog=
         - Fix Federal Lands layer geometry type (Polygon to MultiPolygon) for mixed responses
         - Add Generate Maps button to Step 7 (claims print layouts for field and filing use)
         - Add ClaimsMapGenerator processor for print-ready QGIS layouts
-        - Add noqa S310 annotations to urlopen calls (scheme already validated above)
+        - Centralize all urlopen calls into safe_urlopen() wrapper with scheme validation
+        - Eliminates Bandit S310 findings from all call sites (5 files cleaned up)
     2.7.1 - Fix CRS transform crashes and claims wizard Next button
         - Fix QgsCsException crash when BLM/PLSS streaming layers transform extent with wide-extent basemaps
         - Add extent_to_wgs84() utility that clamps to CRS valid bounds before transforming

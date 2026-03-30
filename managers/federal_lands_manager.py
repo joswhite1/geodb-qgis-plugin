@@ -73,7 +73,7 @@ class FederalLandsFetchWorker(QThread):
         import urllib.request
         import ssl
         import logging
-        from urllib.parse import urlparse
+        from ..utils.http import safe_urlopen
 
         log = logging.getLogger('GeodbIO')
 
@@ -83,12 +83,6 @@ class FederalLandsFetchWorker(QThread):
             log.info(f"[FedLands Worker] Token present: {bool(self.token)}, "
                      f"length: {len(self.token) if self.token else 0}")
 
-            parsed = urlparse(self.url)
-            if parsed.scheme not in ('http', 'https'):
-                self.error.emit(self.generation,
-                                f"Invalid URL scheme: {parsed.scheme}")
-                return
-
             req = urllib.request.Request(self.url)
             req.add_header('Authorization', f'Token {self.token}')
             req.add_header('Accept', 'application/json')
@@ -96,15 +90,11 @@ class FederalLandsFetchWorker(QThread):
 
             ctx = ssl.create_default_context()
             if 'localhost' in self.url or '127.0.0.1' in self.url:
-                ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
 
-            if not req.full_url.startswith(('https://', 'http://')):
-                raise ValueError(f"Unsupported URL scheme: {req.full_url}")
-
             log.info("[FedLands Worker] Sending request...")
-            with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+            with safe_urlopen(req, context=ctx, timeout=30) as response:
                 status = response.getcode()
                 raw = response.read()
                 log.info(f"[FedLands Worker] Response status: {status}, "
