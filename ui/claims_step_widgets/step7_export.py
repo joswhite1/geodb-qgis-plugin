@@ -67,6 +67,9 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Waypoints Table Group
         layout.addWidget(self._create_waypoints_group())
 
+        # Generate Maps Group
+        layout.addWidget(self._create_maps_group())
+
         # Push to Server Group
         layout.addWidget(self._create_push_group())
 
@@ -201,6 +204,132 @@ class ClaimsStep7Widget(ClaimsStepBase):
         layout.addWidget(self.push_status_label)
 
         return group
+
+    def _create_maps_group(self) -> QGroupBox:
+        """Create the Generate Maps group."""
+        group = QGroupBox("Generate Maps")
+        group.setStyleSheet(self._get_group_style())
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
+
+        info_label = QLabel(
+            "Generate print-ready map layouts for your claims. Creates QGIS "
+            "print layouts with proper labels, scale, and layer visibility "
+            "for field use and county/state filing."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet(self._get_info_label_style())
+        layout.addWidget(info_label)
+
+        # Progress bar (hidden until generating)
+        self.maps_progress = QProgressBar()
+        self.maps_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                text-align: center;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                background-color: #059669;
+                border-radius: 3px;
+            }
+        """)
+        self.maps_progress.hide()
+        layout.addWidget(self.maps_progress)
+
+        # Button
+        btn_layout = QHBoxLayout()
+
+        self.generate_maps_btn = QPushButton("Generate Maps")
+        self.generate_maps_btn.setToolTip(
+            "Create Field Map, Filing Map, and state-specific maps "
+            "as QGIS print layouts"
+        )
+        self.generate_maps_btn.setStyleSheet(self._get_success_button_style())
+        self.generate_maps_btn.clicked.connect(self._generate_maps)
+        btn_layout.addWidget(self.generate_maps_btn)
+
+        btn_layout.addStretch()
+
+        layout.addLayout(btn_layout)
+
+        # Status label
+        self.maps_status_label = QLabel("")
+        self.maps_status_label.setStyleSheet(self._get_info_label_style())
+        layout.addWidget(self.maps_status_label)
+
+        return group
+
+    def _generate_maps(self):
+        """Generate all applicable print layout maps."""
+        if not self.state.processed_claims:
+            QMessageBox.warning(
+                self, "No Claims",
+                "Claims must be processed before generating maps.\n"
+                "Complete Step 6 first."
+            )
+            return
+
+        self.generate_maps_btn.setEnabled(False)
+        self.generate_maps_btn.setText("Generating...")
+        self.maps_progress.show()
+        self.maps_progress.setValue(0)
+
+        try:
+            from ...processors.claims_map_generator import ClaimsMapGenerator
+
+            self.maps_progress.setValue(10)
+            generator = ClaimsMapGenerator(self.state)
+
+            self.maps_progress.setValue(30)
+            results = generator.generate_all_maps()
+
+            self.maps_progress.setValue(90)
+
+            # Build summary of created layouts
+            layout_names = [v for v in results.values() if v]
+            self.maps_progress.setValue(100)
+
+            state_code = results.get('state_filing_map')
+            state_note = ""
+            if state_code:
+                state_note = (
+                    "\n\nNote: State filing map included for state-specific "
+                    "requirements."
+                )
+
+            QMessageBox.information(
+                self, "Maps Generated",
+                f"Created {len(layout_names)} print layout(s):\n\n"
+                + "\n".join(f"  \u2022 {name}" for name in layout_names)
+                + state_note
+                + "\n\nOpen the Layout Manager (Project \u2192 Layouts) "
+                "to view, edit, and export them."
+            )
+
+            self.maps_status_label.setText(
+                f"Generated {len(layout_names)} map layout(s)"
+            )
+            self.maps_status_label.setStyleSheet(self._get_success_label_style())
+            self.logger.info(
+                f"[CLAIMS] Generated {len(layout_names)} map layouts: "
+                + ", ".join(layout_names)
+            )
+
+        except Exception as e:
+            self.logger.error(f"[CLAIMS] Map generation error: {e}")
+            self.maps_status_label.setText(f"Error: {e}")
+            self.maps_status_label.setStyleSheet(self._get_error_label_style())
+            QMessageBox.critical(
+                self, "Map Generation Error",
+                f"Failed to generate maps:\n\n{e}"
+            )
+
+        finally:
+            self.generate_maps_btn.setEnabled(True)
+            self.generate_maps_btn.setText("Generate Maps")
+            self.maps_progress.hide()
 
     # =========================================================================
     # Waypoints Methods
@@ -826,3 +955,4 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Update button states
         has_processed = len(self.state.processed_claims) > 0
         self.push_btn.setEnabled(has_processed)
+        self.generate_maps_btn.setEnabled(has_processed)

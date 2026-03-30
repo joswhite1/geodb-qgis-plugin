@@ -25,6 +25,7 @@ INCLUDE_DIRS = [
     'managers',
     'models',
     'processors',
+    'resources',  # Map templates and images
     'symbols',  # Geological structure symbols (SVG)
     'ui',
     'utils',

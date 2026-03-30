@@ -72,9 +72,17 @@ class FederalLandsFetchWorker(QThread):
     def run(self):
         import urllib.request
         import ssl
+        import logging
         from urllib.parse import urlparse
 
+        log = logging.getLogger('GeodbIO')
+
         try:
+            log.info(f"[FedLands Worker] Starting fetch gen={self.generation}")
+            log.info(f"[FedLands Worker] URL: {self.url}")
+            log.info(f"[FedLands Worker] Token present: {bool(self.token)}, "
+                     f"length: {len(self.token) if self.token else 0}")
+
             parsed = urlparse(self.url)
             if parsed.scheme not in ('http', 'https'):
                 self.error.emit(self.generation,
@@ -95,8 +103,20 @@ class FederalLandsFetchWorker(QThread):
             if not req.full_url.startswith(('https://', 'http://')):
                 raise ValueError(f"Unsupported URL scheme: {req.full_url}")
 
+            log.info("[FedLands Worker] Sending request...")
             with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
-                data = json.loads(response.read().decode('utf-8'))
+                status = response.getcode()
+                raw = response.read()
+                log.info(f"[FedLands Worker] Response status: {status}, "
+                         f"body length: {len(raw)} bytes")
+                data = json.loads(raw.decode('utf-8'))
+                feature_count = len(data.get('features', []))
+                log.info(f"[FedLands Worker] Parsed GeoJSON: "
+                         f"{feature_count} features, "
+                         f"keys: {list(data.keys())}")
+                if feature_count == 0:
+                    log.info(f"[FedLands Worker] Empty response body preview: "
+                             f"{raw[:500].decode('utf-8', errors='replace')}")
                 self.finished.emit(self.generation, data)
 
         except urllib.error.HTTPError as e:
@@ -105,6 +125,7 @@ class FederalLandsFetchWorker(QThread):
                 body = e.read().decode('utf-8', errors='replace')
             except Exception:
                 pass
+            log.error(f"[FedLands Worker] HTTP error {e.code}: {body[:500]}")
             if e.code == 403:
                 self.error.emit(self.generation,
                                 f"403: {body or 'Access denied'}")
@@ -112,6 +133,7 @@ class FederalLandsFetchWorker(QThread):
                 self.error.emit(self.generation,
                                 f"HTTP {e.code}: {body or str(e)}")
         except Exception as e:
+            log.error(f"[FedLands Worker] Exception: {type(e).__name__}: {e}")
             self.error.emit(self.generation, str(e))
 
 
@@ -249,22 +271,33 @@ class FederalLandsStreamingManager(QObject):
 
     def _fetch_data(self):
         """Fetch federal lands data for the current canvas extent."""
+        self._log("_fetch_data() called")
         if not self._enabled or not self._canvas:
+            self._log(f"Skipping fetch: enabled={self._enabled}, "
+                      f"canvas={self._canvas is not None}")
             return
 
         extent = self._canvas.extent()
         map_crs = self._canvas.mapSettings().destinationCrs()
+        self._log(f"Canvas CRS: {map_crs.authid()}, "
+                  f"raw extent: {extent.toString()}")
 
         extent = extent_to_wgs84(extent, map_crs)
         if extent is None:
+            self._log("extent_to_wgs84 returned None!", "warning")
             self.status_changed.emit("Cannot determine extent")
             return
 
         lon_span = extent.xMaximum() - extent.xMinimum()
         lat_span = extent.yMaximum() - extent.yMinimum()
+        self._log(f"WGS84 extent: lon=[{extent.xMinimum():.4f}, "
+                  f"{extent.xMaximum():.4f}], lat=[{extent.yMinimum():.4f}, "
+                  f"{extent.yMaximum():.4f}], span=({lon_span:.2f}, {lat_span:.2f})")
 
         # Only fetch when zoomed in enough (< 4 degrees, same as PLSS townships)
         if lon_span > 4 or lat_span > 4:
+            self._log(f"Extent too wide ({lon_span:.2f} x {lat_span:.2f}), "
+                      f"need < 4 degrees")
             self._clear_layer()
             self.status_changed.emit("Zoom in to see Federal Lands")
             return
@@ -274,6 +307,7 @@ class FederalLandsStreamingManager(QObject):
 
         token = self._api_client.token
         if not token:
+            self._log("No token available - login required", "warning")
             self.status_changed.emit("Login required")
             return
 
@@ -283,14 +317,19 @@ class FederalLandsStreamingManager(QObject):
             return
 
         url = f"{endpoint}?bbox={bbox}"
+        use_local = self._config.get('api.use_local', False)
+        self._log(f"Endpoint: {endpoint}")
+        self._log(f"Full URL: {url}")
+        self._log(f"Using local server: {use_local}")
 
         self._generation += 1
         generation = self._generation
 
-        self._log(f"Fetching: {url[:100]}...")
+        self._log(f"Starting fetch gen={generation}")
         self.loading_changed.emit(True)
 
         if self._worker and self._worker.isRunning():
+            self._log("Terminating previous worker")
             self._worker.terminate()
 
         worker = FederalLandsFetchWorker(url, token, generation, self)
@@ -298,9 +337,13 @@ class FederalLandsStreamingManager(QObject):
         worker.error.connect(self._on_fetch_error)
         self._worker = worker
         worker.start()
+        self._log(f"Worker started for gen={generation}")
 
     def _on_fetch_complete(self, generation: int, geojson_data: dict):
+        self._log(f"_on_fetch_complete gen={generation} "
+                  f"(current={self._generation})")
         if generation != self._generation:
+            self._log(f"Stale response gen={generation}, ignoring")
             return
 
         if not self._layer_alive(self._layer) or not self._layer.isValid():
@@ -309,25 +352,43 @@ class FederalLandsStreamingManager(QObject):
             return
 
         features_data = geojson_data.get('features', [])
-        self._log(f"{len(features_data)} features received")
+        self._log(f"{len(features_data)} features received, "
+                  f"response keys: {list(geojson_data.keys())}")
+        if features_data:
+            sample = features_data[0]
+            self._log(f"Sample feature keys: {list(sample.keys())}, "
+                      f"properties: {sample.get('properties', {})}, "
+                      f"geometry type: {sample.get('geometry', {}).get('type')}")
 
         # Replace all features
         self._layer.startEditing()
         self._layer.deleteFeatures([f.id() for f in self._layer.getFeatures()])
 
         new_features = []
+        skipped_no_geom = 0
+        skipped_no_wkt = 0
+        skipped_empty_geom = 0
         for feat_data in features_data:
             geom_data = feat_data.get('geometry')
             if not geom_data:
+                skipped_no_geom += 1
                 continue
 
             wkt = geojson_to_wkt(geom_data)
             if not wkt:
+                skipped_no_wkt += 1
                 continue
 
             geom = QgsGeometry.fromWkt(wkt)
             if geom.isEmpty():
+                skipped_empty_geom += 1
                 continue
+
+            # Promote Polygon to MultiPolygon for layer compatibility
+            if geom.wkbType() in (3, 6):  # Polygon or MultiPolygon (2D)
+                geom.convertToMultiType()
+            elif geom.wkbType() in (1003, 1006):  # PolygonZ or MultiPolygonZ
+                geom.convertToMultiType()
 
             props = feat_data.get('properties', {})
             feat = QgsFeature(self._layer.fields())
@@ -337,9 +398,18 @@ class FederalLandsStreamingManager(QObject):
             feat.setAttribute('state', props.get('state', ''))
             new_features.append(feat)
 
+        if skipped_no_geom or skipped_no_wkt or skipped_empty_geom:
+            self._log(f"Skipped features: no_geom={skipped_no_geom}, "
+                      f"no_wkt={skipped_no_wkt}, empty_geom={skipped_empty_geom}",
+                      "warning")
+
+        self._log(f"Adding {len(new_features)} features to layer")
         if new_features:
             self._layer.addFeatures(new_features)
-        self._layer.commitChanges()
+        commit_ok = self._layer.commitChanges()
+        if not commit_ok:
+            self._log(f"Layer commit failed: {self._layer.commitErrors()}",
+                      "error")
 
         # Count by agency
         blm_count = sum(1 for f in features_data
@@ -360,7 +430,10 @@ class FederalLandsStreamingManager(QObject):
         self._layer.triggerRepaint()
 
     def _on_fetch_error(self, generation: int, error_msg: str):
+        self._log(f"_on_fetch_error gen={generation} "
+                  f"(current={self._generation}): {error_msg}", "error")
         if generation != self._generation:
+            self._log(f"Stale error gen={generation}, ignoring")
             return
 
         self.loading_changed.emit(False)
@@ -388,7 +461,7 @@ class FederalLandsStreamingManager(QObject):
         )
 
         layer = QgsVectorLayer(
-            f"Polygon?crs=EPSG:4326&{fields_uri}",
+            f"MultiPolygon?crs=EPSG:4326&{fields_uri}",
             "Federal Lands - Live",
             'memory'
         )

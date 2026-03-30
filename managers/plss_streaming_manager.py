@@ -96,10 +96,12 @@ class PLSSFetchWorker(QThread):
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
 
+            # Validate scheme at point of use (defense-in-depth with
+            # urlparse check above) to satisfy static analysis scanners
             if not req.full_url.startswith(('https://', 'http://')):
                 raise ValueError(f"Unsupported URL scheme: {req.full_url}")
 
-            with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as response:  # noqa: S310
                 data = json.loads(response.read().decode('utf-8'))
                 self.finished.emit(self.generation, self.layer_type, data)
 

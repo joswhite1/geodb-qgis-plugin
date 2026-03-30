@@ -228,26 +228,26 @@ class BasemapsWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
 
         # Header
-        header = QLabel("Add Basemap Layers")
+        header = QLabel("Basemaps & Reference Layers")
         header.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
         layout.addWidget(header)
 
         # Description
         desc = QLabel(
-            "Add basemap layers to your project for reference. "
-            "Basemaps are added at the bottom of the layer stack."
+            "Add basemap and reference layers to your project. "
+            "Layers are added to the 'Base Layers' group at the bottom of the layer stack."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #6b7280; font-size: 12px; margin-bottom: 10px;")
         layout.addWidget(desc)
 
-        # Basemap selection group
-        select_group = QGroupBox("Select Basemap")
-        select_group.setStyleSheet(self._get_group_style())
-        select_layout = QVBoxLayout(select_group)
-        select_layout.setSpacing(10)
+        # ==================== Basemaps ====================
+        basemap_group = QGroupBox("Basemaps")
+        basemap_group.setStyleSheet(self._get_group_style())
+        basemap_layout = QVBoxLayout(basemap_group)
+        basemap_layout.setSpacing(10)
 
-        # Provider combo
+        # Provider combo + opacity + add button
         provider_layout = QHBoxLayout()
         provider_label = QLabel("Provider:")
         provider_label.setStyleSheet("font-weight: bold;")
@@ -260,7 +260,7 @@ class BasemapsWidget(QWidget):
             self.provider_combo.addItem(provider['name'], key)
         provider_layout.addWidget(self.provider_combo)
         provider_layout.addStretch()
-        select_layout.addLayout(provider_layout)
+        basemap_layout.addLayout(provider_layout)
 
         # Opacity slider
         opacity_layout = QHBoxLayout()
@@ -279,7 +279,7 @@ class BasemapsWidget(QWidget):
         self.opacity_label = QLabel("100%")
         self.opacity_label.setMinimumWidth(40)
         opacity_layout.addWidget(self.opacity_label)
-        select_layout.addLayout(opacity_layout)
+        basemap_layout.addLayout(opacity_layout)
 
         # Add button
         btn_layout = QHBoxLayout()
@@ -290,20 +290,13 @@ class BasemapsWidget(QWidget):
         self.add_btn.clicked.connect(self._on_add_clicked)
         btn_layout.addWidget(self.add_btn)
 
-        select_layout.addLayout(btn_layout)
-        layout.addWidget(select_group)
+        basemap_layout.addLayout(btn_layout)
 
-        # Quick add section
-        quick_group = QGroupBox("Quick Add")
-        quick_group.setStyleSheet(self._get_group_style())
-        quick_layout = QVBoxLayout(quick_group)
-        quick_layout.setSpacing(8)
+        # Quick add buttons
+        quick_label = QLabel("Quick add at full opacity:")
+        quick_label.setStyleSheet("color: #6b7280; font-size: 12px; margin-top: 4px;")
+        basemap_layout.addWidget(quick_label)
 
-        quick_desc = QLabel("Click to quickly add common basemaps at full opacity:")
-        quick_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
-        quick_layout.addWidget(quick_desc)
-
-        # Quick buttons in a grid-like layout
         btn_row1 = QHBoxLayout()
         btn_row1.setSpacing(8)
 
@@ -323,7 +316,7 @@ class BasemapsWidget(QWidget):
         btn_row1.addWidget(usa_topo_btn)
 
         btn_row1.addStretch()
-        quick_layout.addLayout(btn_row1)
+        basemap_layout.addLayout(btn_row1)
 
         btn_row2 = QHBoxLayout()
         btn_row2.setSpacing(8)
@@ -339,23 +332,70 @@ class BasemapsWidget(QWidget):
         btn_row2.addWidget(osm_btn)
 
         btn_row2.addStretch()
-        quick_layout.addLayout(btn_row2)
+        basemap_layout.addLayout(btn_row2)
 
-        layout.addWidget(quick_group)
+        layout.addWidget(basemap_group)
 
-        # PLSS Reference Layers section (for claims work)
-        plss_group = QGroupBox("PLSS Grid (from geodb.io)")
+        # ==================== PLSS Grid ====================
+        plss_group = QGroupBox("PLSS Grid")
         plss_group.setStyleSheet(self._get_group_style())
         plss_layout = QVBoxLayout(plss_group)
         plss_layout.setSpacing(8)
 
         plss_desc = QLabel(
-            "Add PLSS grid layers from geodb.io with section and township labels. "
-            "Labels show 'Sec XX' and 'T##N R##E' format."
+            "PLSS township and section grid boundaries for US public land surveys."
         )
         plss_desc.setWordWrap(True)
         plss_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
         plss_layout.addWidget(plss_desc)
+
+        # --- Streaming sub-section ---
+        plss_stream_label = QLabel("Streaming (auto-refreshes on pan/zoom)")
+        plss_stream_label.setStyleSheet(
+            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+        )
+        plss_layout.addWidget(plss_stream_label)
+
+        plss_stream_desc = QLabel(
+            "Townships appear at wider zoom, sections at closer zoom. "
+            "Requires QClaims subscription."
+        )
+        plss_stream_desc.setWordWrap(True)
+        plss_stream_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        plss_layout.addWidget(plss_stream_desc)
+
+        self.plss_stream_toggle = QCheckBox("Show PLSS Grid (Streaming)")
+        self.plss_stream_toggle.setEnabled(False)
+        self.plss_stream_toggle.stateChanged.connect(self._on_plss_stream_toggle_changed)
+        plss_layout.addWidget(self.plss_stream_toggle)
+
+        self.plss_stream_status_label = QLabel("")
+        self.plss_stream_status_label.setWordWrap(True)
+        self.plss_stream_status_label.setStyleSheet(
+            "color: #6b7280; font-size: 11px; font-style: italic;"
+        )
+        plss_layout.addWidget(self.plss_stream_status_label)
+
+        # Separator
+        plss_sep = QFrame()
+        plss_sep.setFrameShape(QFrame.HLine)
+        plss_sep.setStyleSheet("color: #e5e7eb;")
+        plss_layout.addWidget(plss_sep)
+
+        # --- Download sub-section ---
+        plss_dl_label = QLabel("Download (snapshot of current extent)")
+        plss_dl_label.setStyleSheet(
+            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+        )
+        plss_layout.addWidget(plss_dl_label)
+
+        plss_dl_desc = QLabel(
+            "Download PLSS grid for the current map extent as a static layer "
+            "with section and township labels."
+        )
+        plss_dl_desc.setWordWrap(True)
+        plss_dl_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        plss_layout.addWidget(plss_dl_desc)
 
         # Style selector row
         style_row = QHBoxLayout()
@@ -368,7 +408,6 @@ class BasemapsWidget(QWidget):
         self.plss_style_combo.setMinimumWidth(150)
         for key, style in PLSS_STYLES.items():
             self.plss_style_combo.addItem(style['name'], key)
-        # Default to black
         self.plss_style_combo.setCurrentIndex(0)
         style_row.addWidget(self.plss_style_combo)
         style_row.addStretch()
@@ -378,12 +417,12 @@ class BasemapsWidget(QWidget):
         plss_btn_row = QHBoxLayout()
         plss_btn_row.setSpacing(8)
 
-        sections_btn = QPushButton("Add Sections")
+        sections_btn = QPushButton("Download Sections")
         sections_btn.setStyleSheet(self._get_secondary_button_style())
         sections_btn.clicked.connect(lambda: self._add_geodb_plss_layer('sections'))
         plss_btn_row.addWidget(sections_btn)
 
-        townships_btn = QPushButton("Add Townships")
+        townships_btn = QPushButton("Download Townships")
         townships_btn.setStyleSheet(self._get_secondary_button_style())
         townships_btn.clicked.connect(lambda: self._add_geodb_plss_layer('townships'))
         plss_btn_row.addWidget(townships_btn)
@@ -391,7 +430,6 @@ class BasemapsWidget(QWidget):
         plss_btn_row.addStretch()
         plss_layout.addLayout(plss_btn_row)
 
-        # Note about current extent
         extent_note = QLabel(
             "Note: Sections require zoom ≤30 km, Townships ≤150 km. "
             "Pan/zoom to your area of interest first."
@@ -402,25 +440,102 @@ class BasemapsWidget(QWidget):
 
         layout.addWidget(plss_group)
 
-        # USA Reference Layers section (federal lands, wilderness, withdrawals)
-        usa_ref_group = QGroupBox("USA Reference Layers")
-        usa_ref_group.setStyleSheet(self._get_group_style())
-        usa_ref_layout = QVBoxLayout(usa_ref_group)
-        usa_ref_layout.setSpacing(8)
+        # Store PLSS streaming manager reference
+        self._plss_stream_manager = None
+        self._plss_stream_has_access = False
 
-        usa_ref_desc = QLabel(
-            "Add US federal land boundaries, wilderness areas, and mineral withdrawal areas. "
-            "These layers stream from ESRI/USGS services."
+        # ==================== Public Lands ====================
+        public_lands_group = QGroupBox("Public Lands")
+        public_lands_group.setStyleSheet(self._get_group_style())
+        public_lands_layout = QVBoxLayout(public_lands_group)
+        public_lands_layout.setSpacing(8)
+
+        public_lands_desc = QLabel(
+            "Federal land boundaries, wilderness areas, and mineral withdrawal areas."
         )
-        usa_ref_desc.setWordWrap(True)
-        usa_ref_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
-        usa_ref_layout.addWidget(usa_ref_desc)
+        public_lands_desc.setWordWrap(True)
+        public_lands_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        public_lands_layout.addWidget(public_lands_desc)
 
-        # Federal lands button row
+        # --- Streaming sub-section ---
+        fed_stream_label = QLabel("Streaming - BLM + Forest Service (auto-refreshes on pan/zoom)")
+        fed_stream_label.setStyleSheet(
+            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+        )
+        public_lands_layout.addWidget(fed_stream_label)
+
+        fed_stream_desc = QLabel(
+            "Stream BLM and Forest Service land boundaries from geodb.io. "
+            "Requires QClaims subscription."
+        )
+        fed_stream_desc.setWordWrap(True)
+        fed_stream_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        public_lands_layout.addWidget(fed_stream_desc)
+
+        self.federal_lands_toggle = QCheckBox("Show Federal Lands (Streaming)")
+        self.federal_lands_toggle.setEnabled(False)
+        self.federal_lands_toggle.stateChanged.connect(self._on_federal_lands_toggle_changed)
+        public_lands_layout.addWidget(self.federal_lands_toggle)
+
+        # Color legend
+        legend_layout = QHBoxLayout()
+        legend_layout.setSpacing(12)
+
+        blm_swatch = QLabel()
+        blm_swatch.setFixedSize(14, 14)
+        blm_swatch.setStyleSheet(
+            "background-color: #FFEB3B; border: 1px solid #F9A825; border-radius: 2px;"
+        )
+        legend_layout.addWidget(blm_swatch)
+        legend_layout.addWidget(QLabel("BLM"))
+
+        fs_swatch = QLabel()
+        fs_swatch.setFixedSize(14, 14)
+        fs_swatch.setStyleSheet(
+            "background-color: #4CAF50; border: 1px solid #2E7D32; border-radius: 2px;"
+        )
+        legend_layout.addWidget(fs_swatch)
+        legend_layout.addWidget(QLabel("Forest Service"))
+
+        legend_layout.addStretch()
+        public_lands_layout.addLayout(legend_layout)
+
+        self.federal_lands_status_label = QLabel("")
+        self.federal_lands_status_label.setWordWrap(True)
+        self.federal_lands_status_label.setStyleSheet(
+            "color: #6b7280; font-size: 11px; font-style: italic;"
+        )
+        public_lands_layout.addWidget(self.federal_lands_status_label)
+
+        # Store Federal Lands streaming manager reference
+        self._federal_lands_manager = None
+        self._federal_lands_has_access = False
+
+        # Separator
+        pub_sep = QFrame()
+        pub_sep.setFrameShape(QFrame.HLine)
+        pub_sep.setStyleSheet("color: #e5e7eb;")
+        public_lands_layout.addWidget(pub_sep)
+
+        # --- Esri MapServer sub-section ---
+        esri_label = QLabel("Esri/USGS MapServer Layers (server-rendered tiles)")
+        esri_label.setStyleSheet(
+            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+        )
+        public_lands_layout.addWidget(esri_label)
+
+        esri_desc = QLabel(
+            "Add pre-rendered tile layers from BLM and USFS map services. "
+            "No login required."
+        )
+        esri_desc.setWordWrap(True)
+        esri_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        public_lands_layout.addWidget(esri_desc)
+
         usa_btn_row1 = QHBoxLayout()
         usa_btn_row1.setSpacing(8)
 
-        federal_lands_btn = QPushButton("Federal Lands")
+        federal_lands_btn = QPushButton("Surface Management Agency")
         federal_lands_btn.setToolTip("BLM, Forest Service, NPS, etc. (color-coded by agency)")
         federal_lands_btn.setStyleSheet(self._get_secondary_button_style())
         federal_lands_btn.clicked.connect(lambda: self._add_usa_reference_layer('federal_lands'))
@@ -433,9 +548,8 @@ class BasemapsWidget(QWidget):
         usa_btn_row1.addWidget(wilderness_btn)
 
         usa_btn_row1.addStretch()
-        usa_ref_layout.addLayout(usa_btn_row1)
+        public_lands_layout.addLayout(usa_btn_row1)
 
-        # Mineral withdrawal button row
         usa_btn_row2 = QHBoxLayout()
         usa_btn_row2.setSpacing(8)
 
@@ -446,12 +560,12 @@ class BasemapsWidget(QWidget):
         usa_btn_row2.addWidget(withdrawal_btn)
 
         usa_btn_row2.addStretch()
-        usa_ref_layout.addLayout(usa_btn_row2)
+        public_lands_layout.addLayout(usa_btn_row2)
 
-        layout.addWidget(usa_ref_group)
+        layout.addWidget(public_lands_group)
 
-        # MRDS Mineral Occurrences section
-        mrds_group = QGroupBox("MRDS Mineral Occurrences (from geodb.io)")
+        # ==================== MRDS Mineral Occurrences ====================
+        mrds_group = QGroupBox("MRDS Mineral Occurrences")
         mrds_group.setStyleSheet(self._get_group_style())
         mrds_layout = QVBoxLayout(mrds_group)
         mrds_layout.setSpacing(8)
@@ -464,7 +578,6 @@ class BasemapsWidget(QWidget):
         mrds_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
         mrds_layout.addWidget(mrds_desc)
 
-        # MRDS button row
         mrds_btn_row = QHBoxLayout()
         mrds_btn_row.setSpacing(8)
 
@@ -477,7 +590,6 @@ class BasemapsWidget(QWidget):
         mrds_btn_row.addStretch()
         mrds_layout.addLayout(mrds_btn_row)
 
-        # MRDS extent note
         mrds_note = QLabel(
             "Note: Pan/zoom to your area of interest first (max ~100km extent)."
         )
@@ -591,97 +703,6 @@ class BasemapsWidget(QWidget):
         # Store references for manager wiring
         self._blm_manager = None
         self._blm_has_access = False
-
-        # PLSS Grid streaming section
-        self.plss_stream_group = QGroupBox("PLSS Grid Streaming (from geodb.io)")
-        self.plss_stream_group.setStyleSheet(self._get_group_style())
-        plss_stream_layout = QVBoxLayout(self.plss_stream_group)
-        plss_stream_layout.setSpacing(8)
-
-        plss_stream_desc = QLabel(
-            "Stream PLSS township and section boundaries as you pan/zoom. "
-            "Townships appear at wider zoom, sections at closer zoom."
-        )
-        plss_stream_desc.setWordWrap(True)
-        plss_stream_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
-        plss_stream_layout.addWidget(plss_stream_desc)
-
-        # Toggle checkbox
-        self.plss_stream_toggle = QCheckBox("Show PLSS Grid")
-        self.plss_stream_toggle.setEnabled(False)
-        self.plss_stream_toggle.stateChanged.connect(self._on_plss_stream_toggle_changed)
-        plss_stream_layout.addWidget(self.plss_stream_toggle)
-
-        # Status label
-        self.plss_stream_status_label = QLabel("")
-        self.plss_stream_status_label.setWordWrap(True)
-        self.plss_stream_status_label.setStyleSheet(
-            "color: #6b7280; font-size: 11px; font-style: italic;"
-        )
-        plss_stream_layout.addWidget(self.plss_stream_status_label)
-
-        layout.addWidget(self.plss_stream_group)
-
-        # Store PLSS streaming manager reference
-        self._plss_stream_manager = None
-        self._plss_stream_has_access = False
-
-        # Federal Lands streaming section
-        self.federal_lands_group = QGroupBox("Federal Lands (BLM + Forest Service)")
-        self.federal_lands_group.setStyleSheet(self._get_group_style())
-        federal_lands_layout = QVBoxLayout(self.federal_lands_group)
-        federal_lands_layout.setSpacing(8)
-
-        federal_lands_desc = QLabel(
-            "Stream BLM and Forest Service land boundaries as you pan/zoom. "
-            "BLM lands shown in yellow, Forest Service in green."
-        )
-        federal_lands_desc.setWordWrap(True)
-        federal_lands_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
-        federal_lands_layout.addWidget(federal_lands_desc)
-
-        # Toggle checkbox
-        self.federal_lands_toggle = QCheckBox("Show Federal Lands")
-        self.federal_lands_toggle.setEnabled(False)
-        self.federal_lands_toggle.stateChanged.connect(self._on_federal_lands_toggle_changed)
-        federal_lands_layout.addWidget(self.federal_lands_toggle)
-
-        # Color legend
-        legend_layout = QHBoxLayout()
-        legend_layout.setSpacing(12)
-
-        blm_swatch = QLabel()
-        blm_swatch.setFixedSize(14, 14)
-        blm_swatch.setStyleSheet(
-            "background-color: #FFEB3B; border: 1px solid #F9A825; border-radius: 2px;"
-        )
-        legend_layout.addWidget(blm_swatch)
-        legend_layout.addWidget(QLabel("BLM"))
-
-        fs_swatch = QLabel()
-        fs_swatch.setFixedSize(14, 14)
-        fs_swatch.setStyleSheet(
-            "background-color: #4CAF50; border: 1px solid #2E7D32; border-radius: 2px;"
-        )
-        legend_layout.addWidget(fs_swatch)
-        legend_layout.addWidget(QLabel("Forest Service"))
-
-        legend_layout.addStretch()
-        federal_lands_layout.addLayout(legend_layout)
-
-        # Status label
-        self.federal_lands_status_label = QLabel("")
-        self.federal_lands_status_label.setWordWrap(True)
-        self.federal_lands_status_label.setStyleSheet(
-            "color: #6b7280; font-size: 11px; font-style: italic;"
-        )
-        federal_lands_layout.addWidget(self.federal_lands_status_label)
-
-        layout.addWidget(self.federal_lands_group)
-
-        # Store Federal Lands streaming manager reference
-        self._federal_lands_manager = None
-        self._federal_lands_has_access = False
 
         # Add stretch at the end to push content to the top
         layout.addStretch()
