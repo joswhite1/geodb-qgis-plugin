@@ -1414,6 +1414,57 @@ class ClaimsManager:
             return None
 
     # =========================================================================
+    # Witness Point Generation
+    # =========================================================================
+
+    def generate_witnesses(
+        self,
+        waypoints: List[Dict[str, Any]],
+        claims: List[Dict[str, Any]],
+        epsg: int = None
+    ) -> Dict[str, Any]:
+        """
+        Generate witness waypoints for stakes on private land.
+
+        Sends waypoints and claims to the server, which checks each stake
+        against federal land boundaries and generates witness waypoints
+        on nearby public land for any stakes on private land.
+
+        Args:
+            waypoints: List of waypoint dicts from processed claims
+            claims: List of processed claim dicts
+            epsg: EPSG code for claim geometries
+
+        Returns:
+            Dict with:
+                - witnesses: list of witness waypoint dicts
+                - witness_count: int
+                - private_stake_count: int
+
+        Raises:
+            APIException: On request failure
+            APIPermissionError: If user lacks access
+        """
+        url = self.config.endpoints.get('claims_generate_witnesses', '')
+        if not url:
+            raise ValueError("Witness generation endpoint not configured")
+
+        data = {
+            'waypoints': waypoints,
+            'claims': claims,
+        }
+        if epsg:
+            data['epsg'] = epsg
+
+        result = self.api._make_request('POST', url, data=data)
+
+        self.logger.info(
+            f"[QCLAIMS] Generated {result.get('witness_count', 0)} witness points "
+            f"for {result.get('private_stake_count', 0)} private-land stakes"
+        )
+        return result
+
+    # =========================================================================
     # Cache Management
     # =========================================================================
 

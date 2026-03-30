@@ -393,6 +393,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 # Set up PLSS grid streaming access for restored session
                 self._setup_plss_streaming_access()
 
+                # Set up Federal Lands streaming access for restored session
+                self._setup_federal_lands_access()
+
         except Exception as e:
             self.logger.error(f"Failed to restore session: {e}")
 
@@ -447,6 +450,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
             # Set up PLSS grid streaming layer access
             self._setup_plss_streaming_access()
+
+            # Set up Federal Lands streaming layer access
+            self._setup_federal_lands_access()
 
             # Update context header
             self._update_context_header()
@@ -524,10 +530,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if self.basemaps_widget:
                 self.basemaps_widget.set_plss_stream_manager(None, False)
 
-        # ---- Federal Lands streaming ----
+    def _setup_federal_lands_access(self):
+        """Check QClaims access and wire up Federal Lands streaming manager to basemaps widget."""
         try:
-            if not access_info:
-                access_info = self.claims_manager.check_access()
+            access_info = self.claims_manager.check_access()
             access_type = access_info.get('access_type')
             has_access = access_type in FEDERAL_LANDS_ACCESS_TYPES
 

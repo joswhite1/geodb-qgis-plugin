@@ -529,43 +529,11 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.auto_witness_btn.setText("Generating...")
 
         try:
-            endpoint = self.claims_manager.config.endpoints.get(
-                'claims_generate_witnesses', ''
+            result = self.claims_manager.generate_witnesses(
+                waypoints=self.state.processed_waypoints,
+                claims=self.state.processed_claims,
+                epsg=self.state.project_epsg,
             )
-            if not endpoint:
-                raise ValueError("Witness generation endpoint not configured")
-
-            import json
-            import urllib.request
-            import ssl
-
-            token = self.claims_manager.api.token
-            if not token:
-                raise ValueError("Not logged in")
-
-            payload = json.dumps({
-                'waypoints': self.state.processed_waypoints,
-                'claims': self.state.processed_claims,
-                'epsg': self.state.project_epsg,
-            }).encode('utf-8')
-
-            req = urllib.request.Request(
-                endpoint,
-                data=payload,
-                method='POST'
-            )
-            req.add_header('Authorization', f'Token {token}')
-            req.add_header('Content-Type', 'application/json')
-            req.add_header('Accept', 'application/json')
-            req.add_header('User-Agent', 'GeodbIO-QGIS-Plugin/2.0')
-
-            ctx = ssl.create_default_context()
-            if 'localhost' in endpoint or '127.0.0.1' in endpoint:
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-
-            with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
-                result = json.loads(response.read().decode('utf-8'))
 
             witnesses = result.get('witnesses', [])
             witness_count = result.get('witness_count', 0)
@@ -579,11 +547,9 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 )
                 return
 
-            # Append witness waypoints to state
-            self.state.processed_waypoints.extend(witnesses)
-
-            # Add witnesses to the QGIS waypoints layer
+            # Add witnesses to the QGIS waypoints layer first, then update state
             self._add_witnesses_to_layer(witnesses)
+            self.state.processed_waypoints.extend(witnesses)
 
             # Refresh table
             self._refresh_waypoints_table()
@@ -599,17 +565,6 @@ class ClaimsStep7Widget(ClaimsStepBase):
             self.emit_status(
                 f"Generated {witness_count} witness points",
                 "success"
-            )
-
-        except urllib.error.HTTPError as e:
-            body = ''
-            try:
-                body = e.read().decode('utf-8', errors='replace')
-            except Exception:
-                pass
-            QMessageBox.critical(
-                self, "Error",
-                f"Server error ({e.code}): {body or str(e)}"
             )
 
         except Exception as e:
