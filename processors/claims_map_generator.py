@@ -33,11 +33,13 @@ from qgis.core import (
     QgsUnitTypes,
     QgsRectangle,
     QgsCoordinateReferenceSystem,
-    QgsCoordinateTransform,
     QgsFeature,
+    QgsGeometry,
+    QgsPointXY,
     QgsSymbol,
     QgsSingleSymbolRenderer,
     QgsSimpleLineSymbolLayer,
+    QgsSimpleMarkerSymbolLayer,
     QgsPalLayerSettings,
     QgsVectorLayerSimpleLabeling,
     QgsTextFormat,
@@ -45,7 +47,7 @@ from qgis.core import (
     QgsApplication,
     QgsReadWriteContext,
 )
-from qgis.PyQt.QtCore import Qt, QRectF
+from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtXml import QDomDocument
 
@@ -128,20 +130,25 @@ class ClaimsMapGenerator:
 
         results = {}
 
-        # Calculate claims extent (shared across all maps)
-        extent = self._calculate_extent(layers['claims'])
+        # Calculate extents
+        # Field map: just claims
+        field_extent = self._calculate_extent(layers['claims'])
+        # Filing maps: include reference point so tie line is visible
+        filing_extent = self._calculate_extent(
+            layers['claims'], include_reference=True
+        )
 
         # 1. Field Map (auto-detect orientation)
-        results['field_map'] = self._create_field_map(layers, extent)
+        results['field_map'] = self._create_field_map(layers, field_extent)
 
         # 2. Filing Map
-        results['filing_map'] = self._create_filing_map(layers, extent)
+        results['filing_map'] = self._create_filing_map(layers, filing_extent)
 
         # 3. State Filing Map (AZ or NV only)
         state_code = self._get_claims_state()
         if state_code in ('AZ', 'NV'):
             results['state_filing_map'] = self._create_state_filing_map(
-                state_code, layers, extent
+                state_code, layers, filing_extent
             )
 
         return results
@@ -168,7 +175,12 @@ class ClaimsMapGenerator:
         layout = self._load_template(template_file, layout_name)
 
         # Build layer list: field map shows everything including waypoints
-        map_layers = self._build_layer_list(layers, include_waypoints=True)
+        # Dimensions shown for field reference; no filing-specific annotations
+        map_layers = self._build_layer_list(
+            layers,
+            include_waypoints=True,
+            include_dimensions=True,
+        )
 
         # Configure map item
         map_item = self._find_map_item(layout)
@@ -187,6 +199,8 @@ class ClaimsMapGenerator:
 
         self._populate_labels(layout, label_values)
         self._fix_logo_paths(layout)
+        self._configure_scale_bars(layout, use_feet=True)
+        self._configure_legend(layout, map_layers)
 
         # Register layout
         QgsProject.instance().layoutManager().addLayout(layout)
@@ -211,8 +225,16 @@ class ClaimsMapGenerator:
         layout = self._load_template(template_file, layout_name)
 
         # Filing map: no waypoints, no centerlines
+        # Includes: corner labels, dimensions, tie line, reference point, monuments
         map_layers = self._build_layer_list(
-            layers, include_waypoints=False, include_centerlines=False
+            layers,
+            include_waypoints=False,
+            include_centerlines=False,
+            include_corners=False,
+            include_dimensions=True,
+            include_tie_line=True,
+            include_corner_labels=True,
+            include_ref_point=True,
         )
 
         map_item = self._find_map_item(layout)
@@ -230,6 +252,11 @@ class ClaimsMapGenerator:
 
         self._populate_labels(layout, label_values)
         self._fix_logo_paths(layout)
+        self._configure_scale_bars(layout, use_feet=True)
+        self._remove_legend(layout)
+
+        # Add filing-specific text labels programmatically
+        self._add_filing_text_labels(layout, map_item)
 
         QgsProject.instance().layoutManager().addLayout(layout)
         logger.info(f"[CLAIMS MAP] Created filing map: {layout_name}")
@@ -269,12 +296,18 @@ class ClaimsMapGenerator:
         layout = self._load_template('az_state_filing_map.qpt', layout_name)
 
         # AZ filing map: include monuments + endline monuments, no waypoints
+        # Include corner labels, dimensions, tie line, reference point
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=False,
             include_centerlines=False,
             include_monuments=True,
             include_endline_monuments=True,
+            include_corners=False,
+            include_dimensions=True,
+            include_tie_line=True,
+            include_corner_labels=True,
+            include_ref_point=True,
         )
 
         map_item = self._find_map_item(layout)
@@ -322,6 +355,7 @@ class ClaimsMapGenerator:
 
         self._populate_labels(layout, label_values)
         self._fix_logo_paths(layout)
+        self._remove_legend(layout)
 
         QgsProject.instance().layoutManager().addLayout(layout)
         logger.info(f"[CLAIMS MAP] Created AZ filing map: {layout_name}")
@@ -347,11 +381,16 @@ class ClaimsMapGenerator:
         layout = self._load_template('nv_state_filing_map.qpt', layout_name)
 
         # NV filing map: claims + corners + PLSS, no waypoints
+        # Include corner labels, dimensions, tie line, reference point, monuments
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=False,
             include_centerlines=False,
-            include_monuments=False,
+            include_monuments=True,
+            include_dimensions=True,
+            include_tie_line=True,
+            include_corner_labels=True,
+            include_ref_point=True,
         )
 
         map_item = self._find_map_item(layout)
@@ -359,7 +398,9 @@ class ClaimsMapGenerator:
         # NV fixed scale: 1:6,000
         self._configure_map_item(map_item, map_layers, extent, fixed_scale=6000)
 
-        county_state = self._get_county_state()
+        # Add a coordinate grid to the NV map (template lacks one)
+        self._add_nv_map_grid(map_item)
+
         county = self._get_county()
         state_name = 'Nevada'
 
@@ -369,27 +410,122 @@ class ClaimsMapGenerator:
             f"{county}, {state_name}"
         )
 
-        # Reference text
+        # Reference text using surveyor's notation
         nv_ref = self._generate_nv_reference_text()
 
-        label_values = {}
-
-        # Match the NV template labels by their content
-        self._populate_labels_startswith(
-            layout, 'BC Lode Claims', title_text
-        )
+        # Match and replace template labels
+        self._populate_labels_startswith(layout, 'BC Lode Claims', title_text)
         self._populate_labels_startswith(
             layout, 'Each claim is', 'Each claim is 1,500\' x 600\''
         )
-        if nv_ref:
-            self._populate_labels_contains(layout, 'feet west', nv_ref)
 
-        self._populate_labels(layout, label_values)
+        # Fix rotated reference label: reset rotation and update text
+        # The template has a label rotated 19 degrees with sample data
+        if nv_ref:
+            self._update_nv_reference_label(layout, nv_ref)
+
+        # Scale text
+        self._populate_labels_startswith(layout, 'Scale:', f'Scale: 1:6,000 (500\'/inch)')
+
         self._fix_logo_paths(layout)
+        self._remove_legend(layout)
 
         QgsProject.instance().layoutManager().addLayout(layout)
         logger.info(f"[CLAIMS MAP] Created NV filing map: {layout_name}")
         return layout_name
+
+    def _update_nv_reference_label(self, layout: QgsPrintLayout, new_text: str):
+        """
+        Find and update the reference label in the NV template.
+
+        The template has a label rotated 19 degrees with sample reference
+        data. We reset the rotation to 0 and update the text to match
+        the current claim's reference point.
+        """
+        for item in layout.items():
+            if not isinstance(item, QgsLayoutItemLabel):
+                continue
+            text = item.text()
+            # Match the old-style reference text (contains "feet west" or
+            # "feet east" or "survey monument") or any rotated label
+            if ('feet west' in text or 'feet east' in text or
+                    'survey monument' in text.lower() or
+                    'corner of Sec' in text):
+                item.setText(new_text)
+                item.setItemRotation(0)  # Reset rotation
+                return
+
+        # If no existing label matched, the template may have changed.
+        # Don't create a new one — the reference text is also in the
+        # reference tie line label on the map itself.
+
+    def _add_nv_map_grid(self, map_item: QgsLayoutItemMap):
+        """
+        Add a coordinate grid to the NV map item.
+
+        The NV template lacks a grid. This adds a cross-style grid
+        with coordinate annotations matching the project CRS.
+        """
+        try:
+            from qgis.core import QgsLayoutItemMapGrid
+
+            grid = QgsLayoutItemMapGrid('UTM Grid', map_item)
+
+            # Set CRS
+            if self.state.project_epsg:
+                crs = QgsCoordinateReferenceSystem(f"EPSG:{self.state.project_epsg}")
+                grid.setCrs(crs)
+
+            # Calculate interval from extent (target ~4 lines)
+            extent = map_item.extent()
+            map_span = min(extent.width(), extent.height())
+            nice_intervals = [100, 200, 250, 500, 1000, 1500, 2000, 2500, 5000]
+            target_interval = map_span / 4
+            chosen_interval = nice_intervals[0]
+            for interval in nice_intervals:
+                if interval >= target_interval:
+                    chosen_interval = interval
+                    break
+
+            grid.setIntervalX(chosen_interval)
+            grid.setIntervalY(chosen_interval)
+
+            # Cross style
+            grid.setStyle(QgsLayoutItemMapGrid.Cross)
+            grid.setCrossLength(3.0)
+
+            # Enable annotations
+            grid.setAnnotationEnabled(True)
+            grid.setAnnotationFont(QFont("Arial", 8))
+            grid.setAnnotationPrecision(0)
+
+            # Annotations outside on all sides (NV has full-page map)
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.OutsideMapFrame,
+                QgsLayoutItemMapGrid.Left,
+            )
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.OutsideMapFrame,
+                QgsLayoutItemMapGrid.Right,
+            )
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.OutsideMapFrame,
+                QgsLayoutItemMapGrid.Top,
+            )
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.OutsideMapFrame,
+                QgsLayoutItemMapGrid.Bottom,
+            )
+
+            grid.setEnabled(True)
+            map_item.grids().addGrid(grid)
+
+            logger.info(
+                f"[CLAIMS MAP] Added NV map grid with {chosen_interval}m interval"
+            )
+
+        except Exception as e:
+            logger.warning(f"[CLAIMS MAP] Could not add NV map grid: {e}")
 
     # =========================================================================
     # BASEMAP MANAGEMENT
@@ -688,6 +824,81 @@ class ClaimsMapGenerator:
                 if current_path and self._logo_path.exists():
                     item.setPicturePath(logo_path)
 
+    def _configure_scale_bars(self, layout: QgsPrintLayout, use_feet: bool = True):
+        """
+        Configure scale bars in the layout to use feet (US mining standard).
+
+        The bundled templates may have scale bars in meters. This converts
+        them to feet for US mining claim maps.
+        """
+        if not use_feet:
+            return
+
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemScaleBar):
+                # QgsUnitTypes.DistanceFeet = 0 in some QGIS versions
+                # Use the enum directly
+                try:
+                    item.setUnits(Qgis.DistanceUnit.Feet)
+                except AttributeError:
+                    # Older QGIS versions
+                    item.setUnits(QgsUnitTypes.DistanceFeet)
+
+                # Set reasonable number of segments for feet
+                item.setNumberOfSegments(4)
+                item.setUnitsPerSegment(500)  # 500 ft per segment
+                item.setUnitLabel('ft')
+
+    def _configure_legend(
+        self, layout: QgsPrintLayout, map_layers: List[QgsMapLayer],
+    ):
+        """
+        Populate the legend item with the layers shown in this map.
+
+        Filters out basemap layers (USGS Topo, PLSS) to keep the legend
+        focused on claims-related symbology.
+        """
+        legend_item = None
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemLegend):
+                legend_item = item
+                break
+
+        if not legend_item:
+            return
+
+        # Link legend to the map item
+        map_item = self._find_map_item(layout)
+        if map_item:
+            legend_item.setLinkedMap(map_item)
+
+        # Build a custom layer tree with only claims-related layers
+        # Exclude basemap and annotation layers from legend
+        basemap_names = {
+            'USGS Topo', 'PLSS Sections', 'PLSS Townships',
+            'Claim Dimensions', 'Reference Tie', 'Corner Labels', 'Reference Point',
+        }
+        legend_model = legend_item.model()
+        root_group = legend_model.rootGroup()
+        root_group.removeAllChildren()
+
+        for layer in map_layers:
+            if layer.name() in basemap_names:
+                continue
+            root_group.addLayer(layer)
+
+        # Disable auto-update so it stays locked to our layer list
+        legend_item.setAutoUpdateModel(False)
+
+        legend_item.adjustBoxSize()
+
+    def _remove_legend(self, layout: QgsPrintLayout):
+        """Remove or hide the legend item from a layout (for filing maps)."""
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemLegend):
+                layout.removeLayoutItem(item)
+                return
+
     # =========================================================================
     # MAP ITEM CONFIGURATION
     # =========================================================================
@@ -755,10 +966,26 @@ class ClaimsMapGenerator:
         self._update_map_grid(map_item, crs)
 
     def _calculate_extent(
-        self, claims_layer: QgsVectorLayer, buffer_pct: float = 0.15
+        self,
+        claims_layer: QgsVectorLayer,
+        buffer_pct: float = 0.15,
+        include_reference: bool = False,
     ) -> QgsRectangle:
-        """Calculate bounding extent of claims with buffer."""
+        """Calculate bounding extent of claims with buffer.
+
+        If include_reference is True, expands the extent to also encompass
+        the reference point so the tie line is fully visible.
+        """
         extent = claims_layer.extent()
+
+        # Optionally include the reference point in the extent
+        if include_reference and self.state.reference_points:
+            ref = self.state.reference_points[0]
+            ref_e = ref.get('easting', 0)
+            ref_n = ref.get('northing', 0)
+            if ref_e and ref_n:
+                extent.combineExtentWith(QgsRectangle(ref_e, ref_n, ref_e, ref_n))
+
         dx = extent.width() * buffer_pct
         dy = extent.height() * buffer_pct
 
@@ -828,6 +1055,34 @@ class ClaimsMapGenerator:
             grid.setIntervalX(chosen_interval)
             grid.setIntervalY(chosen_interval)
 
+            # Place bottom and right annotations inside the map frame
+            # so they don't extend into the title block area.
+            # Top and left stay outside (they have room).
+            from qgis.core import QgsLayoutItemMapGrid
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.InsideMapFrame,
+                QgsLayoutItemMapGrid.Bottom,
+            )
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.InsideMapFrame,
+                QgsLayoutItemMapGrid.Right,
+            )
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.OutsideMapFrame,
+                QgsLayoutItemMapGrid.Top,
+            )
+            grid.setAnnotationPosition(
+                QgsLayoutItemMapGrid.OutsideMapFrame,
+                QgsLayoutItemMapGrid.Left,
+            )
+
+            # Disable grid frame on bottom and right to prevent the
+            # zebra/tick frame from overlapping the title block.
+            grid.setFrameSideFlags(
+                QgsLayoutItemMapGrid.FrameLeft
+                | QgsLayoutItemMapGrid.FrameTop
+            )
+
             logger.info(
                 f"[CLAIMS MAP] Grid updated: CRS={crs.authid() if crs else 'default'}, "
                 f"interval={chosen_interval}m"
@@ -841,7 +1096,11 @@ class ClaimsMapGenerator:
     # =========================================================================
 
     def _collect_layers(self) -> Dict[str, Optional[QgsMapLayer]]:
-        """Gather all relevant layers organized by role."""
+        """Gather all relevant layers organized by role.
+
+        Includes both existing project layers and dynamically-created
+        annotation layers (dimensions, tie lines, corner labels, reference point).
+        """
         project = QgsProject.instance()
         prefix = self.state.grid_name_prefix or ""
         suffix = f" [{prefix} Lode Claims]" if prefix else ""
@@ -853,6 +1112,15 @@ class ClaimsMapGenerator:
                 if layers:
                     return layers[0]
             return None
+
+        # Clean up any leftover annotation layers from previous generation
+        self._cleanup_annotation_layers()
+
+        # Create dynamic annotation layers
+        dimension_layer = self._create_dimension_layer()
+        tie_layer = self._create_reference_tie_layer()
+        corner_label_layer = self._create_corner_label_layer()
+        ref_point_layer = self._create_reference_point_layer()
 
         return {
             'topo': find_layer('USGS Topo'),
@@ -866,6 +1134,11 @@ class ClaimsMapGenerator:
             'plss_townships': find_layer('PLSS Townships'),
             'sideline_monuments': find_layer('Sideline Monuments'),
             'endline_monuments': find_layer('Endline Monuments'),
+            # Dynamic annotation layers
+            'dimensions': dimension_layer,
+            'tie_line': tie_layer,
+            'corner_labels': corner_label_layer,
+            'ref_point': ref_point_layer,
         }
 
     def _find_claims_layer(self) -> Optional[QgsVectorLayer]:
@@ -876,11 +1149,16 @@ class ClaimsMapGenerator:
             if isinstance(layer, QgsVectorLayer) and layer.isValid():
                 return layer
 
-        # Try by name
-        layers = self._collect_layers()
-        claims = layers.get('claims')
-        if isinstance(claims, QgsVectorLayer):
-            return claims
+        # Try by name (without full _collect_layers to avoid creating annotation layers)
+        project = QgsProject.instance()
+        prefix = self.state.grid_name_prefix or ""
+        suffix = f" [{prefix} Lode Claims]" if prefix else ""
+
+        for name in [f"Lode Claims{suffix}", "Lode Claims"]:
+            layers = project.mapLayersByName(name)
+            if layers and isinstance(layers[0], QgsVectorLayer):
+                return layers[0]
+
         return None
 
     def _build_layer_list(
@@ -891,21 +1169,42 @@ class ClaimsMapGenerator:
         include_monuments: bool = True,
         include_endline_monuments: bool = False,
         include_sideline_monuments: bool = False,
+        include_corners: bool = True,
+        include_dimensions: bool = False,
+        include_tie_line: bool = False,
+        include_corner_labels: bool = False,
+        include_ref_point: bool = False,
     ) -> List[QgsMapLayer]:
         """
         Build ordered layer list for a map item.
 
         Layer order (top to bottom):
-        1. Waypoints (if included)
-        2. Monuments
-        3. Corner Points / LM Corners
-        4. Center Lines
-        5. Claims polygons
-        6. PLSS Sections
-        7. PLSS Townships
-        8. USGS Topo (bottom)
+        1. Reference tie line + reference point (if included)
+        2. Dimension annotations (if included)
+        3. Corner labels (if included)
+        4. Waypoints (if included)
+        5. Monuments
+        6. Corner Points / LM Corners (if included)
+        7. Center Lines
+        8. Claims polygons
+        9. PLSS Sections
+        10. PLSS Townships
+        11. USGS Topo (bottom)
         """
         result = []
+
+        # Annotation layers on top so labels aren't obscured
+        if include_ref_point and layers.get('ref_point'):
+            result.append(layers['ref_point'])
+
+        if include_tie_line and layers.get('tie_line'):
+            result.append(layers['tie_line'])
+
+        if include_dimensions and layers.get('dimensions'):
+            result.append(layers['dimensions'])
+
+        if include_corner_labels and layers.get('corner_labels'):
+            result.append(layers['corner_labels'])
 
         if include_waypoints and layers.get('waypoints'):
             result.append(layers['waypoints'])
@@ -919,10 +1218,10 @@ class ClaimsMapGenerator:
         if include_sideline_monuments and layers.get('sideline_monuments'):
             result.append(layers['sideline_monuments'])
 
-        if layers.get('lm_corners'):
+        if include_corners and layers.get('lm_corners'):
             result.append(layers['lm_corners'])
 
-        if layers.get('corners'):
+        if include_corners and layers.get('corners'):
             result.append(layers['corners'])
 
         if include_centerlines and layers.get('centerlines'):
@@ -986,6 +1285,84 @@ class ClaimsMapGenerator:
                 return
 
     # =========================================================================
+    # PROGRAMMATIC LAYOUT LABELS
+    # =========================================================================
+
+    def _add_filing_text_labels(self, layout: QgsPrintLayout, map_item: QgsLayoutItemMap):
+        """
+        Add filing-specific text labels below the map on generic filing maps.
+
+        Adds: bearings/distances, monument description, and reference tie text
+        in a compact info block below the map area.
+        """
+        # Get the bottom of the map item to position text below it
+        map_bottom = map_item.pagePos().y() + map_item.sizeWithUnits().height()
+        page_width = layout.pageCollection().page(0).pageSize().width()
+        left_margin = 8.0  # mm
+        text_width = page_width - (left_margin * 2)
+
+        y_pos = map_bottom + 2  # small gap below map
+
+        # Bearings and distances
+        bearings_text = self._generate_az_bearings_text()
+        if bearings_text:
+            label = self._create_text_label(
+                layout, bearings_text, left_margin, y_pos, text_width, 20,
+                font_size=7,
+            )
+            layout.addLayoutItem(label)
+            y_pos += 22
+
+        # Monument description
+        monument_text = self._generate_monument_text()
+        if monument_text:
+            label = self._create_text_label(
+                layout, monument_text, left_margin, y_pos, text_width, 8,
+                font_size=7,
+            )
+            layout.addLayoutItem(label)
+            y_pos += 10
+
+        # Reference tie
+        reference_text = self._generate_reference_text()
+        if reference_text:
+            label = self._create_text_label(
+                layout, reference_text, left_margin, y_pos, text_width, 8,
+                font_size=7,
+            )
+            layout.addLayoutItem(label)
+
+    def _create_text_label(
+        self,
+        layout: QgsPrintLayout,
+        text: str,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        font_size: int = 8,
+        bold: bool = False,
+    ) -> QgsLayoutItemLabel:
+        """Create a positioned text label in a print layout."""
+        label = QgsLayoutItemLabel(layout)
+        label.setText(text)
+
+        font = QFont("Arial", font_size)
+        font.setBold(bold)
+        label.setFont(font)
+
+        label.attemptMove(
+            QgsLayoutPoint(x, y, QgsUnitTypes.LayoutMillimeters)
+        )
+        label.attemptResize(
+            QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters)
+        )
+        label.setVAlign(Qt.AlignmentFlag.AlignTop)
+        label.setHAlign(Qt.AlignmentFlag.AlignLeft)
+
+        return label
+
+    # =========================================================================
     # DATA EXTRACTION HELPERS
     # =========================================================================
 
@@ -1027,12 +1404,12 @@ class ClaimsMapGenerator:
 
     def _generate_az_bearings_text(self) -> str:
         """
-        Generate bearings and distances text for AZ filing map.
+        Generate bearings and distances text for filing maps using
+        surveyor's notation.
 
         Produces text like:
-        "CM 1: From corner 1, go 1500' west to corner 2, then 600' north
-        to corner 3, then 1500' east to corner 4, then 600' south back
-        to corner 1."
+        "CM 1: Beginning at Corner No. 1, thence N 90°00' W, 1,500.00 ft
+        to Corner No. 2; thence N 00°00' E, 600.00 ft to Corner No. 3; ..."
         """
         claims = self.state.processed_claims
         if not claims:
@@ -1059,10 +1436,9 @@ class ClaimsMapGenerator:
                 n2 = c2.get('northing', 0)
 
                 distance_ft = self._calc_distance_ft(e1, n1, e2, n2)
-                cardinal = self._bearing_to_cardinal(
-                    self._calc_bearing(e1, n1, e2, n2)
-                )
-                segments.append((int(round(distance_ft)), cardinal))
+                bearing = self._calc_bearing(e1, n1, e2, n2)
+                surveyors = self._bearing_to_surveyors(bearing)
+                segments.append((round(distance_ft, 2), surveyors))
 
             # Create pattern key for grouping identical geometries
             pattern_key = tuple(segments)
@@ -1080,21 +1456,19 @@ class ClaimsMapGenerator:
             segments = group['segments']
             names = group['names']
 
-            # Determine which corner is corner 1 (by cardinal direction)
-            c1_direction = segments[0][1]  # Direction from C1 to C2
-
             # Build claim name list
             if len(names) <= 3:
                 name_str = ', '.join(names)
             else:
                 name_str = f"{names[0]} to {names[-1]}"
 
-            # Build description
+            # Build description using surveyor's notation
             desc = (
-                f"{name_str}: From corner 1, go {segments[0][0]:,}' {segments[0][1]} "
-                f"to corner 2, then {segments[1][0]:,}' {segments[1][1]} to corner 3, "
-                f"then {segments[2][0]:,}' {segments[2][1]} to corner 4, then "
-                f"{segments[3][0]:,}' {segments[3][1]} back to corner 1."
+                f"{name_str}: Beginning at Corner No. 1, thence {segments[0][1]}, "
+                f"{segments[0][0]:,.2f} ft to Corner No. 2; thence {segments[1][1]}, "
+                f"{segments[1][0]:,.2f} ft to Corner No. 3; thence {segments[2][1]}, "
+                f"{segments[2][0]:,.2f} ft to Corner No. 4; thence {segments[3][1]}, "
+                f"{segments[3][0]:,.2f} ft to Corner No. 1, the point of beginning."
             )
             lines.append(desc)
 
@@ -1111,12 +1485,29 @@ class ClaimsMapGenerator:
         )
 
     def _generate_reference_text(self) -> str:
-        """Generate PLSS reference/tie text from reference points."""
+        """Generate reference/tie text with bearing and distance from
+        reference point to Corner No. 1 of the first claim."""
         if not self.state.reference_points:
             return "Reference: [no reference point specified - add in Step 3]"
 
         ref = self.state.reference_points[0]
         ref_name = ref.get('name', 'survey monument')
+
+        # Calculate bearing and distance from reference to Corner 1
+        tie_text = ""
+        if self.state.processed_claims:
+            first_claim = self.state.processed_claims[0]
+            corners = first_claim.get('corners', [])
+            ref_easting = ref.get('easting', 0)
+            ref_northing = ref.get('northing', 0)
+            if corners and ref_easting and ref_northing:
+                corner = corners[0]
+                corner_e = corner.get('easting', 0)
+                corner_n = corner.get('northing', 0)
+                bearing = self._calc_bearing(ref_easting, ref_northing, corner_e, corner_n)
+                dist_ft = self._calc_distance_ft(ref_easting, ref_northing, corner_e, corner_n)
+                surveyors = self._bearing_to_surveyors(bearing)
+                tie_text = f" Corner No. 1 bears {surveyors}, {dist_ft:,.2f} ft from"
 
         # Try to get PLSS info from first claim
         plss_parts = []
@@ -1136,14 +1527,20 @@ class ClaimsMapGenerator:
                     plss_parts.append(range_val)
 
         plss_str = ', '.join(plss_parts) if plss_parts else ''
+
+        if tie_text:
+            if plss_str:
+                return f"Reference:{tie_text} the {ref_name}, {plss_str}"
+            return f"Reference:{tie_text} the {ref_name}"
         if plss_str:
             return f"Reference: the permanent survey monument located at the {ref_name}, {plss_str}"
         return f"Reference: the permanent survey monument located at the {ref_name}"
 
     def _generate_nv_reference_text(self) -> str:
         """
-        Generate NV reference text showing distance/direction
-        from claim corner to reference point.
+        Generate NV reference text showing bearing and distance
+        from a reference survey monument to Corner No. 1 of the
+        first claim, using surveyor's bearing notation.
         """
         if not self.state.reference_points or not self.state.processed_claims:
             return ""
@@ -1165,20 +1562,16 @@ class ClaimsMapGenerator:
         corner_e = corner.get('easting', 0)
         corner_n = corner.get('northing', 0)
 
-        de = corner_e - ref_easting
-        dn = corner_n - ref_northing
-
-        ew_dir = "east" if de > 0 else "west"
-        ns_dir = "north" if dn > 0 else "south"
-
-        ew_ft = abs(de) * METERS_TO_FEET
-        ns_ft = abs(dn) * METERS_TO_FEET
+        # Bearing and distance from reference point TO Corner 1
+        bearing = self._calc_bearing(ref_easting, ref_northing, corner_e, corner_n)
+        distance_ft = self._calc_distance_ft(ref_easting, ref_northing, corner_e, corner_n)
+        surveyors = self._bearing_to_surveyors(bearing)
 
         ref_name = ref.get('name', 'the permanent survey monument')
 
         return (
-            f"{ew_ft:,.0f} feet {ew_dir}, and {ns_ft:,.0f} feet {ns_dir} of "
-            f"{ref_name}"
+            f"Corner No. 1 of {first_claim.get('name', 'Claim 1')} bears "
+            f"{surveyors}, {distance_ft:,.2f} ft from {ref_name}"
         )
 
     # =========================================================================
@@ -1207,9 +1600,8 @@ class ClaimsMapGenerator:
         """
         Convert bearing (degrees from north) to cardinal direction string.
 
-        Uses 8-point compass: N, NE, E, SE, S, SW, W, NW.
+        Uses 8-point compass for field map text where cardinal is appropriate.
         """
-        # Normalize to 0-360
         bearing = bearing % 360
 
         directions = [
@@ -1221,7 +1613,7 @@ class ClaimsMapGenerator:
             (247.5, 'southwest'),
             (292.5, 'west'),
             (337.5, 'northwest'),
-            (360.1, 'north'),  # Wrap around
+            (360.1, 'north'),
         ]
 
         for threshold, direction in directions:
@@ -1229,6 +1621,406 @@ class ClaimsMapGenerator:
                 return direction
 
         return 'north'
+
+    def _bearing_to_surveyors(self, bearing: float) -> str:
+        """
+        Convert azimuth bearing (degrees from north, 0-360) to surveyor's
+        bearing notation.
+
+        Surveyor's bearings are measured from N or S toward E or W,
+        never exceeding 90 degrees. Examples:
+        - 0° → N 00°00' E (due north)
+        - 45° → N 45°00' E
+        - 90° → N 90°00' E (due east)
+        - 135° → S 45°00' E
+        - 180° → S 00°00' E (due south)
+        - 225° → S 45°00' W
+        - 270° → N 90°00' W (due west)
+        - 315° → N 45°00' W
+        """
+        bearing = bearing % 360
+
+        if bearing <= 90:
+            # NE quadrant (0-90, including due east)
+            ns = 'N'
+            ew = 'E'
+            angle = bearing
+        elif bearing <= 180:
+            # SE quadrant (90-180, including due south)
+            ns = 'S'
+            ew = 'E'
+            angle = 180 - bearing
+        elif bearing < 270:
+            # SW quadrant (180-270, excluding due west)
+            ns = 'S'
+            ew = 'W'
+            angle = bearing - 180
+        else:
+            # NW quadrant
+            ns = 'N'
+            ew = 'W'
+            angle = 360 - bearing
+
+        degrees = int(angle)
+        minutes = int(round((angle - degrees) * 60))
+        if minutes == 60:
+            degrees += 1
+            minutes = 0
+
+        return f"{ns} {degrees:02d}\u00b0{minutes:02d}' {ew}"
+
+    # =========================================================================
+    # MAP ANNOTATION LAYERS
+    # =========================================================================
+
+    def _create_dimension_layer(self) -> Optional[QgsVectorLayer]:
+        """
+        Create a memory layer with line segments along each claim edge,
+        labeled with the distance in feet and surveyor's bearing.
+
+        Each feature is a 2-point line along one edge of a claim polygon.
+        The label shows: "1,500.00' N 90°00' W" (distance + bearing).
+        """
+        claims = self.state.processed_claims
+        if not claims:
+            return None
+
+        epsg = self.state.project_epsg or 4326
+        uri = f"LineString?crs=EPSG:{epsg}&field=label:string&field=distance_ft:double&field=bearing:string&field=claim:string"
+        layer = QgsVectorLayer(uri, "Claim Dimensions", "memory")
+        if not layer.isValid():
+            logger.warning("[CLAIMS MAP] Failed to create dimension layer")
+            return None
+
+        layer.startEditing()
+
+        for claim in claims:
+            corners = claim.get('corners', [])
+            if len(corners) < 4:
+                continue
+            claim_name = claim.get('name', '')
+
+            for i in range(4):
+                c1 = corners[i]
+                c2 = corners[(i + 1) % 4]
+
+                e1 = c1.get('easting', 0)
+                n1 = c1.get('northing', 0)
+                e2 = c2.get('easting', 0)
+                n2 = c2.get('northing', 0)
+
+                dist_ft = self._calc_distance_ft(e1, n1, e2, n2)
+                bearing = self._calc_bearing(e1, n1, e2, n2)
+                surveyors = self._bearing_to_surveyors(bearing)
+
+                label = f"{dist_ft:,.0f}'"
+
+                feat = QgsFeature(layer.fields())
+                feat.setGeometry(QgsGeometry.fromPolylineXY([
+                    QgsPointXY(e1, n1),
+                    QgsPointXY(e2, n2),
+                ]))
+                feat.setAttribute('label', label)
+                feat.setAttribute('distance_ft', round(dist_ft, 2))
+                feat.setAttribute('bearing', surveyors)
+                feat.setAttribute('claim', claim_name)
+                layer.addFeature(feat)
+
+        layer.commitChanges()
+
+        # Style: invisible line (dimensions are shown via labels only)
+        symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+        symbol.setOpacity(0)
+        renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+
+        # Label: centered along the line, showing distance
+        label_settings = QgsPalLayerSettings()
+        label_settings.fieldName = '"label"'
+        label_settings.isExpression = True
+        label_settings.placement = Qgis.LabelPlacement.Line
+
+        text_format = QgsTextFormat()
+        font = QFont("Arial", 8)
+        font.setBold(True)
+        text_format.setFont(font)
+        text_format.setColor(QColor('#1a1a1a'))
+
+        buffer_settings = QgsTextBufferSettings()
+        buffer_settings.setEnabled(True)
+        buffer_settings.setSize(1.5)
+        buffer_settings.setColor(QColor('#FFFFFF'))
+        text_format.setBuffer(buffer_settings)
+
+        label_settings.setFormat(text_format)
+        labeling = QgsVectorLayerSimpleLabeling(label_settings)
+        layer.setLabeling(labeling)
+        layer.setLabelsEnabled(True)
+
+        # Don't add to project layer tree — used only in print layouts
+        QgsProject.instance().addMapLayer(layer, False)
+        logger.info(
+            f"[CLAIMS MAP] Created dimension layer with {layer.featureCount()} segments"
+        )
+        return layer
+
+    def _create_reference_tie_layer(self) -> Optional[QgsVectorLayer]:
+        """
+        Create a memory layer with a dashed line from the reference point
+        to Corner No. 1 of the first claim, labeled with bearing and distance.
+
+        This is the standard "tie line" shown on mining claim filing maps
+        connecting the claim to a known survey monument.
+        """
+        if not self.state.reference_points or not self.state.processed_claims:
+            return None
+
+        ref = self.state.reference_points[0]
+        ref_easting = ref.get('easting', 0)
+        ref_northing = ref.get('northing', 0)
+
+        if not ref_easting and not ref_northing:
+            return None
+
+        first_claim = self.state.processed_claims[0]
+        corners = first_claim.get('corners', [])
+        if not corners:
+            return None
+
+        corner = corners[0]
+        corner_e = corner.get('easting', 0)
+        corner_n = corner.get('northing', 0)
+
+        bearing = self._calc_bearing(ref_easting, ref_northing, corner_e, corner_n)
+        dist_ft = self._calc_distance_ft(ref_easting, ref_northing, corner_e, corner_n)
+        surveyors = self._bearing_to_surveyors(bearing)
+
+        epsg = self.state.project_epsg or 4326
+        uri = f"LineString?crs=EPSG:{epsg}&field=label:string&field=distance_ft:double&field=bearing:string"
+        layer = QgsVectorLayer(uri, "Reference Tie", "memory")
+        if not layer.isValid():
+            return None
+
+        layer.startEditing()
+
+        feat = QgsFeature(layer.fields())
+        feat.setGeometry(QgsGeometry.fromPolylineXY([
+            QgsPointXY(ref_easting, ref_northing),
+            QgsPointXY(corner_e, corner_n),
+        ]))
+        label = f"{surveyors}  {dist_ft:,.2f}'"
+        feat.setAttribute('label', label)
+        feat.setAttribute('distance_ft', round(dist_ft, 2))
+        feat.setAttribute('bearing', surveyors)
+        layer.addFeature(feat)
+
+        layer.commitChanges()
+
+        # Style: dashed red line
+        symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+        symbol.deleteSymbolLayer(0)
+
+        line_sym = QgsSimpleLineSymbolLayer()
+        line_sym.setColor(QColor('#CC0000'))
+        line_sym.setWidth(0.5)
+        line_sym.setPenStyle(Qt.PenStyle.DashLine)
+        symbol.appendSymbolLayer(line_sym)
+
+        renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+
+        # Label: centered along the line
+        label_settings = QgsPalLayerSettings()
+        label_settings.fieldName = '"label"'
+        label_settings.isExpression = True
+        label_settings.placement = Qgis.LabelPlacement.Line
+
+        text_format = QgsTextFormat()
+        font = QFont("Arial", 8)
+        font.setBold(True)
+        font.setItalic(True)
+        text_format.setFont(font)
+        text_format.setColor(QColor('#CC0000'))
+
+        buffer_settings = QgsTextBufferSettings()
+        buffer_settings.setEnabled(True)
+        buffer_settings.setSize(1.5)
+        buffer_settings.setColor(QColor('#FFFFFF'))
+        text_format.setBuffer(buffer_settings)
+
+        label_settings.setFormat(text_format)
+        labeling = QgsVectorLayerSimpleLabeling(label_settings)
+        layer.setLabeling(labeling)
+        layer.setLabelsEnabled(True)
+
+        # Don't add to layer tree
+        QgsProject.instance().addMapLayer(layer, False)
+        logger.info(
+            f"[CLAIMS MAP] Created reference tie layer: {surveyors}, {dist_ft:,.2f}'"
+        )
+        return layer
+
+    def _create_corner_label_layer(self) -> Optional[QgsVectorLayer]:
+        """
+        Create a memory point layer with corner labels (C1, C2, C3, C4)
+        for each claim, positioned at each corner.
+
+        Used on filing maps where corner identification is required.
+        """
+        claims = self.state.processed_claims
+        if not claims:
+            return None
+
+        epsg = self.state.project_epsg or 4326
+        uri = f"Point?crs=EPSG:{epsg}&field=label:string&field=claim:string&field=corner_num:integer"
+        layer = QgsVectorLayer(uri, "Corner Labels", "memory")
+        if not layer.isValid():
+            return None
+
+        layer.startEditing()
+
+        for claim in claims:
+            corners = claim.get('corners', [])
+            claim_name = claim.get('name', '')
+            lm_corner = claim.get('lm_corner', 1)
+
+            for corner in corners:
+                e = corner.get('easting', 0)
+                n = corner.get('northing', 0)
+                num = corner.get('corner_number', 0)
+
+                # Label format: "C1" or "C1 (LM)" for the location monument corner
+                label = f"C{num}"
+                if num == lm_corner:
+                    label = f"C{num} (LM)"
+
+                feat = QgsFeature(layer.fields())
+                feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(e, n)))
+                feat.setAttribute('label', label)
+                feat.setAttribute('claim', claim_name)
+                feat.setAttribute('corner_num', num)
+                layer.addFeature(feat)
+
+        layer.commitChanges()
+
+        # Style: small black circle
+        symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+        symbol.deleteSymbolLayer(0)
+        marker = QgsSimpleMarkerSymbolLayer()
+        marker.setColor(QColor('#000000'))
+        marker.setSize(2.0)
+        marker.setStrokeColor(QColor('#FFFFFF'))
+        marker.setStrokeWidth(0.3)
+        symbol.appendSymbolLayer(marker)
+        renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+
+        # Label: offset above-right with white buffer
+        label_settings = QgsPalLayerSettings()
+        label_settings.fieldName = '"label"'
+        label_settings.isExpression = True
+        label_settings.placement = Qgis.LabelPlacement.OverPoint
+
+        text_format = QgsTextFormat()
+        font = QFont("Arial", 8)
+        font.setBold(True)
+        text_format.setFont(font)
+        text_format.setColor(QColor('#000000'))
+
+        buffer_settings = QgsTextBufferSettings()
+        buffer_settings.setEnabled(True)
+        buffer_settings.setSize(1.5)
+        buffer_settings.setColor(QColor('#FFFFFF'))
+        text_format.setBuffer(buffer_settings)
+
+        label_settings.setFormat(text_format)
+        labeling = QgsVectorLayerSimpleLabeling(label_settings)
+        layer.setLabeling(labeling)
+        layer.setLabelsEnabled(True)
+
+        QgsProject.instance().addMapLayer(layer, False)
+        logger.info(
+            f"[CLAIMS MAP] Created corner label layer with {layer.featureCount()} points"
+        )
+        return layer
+
+    def _create_reference_point_layer(self) -> Optional[QgsVectorLayer]:
+        """
+        Create a memory point layer with the reference/survey monument
+        point, styled with a distinctive symbol and labeled.
+        """
+        if not self.state.reference_points:
+            return None
+
+        ref = self.state.reference_points[0]
+        ref_easting = ref.get('easting', 0)
+        ref_northing = ref.get('northing', 0)
+
+        if not ref_easting and not ref_northing:
+            return None
+
+        epsg = self.state.project_epsg or 4326
+        uri = f"Point?crs=EPSG:{epsg}&field=label:string"
+        layer = QgsVectorLayer(uri, "Reference Point", "memory")
+        if not layer.isValid():
+            return None
+
+        layer.startEditing()
+
+        feat = QgsFeature(layer.fields())
+        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(ref_easting, ref_northing)))
+        ref_name = ref.get('name', 'Survey Monument')
+        feat.setAttribute('label', ref_name)
+        layer.addFeature(feat)
+
+        layer.commitChanges()
+
+        # Style: red triangle
+        symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+        symbol.deleteSymbolLayer(0)
+        marker = QgsSimpleMarkerSymbolLayer()
+        marker.setShape(Qgis.MarkerShape.Triangle)
+        marker.setColor(QColor('#CC0000'))
+        marker.setSize(3.5)
+        marker.setStrokeColor(QColor('#000000'))
+        marker.setStrokeWidth(0.4)
+        symbol.appendSymbolLayer(marker)
+        renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+
+        # Label
+        label_settings = QgsPalLayerSettings()
+        label_settings.fieldName = '"label"'
+        label_settings.isExpression = True
+        label_settings.placement = Qgis.LabelPlacement.OverPoint
+
+        text_format = QgsTextFormat()
+        font = QFont("Arial", 7)
+        font.setItalic(True)
+        text_format.setFont(font)
+        text_format.setColor(QColor('#CC0000'))
+
+        buffer_settings = QgsTextBufferSettings()
+        buffer_settings.setEnabled(True)
+        buffer_settings.setSize(1.5)
+        buffer_settings.setColor(QColor('#FFFFFF'))
+        text_format.setBuffer(buffer_settings)
+
+        label_settings.setFormat(text_format)
+        labeling = QgsVectorLayerSimpleLabeling(label_settings)
+        layer.setLabeling(labeling)
+        layer.setLabelsEnabled(True)
+
+        QgsProject.instance().addMapLayer(layer, False)
+        logger.info("[CLAIMS MAP] Created reference point layer")
+        return layer
+
+    def _cleanup_annotation_layers(self):
+        """Remove temporary annotation layers from the project."""
+        project = QgsProject.instance()
+        for name in ['Claim Dimensions', 'Reference Tie', 'Corner Labels', 'Reference Point']:
+            for layer in project.mapLayersByName(name):
+                project.removeMapLayer(layer.id())
 
     # =========================================================================
     # LAYOUT MANAGEMENT HELPERS

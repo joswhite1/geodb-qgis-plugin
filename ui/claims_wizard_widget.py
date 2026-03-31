@@ -803,7 +803,11 @@ class ClaimsWizardWidget(QWidget):
             self.reset_wizard()
 
     def _on_wizard_completed(self):
-        """Handle wizard completion — open Claim Packages page and return to Sync Data."""
+        """Handle wizard completion — open Claim Packages page but stay on Step 7.
+
+        The user remains on Step 7 so they can still generate maps, re-push,
+        or review waypoints after the workflow is complete.
+        """
         self.status_message.emit("Claims workflow complete!", "success")
 
         # Open the Claim Packages page so the user can download documents
@@ -813,10 +817,13 @@ class ClaimsWizardWidget(QWidget):
             self,
             "Claims Complete",
             "Congratulations! Your claims workflow is complete.\n\n"
-            "Your Claim Packages page has been opened in the browser."
+            "Your Claim Packages page has been opened in the browser.\n\n"
+            "You can still generate maps or re-push from this step."
         )
 
-        self.wizard_completed.emit()
+        # Stay on Step 7 — update Finish button to indicate completion
+        self.next_btn.setText("Finished")
+        self.next_btn.setEnabled(False)
 
     def go_to_step(self, step_index: int) -> bool:
         """
