@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.8.2
+version=2.8.3
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,18 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.8.3 - Professional filing maps with surveyor's bearings and annotations
+        - Add surveyor's bearing notation (N 45°00' W) replacing cardinal directions on all filing maps
+        - Add dimension annotations on claim polygon edges (1,500' and 600' labels)
+        - Add reference tie line from survey monument to Corner No. 1 with bearing and distance
+        - Add corner labels (C1-C4 with LM designation) on filing maps
+        - Add reference point marker (red triangle) at survey monument location
+        - Differentiate Filing Map from Field Map with metes & bounds text, monument info, and tie text
+        - Fix AZ state filing map: add all annotation layers, proper surveyor's notation
+        - Fix NV state filing map: add UTM coordinate grid, fix rotated reference label
+        - Convert all scale bars from meters to feet (US mining claim standard)
+        - Keep user on Step 7 after Finish so Generate Maps button remains accessible
+        - Fix map extent to include reference point on filing maps (tie line visibility)
     2.8.2 - UI improvements, map generation, and security cleanup
         - Reorganize Basemaps widget into unified sections (Basemaps, PLSS Grid, Public Lands, MRDS)
         - Consolidate PLSS/Federal Lands streaming controls into Public Lands section
