@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.8.3
+version=2.9.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.9.0 - Claims GeoPackage server integration
+        - Merge Push to Server into single Push & Upload button on Step 7
+        - Auto-upload claims GeoPackage to server after pushing claims/stakes
+        - Link uploaded GeoPackage (ProjectFile) to ClaimPackage on server
+        - Save layer styles into GeoPackage before upload
+        - Add server GeoPackage dropdown on Step 1 (pull claims GeoPackages from server)
+        - Download and load server GeoPackages with metadata and claim_package_id restoration
+        - Keep Browse Local and Create New options as fallback
+        - Extract shared GeoPackage utilities (style save, download) to utils/gpkg_utils.py
     2.8.3 - Professional filing maps with surveyor's bearings and annotations
         - Add surveyor's bearing notation (N 45°00' W) replacing cardinal directions on all filing maps
         - Add dimension annotations on claim polygon edges (1,500' and 600' labels)
