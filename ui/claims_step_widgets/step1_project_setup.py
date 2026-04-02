@@ -15,7 +15,7 @@ import math
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QFormLayout, QLineEdit, QFileDialog, QMessageBox,
-    QFrame, QScrollArea
+    QFrame, QScrollArea, QComboBox
 )
 from qgis.PyQt.QtCore import QTimer
 from qgis.core import QgsProject, QgsCoordinateReferenceSystem
@@ -42,8 +42,8 @@ class ClaimsStep1Widget(ClaimsStepBase):
             "to UTM, create or select a GeoPackage for claims storage, and enter claimant information."
         )
 
-    def __init__(self, state, claims_manager, parent=None):
-        super().__init__(state, claims_manager, parent)
+    def __init__(self, state, claims_manager, parent=None, data_manager=None):
+        super().__init__(state, claims_manager, parent, data_manager=data_manager)
         self._refresh_in_progress = False  # Guard against rapid repeated calls
         self._is_destroyed = False  # Flag to prevent crashes after unload
         self._setup_ui()
@@ -211,7 +211,8 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Info
         info_label = QLabel(
-            "Select an existing GeoPackage with claims data, or create a new one. "
+            "Select an existing claims GeoPackage from the server, browse for a "
+            "local file, or create a new one. "
             "All claim metadata and layers will be stored in this file."
         )
         info_label.setWordWrap(True)
@@ -240,6 +241,24 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         layout.addLayout(prefix_layout)
 
+        # Server GeoPackage dropdown
+        server_layout = QHBoxLayout()
+        server_layout.addWidget(QLabel("From Server:"))
+
+        self.server_gpkg_combo = QComboBox()
+        self.server_gpkg_combo.setPlaceholderText("Select a claims GeoPackage...")
+        self.server_gpkg_combo.setStyleSheet(self._get_input_style())
+        self.server_gpkg_combo.currentIndexChanged.connect(self._on_server_gpkg_selected)
+        server_layout.addWidget(self.server_gpkg_combo, 1)
+
+        self.refresh_gpkg_btn = QPushButton("Refresh")
+        self.refresh_gpkg_btn.setStyleSheet(self._get_secondary_button_style())
+        self.refresh_gpkg_btn.setToolTip("Refresh the list of claims GeoPackages from the server")
+        self.refresh_gpkg_btn.clicked.connect(self._refresh_server_geopackages)
+        server_layout.addWidget(self.refresh_gpkg_btn)
+
+        layout.addLayout(server_layout)
+
         # Current file
         file_layout = QHBoxLayout()
 
@@ -254,8 +273,9 @@ class ClaimsStep1Widget(ClaimsStepBase):
         # Buttons
         btn_layout = QHBoxLayout()
 
-        self.browse_gpkg_btn = QPushButton("Browse...")
+        self.browse_gpkg_btn = QPushButton("Browse Local...")
         self.browse_gpkg_btn.setStyleSheet(self._get_secondary_button_style())
+        self.browse_gpkg_btn.setToolTip("Browse for a GeoPackage file on your computer")
         self.browse_gpkg_btn.clicked.connect(self._browse_geopackage)
         btn_layout.addWidget(self.browse_gpkg_btn)
 
@@ -318,8 +338,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         self.monument_type_edit = QLineEdit()
         self.monument_type_edit.setStyleSheet(self._get_input_style())
-        self.monument_type_edit.setPlaceholderText("2' wooden post")
-        self.monument_type_edit.setText("2' wooden post")  # Default
+        self.monument_type_edit.setPlaceholderText("e.g. 2' wooden post")
         form.addRow("Monument Type:", self.monument_type_edit)
 
         layout.addLayout(form)
@@ -833,6 +852,132 @@ class ClaimsStep1Widget(ClaimsStepBase):
         if path:
             self._load_geopackage(path)
 
+    def _refresh_server_geopackages(self):
+        """Fetch claims-linked GeoPackages from the server for the current project."""
+        if not self.state.project_id:
+            self.emit_status("Select a project first to see server GeoPackages.", "warning")
+            return
+
+        # Block the signal while we repopulate to avoid triggering _on_server_gpkg_selected
+        self.server_gpkg_combo.blockSignals(True)
+        self.server_gpkg_combo.clear()
+
+        try:
+            from ...utils.logger import PluginLogger
+            logger = PluginLogger.get_logger()
+
+            # Fetch GeoPackage ProjectFiles linked to ClaimPackages
+            # With include_deletion_metadata=False, returns a plain list
+            records = self.claims_manager.api.get_all_paginated(
+                model_name='ProjectFile',
+                project_id=self.state.project_id,
+                params={
+                    'category': 'GP',
+                    'linked_to_claim_packages': 'true',
+                    'include_claim_package': 'true',
+                },
+                include_deletion_metadata=False,
+            )
+            if not records:
+                self.server_gpkg_combo.addItem("No claims GeoPackages found", None)
+                self.server_gpkg_combo.setEnabled(False)
+                self.emit_status("No claims GeoPackages found on server.", "info")
+            else:
+                self.server_gpkg_combo.setEnabled(True)
+                # Add a placeholder first item
+                self.server_gpkg_combo.addItem("Select a claims GeoPackage...", None)
+                for record in records:
+                    cp_info = record.get('claim_package_info') or {}
+                    pkg_num = cp_info.get('package_number', '')
+                    name = record.get('name', 'Unknown')
+                    display = f"{pkg_num} \u2014 {name}" if pkg_num else name
+                    self.server_gpkg_combo.addItem(display, record)
+
+                self.emit_status(
+                    f"Found {len(records)} claims GeoPackage(s) on server.", "success"
+                )
+                logger.info(
+                    f"[STEP1] Found {len(records)} claims GeoPackage(s) for "
+                    f"project {self.state.project_id}"
+                )
+
+        except Exception as e:
+            self.server_gpkg_combo.addItem("Error loading from server", None)
+            self.server_gpkg_combo.setEnabled(False)
+            self.emit_status(f"Failed to fetch server GeoPackages: {e}", "error")
+
+        finally:
+            self.server_gpkg_combo.blockSignals(False)
+
+    def _on_server_gpkg_selected(self, index: int):
+        """Handle selection of a server GeoPackage from the dropdown."""
+        if index < 0:
+            return
+
+        server_file = self.server_gpkg_combo.itemData(index)
+        if not server_file or not isinstance(server_file, dict):
+            return
+
+        file_id = server_file.get('id')
+        file_url = server_file.get('file_url', '')
+        if not file_id or not file_url:
+            return
+
+        try:
+            from ...utils.logger import PluginLogger
+            from ...utils.gpkg_utils import download_geopackage
+
+            logger = PluginLogger.get_logger()
+
+            # Determine cache directory
+            from qgis.core import QgsApplication
+            cache_dir = Path(QgsApplication.qgisSettingsDirPath()) / 'geodb_cache' / 'geopackages'
+
+            # Resolve base URL for relative file_url values
+            base_url = None
+            try:
+                from urllib.parse import urlparse
+                endpoint = self.claims_manager.api.config.base_url
+                parsed = urlparse(endpoint)
+                base_url = f"{parsed.scheme}://{parsed.netloc}"
+            except Exception:
+                pass
+
+            self.emit_status("Downloading GeoPackage from server...", "info")
+
+            local_path = download_geopackage(
+                file_id=file_id,
+                file_url=file_url,
+                cache_dir=cache_dir,
+                base_url=base_url,
+                force_refresh=True,  # Always get latest version
+            )
+
+            if not local_path:
+                QMessageBox.warning(self, "Download Failed", "Could not download the GeoPackage.")
+                return
+
+            # Load the GeoPackage (restores metadata from its claims_metadata table)
+            self._load_geopackage(local_path)
+
+            # Restore claim_package_id from the server response if the GeoPackage
+            # didn't have it in its metadata (e.g., uploaded by another user)
+            cp_info = server_file.get('claim_package_info') or {}
+            if cp_info.get('id') and not self.state.claim_package_id:
+                self.state.claim_package_id = cp_info['id']
+                logger.info(
+                    f"[STEP1] Restored claim_package_id={cp_info['id']} "
+                    f"from server response"
+                )
+
+            self.emit_status(
+                f"Loaded GeoPackage from server: {server_file.get('name', '')}",
+                "success"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to download GeoPackage: {e}")
+
     def _create_geopackage(self):
         """Create a new GeoPackage, using the claim prefix for the default filename."""
         prefix = self.name_prefix_edit.text().strip() or "claims"
@@ -987,6 +1132,9 @@ class ClaimsStep1Widget(ClaimsStepBase):
         # when called from mouse event handlers (step indicator clicks)
         QTimer.singleShot(0, self._refresh_license)
         self.load_state()
+        # Refresh server GeoPackages if a project is selected
+        if self.state.project_id:
+            QTimer.singleShot(100, self._refresh_server_geopackages)
 
     def on_leave(self):
         """Called when leaving step."""
@@ -1014,7 +1162,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
         self.address2_edit.setText(self.state.address_line2)
         self.address3_edit.setText(self.state.address_line3)
         self.district_edit.setText(self.state.mining_district)
-        self.monument_type_edit.setText(self.state.monument_type or "2' wooden post")
+        self.monument_type_edit.setText(self.state.monument_type or "")
 
         if self.state.geopackage_path:
             self.gpkg_path_label.setText(self.state.geopackage_path)

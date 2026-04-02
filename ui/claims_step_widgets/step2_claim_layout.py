@@ -40,8 +40,8 @@ class ClaimsStep2Widget(ClaimsStepBase):
             "Use the tools to number and name your claims."
         )
 
-    def __init__(self, state, claims_manager, parent=None):
-        super().__init__(state, claims_manager, parent)
+    def __init__(self, state, claims_manager, parent=None, data_manager=None):
+        super().__init__(state, claims_manager, parent, data_manager=data_manager)
         self._grid_generator = None
         self._grid_processor = None
         self._setup_ui()

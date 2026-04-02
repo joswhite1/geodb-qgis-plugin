@@ -34,8 +34,8 @@ class ClaimsStep3Widget(ClaimsStepBase):
             "This step is optional but recommended for clear location descriptions."
         )
 
-    def __init__(self, state, claims_manager, parent=None):
-        super().__init__(state, claims_manager, parent)
+    def __init__(self, state, claims_manager, parent=None, data_manager=None):
+        super().__init__(state, claims_manager, parent, data_manager=data_manager)
         self._setup_ui()
 
     def _setup_ui(self):

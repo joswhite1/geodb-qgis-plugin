@@ -49,8 +49,8 @@ class ClaimsStep6Widget(ClaimsStepBase):
             "Finally, generate location notice documents."
         )
 
-    def __init__(self, state, claims_manager, parent=None):
-        super().__init__(state, claims_manager, parent)
+    def __init__(self, state, claims_manager, parent=None, data_manager=None):
+        super().__init__(state, claims_manager, parent, data_manager=data_manager)
         self._corner_processor = None
         self._grid_processor = None
         # Get logger for this module

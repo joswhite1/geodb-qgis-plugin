@@ -48,7 +48,8 @@ class ClaimsStepBase(QWidget):
         self,
         state: 'ClaimsWizardState',
         claims_manager: 'ClaimsManager',
-        parent=None
+        parent=None,
+        data_manager=None
     ):
         """
         Initialize the step widget.
@@ -57,10 +58,12 @@ class ClaimsStepBase(QWidget):
             state: Shared ClaimsWizardState object
             claims_manager: ClaimsManager for API calls
             parent: Parent widget
+            data_manager: Optional DataManager for file operations
         """
         super().__init__(parent)
         self.state = state
         self.claims_manager = claims_manager
+        self.data_manager = data_manager
         self._is_active = False
         self._is_destroyed = False  # Flag to prevent crashes after unload
 

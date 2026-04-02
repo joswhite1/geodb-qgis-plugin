@@ -638,48 +638,10 @@ class GpkgSyncWidget(QWidget):
         """
         Save current QGIS styles for all layers sourced from this GeoPackage.
 
-        Uses saveStyleToDatabase() to write styles into the GeoPackage's
-        layer_styles table. This is non-destructive and idempotent.
-
-        Returns the number of styles successfully saved.
+        Delegates to the shared utility in utils/gpkg_utils.py.
         """
-        saved = 0
-        gpkg_norm = os.path.normpath(gpkg_path).replace('\\', '/')
-
-        for layer_id, layer in QgsProject.instance().mapLayers().items():
-            if not isinstance(layer, QgsVectorLayer):
-                continue
-
-            source = layer.source()
-            source_path = source.split('|')[0]
-            source_norm = os.path.normpath(source_path).replace('\\', '/')
-
-            if source_norm != gpkg_norm:
-                continue
-            if '|layername=' not in source:
-                continue
-
-            # saveStyleToDatabase returns (message, success_bool)
-            result = layer.saveStyleToDatabase(
-                '',               # Empty name = default style
-                'geodb sync',     # Description
-                True,             # Use as default style
-                ''                # No UI file
-            )
-
-            if isinstance(result, tuple):
-                msg, success = result
-                if success:
-                    saved += 1
-                else:
-                    self.logger.warning(
-                        f"Failed to save style for layer '{layer.name()}': {msg}"
-                    )
-            else:
-                # Older QGIS versions may return differently
-                saved += 1
-
-        return saved
+        from ..utils.gpkg_utils import save_styles_to_geopackage
+        return save_styles_to_geopackage(gpkg_path)
 
     def _fetch_server_geopackages(self):
         """Fetch GeoPackage ProjectFiles from the server."""
@@ -976,61 +938,15 @@ class GpkgSyncWidget(QWidget):
         """
         Download a GeoPackage file from the server.
 
-        Uses the pre-signed file_url from the API response.
-        Caches files at: {QGIS_profile}/geodb_cache/geopackages/pf_{id}.gpkg
-
-        Returns the local file path, or None on failure.
+        Delegates to the shared utility in utils/gpkg_utils.py.
         """
-        file_id = server_file.get('id')
-        file_url = server_file.get('file_url', '')
-        name = server_file.get('name', f'pf_{file_id}.gpkg')
-
-        if not file_url:
-            self.logger.error(f"No file_url for GeoPackage {name}")
-            return None
-
-        # Check cache
-        cache_path = self._cache_dir / f"pf_{file_id}.gpkg"
-        if cache_path.exists():
-            self.logger.info(f"Using cached GeoPackage: {cache_path}")
-            return str(cache_path)
-
-        # Resolve relative URLs for local dev
-        if not urlparse(file_url).scheme:
-            base_url = self._get_base_url()
-            if base_url:
-                from urllib.parse import urljoin
-                file_url = urljoin(base_url, file_url)
-
-        # Download
-        request = QNetworkRequest(QUrl(file_url))
-        request.setAttribute(
-            QNetworkRequest.Attribute.RedirectPolicyAttribute,
-            QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy
+        from ..utils.gpkg_utils import download_geopackage
+        return download_geopackage(
+            file_id=server_file.get('id'),
+            file_url=server_file.get('file_url', ''),
+            cache_dir=self._cache_dir,
+            base_url=self._get_base_url(),
         )
-
-        blocking_request = QgsBlockingNetworkRequest()
-        error_code = blocking_request.get(request, forceRefresh=True)
-
-        if error_code != QgsBlockingNetworkRequest.NoError:
-            error_msg = blocking_request.errorMessage()
-            self.logger.error(f"Download failed for {name}: {error_msg}")
-            return None
-
-        reply = blocking_request.reply()
-        data = reply.content()
-
-        if not data or len(data) == 0:
-            self.logger.error(f"Empty response for {name}")
-            return None
-
-        # Write to cache
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, 'wb') as f:
-            f.write(bytes(data))
-
-        self.logger.info(f"Downloaded GeoPackage to {cache_path} ({len(data)} bytes)")
-        return str(cache_path)
 
     def _load_geopackage_layers(self, gpkg_path: str, display_name: str) -> int:
         """

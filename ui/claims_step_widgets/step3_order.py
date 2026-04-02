@@ -39,8 +39,8 @@ class ClaimsStep3OrderWidget(ClaimsStepBase):
             "process your claims and deliver documents by email."
         )
 
-    def __init__(self, state, claims_manager, parent=None):
-        super().__init__(state, claims_manager, parent)
+    def __init__(self, state, claims_manager, parent=None, data_manager=None):
+        super().__init__(state, claims_manager, parent, data_manager=data_manager)
         self._checkout_in_progress = False
         self._setup_ui()
 

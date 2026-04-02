@@ -7,6 +7,7 @@ Handles:
 - Update waypoint table
 - Push to server
 """
+from pathlib import Path
 from typing import List, Dict, Any
 
 from qgis.PyQt.QtWidgets import (
@@ -42,8 +43,8 @@ class ClaimsStep7Widget(ClaimsStepBase):
             "in the downloadable Claim Package."
         )
 
-    def __init__(self, state, claims_manager, parent=None):
-        super().__init__(state, claims_manager, parent)
+    def __init__(self, state, claims_manager, parent=None, data_manager=None):
+        super().__init__(state, claims_manager, parent, data_manager=data_manager)
         self.logger = PluginLogger.get_logger()
         self._setup_ui()
 
@@ -67,11 +68,11 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Waypoints Table Group
         layout.addWidget(self._create_waypoints_group())
 
-        # Generate Maps Group
-        layout.addWidget(self._create_maps_group())
-
-        # Push to Server Group
+        # Push & Upload Group (claims/stakes + GeoPackage)
         layout.addWidget(self._create_push_group())
+
+        # Generate Maps Group (independent, can be done separately)
+        layout.addWidget(self._create_maps_group())
 
         layout.addStretch()
 
@@ -153,8 +154,8 @@ class ClaimsStep7Widget(ClaimsStepBase):
         return group
 
     def _create_push_group(self) -> QGroupBox:
-        """Create the push to server group."""
-        group = QGroupBox("Push to geodb.io Server")
+        """Create the push & upload to server group."""
+        group = QGroupBox("Push & Upload to Server")
         group.setStyleSheet(self._get_group_style())
         layout = QVBoxLayout(group)
         layout.setSpacing(8)
@@ -162,7 +163,8 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Info
         info_label = QLabel(
             "Push processed claims as LandHoldings and waypoints as ClaimStakes "
-            "to the geodb.io server. This enables mobile access for field staking "
+            "to the geodb.io server, then upload the claims GeoPackage. "
+            "This enables mobile access for field staking "
             "and tracks claim status in your project."
         )
         info_label.setWordWrap(True)
@@ -189,7 +191,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Button
         btn_layout = QHBoxLayout()
 
-        self.push_btn = QPushButton("Push to Server")
+        self.push_btn = QPushButton("Push && Upload to Server")
         self.push_btn.setStyleSheet(self._get_primary_button_style())
         self.push_btn.clicked.connect(self._push_to_server)
         btn_layout.addWidget(self.push_btn)
@@ -852,7 +854,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 self.state.claim_package_id  # Link claims to existing package from document generation
             )
 
-            self.progress_bar.setValue(70)
+            self.progress_bar.setValue(50)
 
             # Show result
             lh_summary = result.get('landholdings', {}).get('summary', {})
@@ -876,6 +878,59 @@ class ClaimsStep7Widget(ClaimsStepBase):
                     # Don't fail the whole push if document linking fails
                     self.emit_status(f"Warning: Could not link documents: {link_err}", "warning")
 
+            self.progress_bar.setValue(65)
+
+            # Track that claims have been pushed (for double-push warning)
+            self.state.claims_pushed = True
+            self.state.save_to_qgis_project()
+            if self.state.geopackage_path:
+                self.state.save_to_geopackage()
+
+            # --- GeoPackage upload + link ---
+            gpkg_uploaded = False
+            if self.state.geopackage_path and self.state.claim_package_id and self.data_manager:
+                try:
+                    self.push_status_label.setText("Saving layer styles to GeoPackage...")
+                    self.progress_bar.setValue(70)
+
+                    from ...utils.gpkg_utils import save_styles_to_geopackage
+                    styles_saved = save_styles_to_geopackage(self.state.geopackage_path)
+                    logger.info(f"[PUSH] Saved {styles_saved} style(s) to GeoPackage")
+
+                    self.push_status_label.setText("Uploading GeoPackage to server...")
+                    self.progress_bar.setValue(80)
+
+                    gpkg_name = Path(self.state.geopackage_path).name
+                    upload_result = self.data_manager.upload_project_file(
+                        file_path=self.state.geopackage_path,
+                        name=gpkg_name,
+                        category='GP',
+                        description=f"Claims GeoPackage for {self.state.grid_name_prefix or 'claims'}",
+                        is_raster=False,
+                        epsg=self.state.project_epsg,
+                    )
+
+                    self.push_status_label.setText("Linking GeoPackage to claim package...")
+                    self.progress_bar.setValue(90)
+
+                    project_file_id = upload_result.get('id')
+                    if project_file_id:
+                        self.claims_manager.link_geopackage(
+                            self.state.claim_package_id, project_file_id
+                        )
+                        gpkg_uploaded = True
+                        logger.info(
+                            f"[PUSH] GeoPackage uploaded (ProjectFile {project_file_id}) "
+                            f"and linked to ClaimPackage {self.state.claim_package_id}"
+                        )
+
+                except Exception as gpkg_err:
+                    # Non-fatal — claims push already succeeded
+                    logger.warning(f"[PUSH] GeoPackage upload/link failed: {gpkg_err}")
+                    self.emit_status(
+                        f"Warning: GeoPackage upload failed: {gpkg_err}", "warning"
+                    )
+
             self.progress_bar.setValue(100)
 
             # Build summary strings showing both created and updated counts
@@ -890,29 +945,26 @@ class ClaimsStep7Widget(ClaimsStepBase):
             if st_orphans:
                 st_str += f", {st_orphans} orphans removed"
 
+            gpkg_msg = ", GeoPackage uploaded" if gpkg_uploaded else ""
             self.push_status_label.setText(
-                f"Pushed: {lh_str} LandHoldings, {st_str} ClaimStakes" +
-                (f", {docs_linked} docs linked" if docs_linked else "")
+                f"Pushed: {lh_str} LandHoldings, {st_str} ClaimStakes"
+                + (f", {docs_linked} docs linked" if docs_linked else "")
+                + gpkg_msg
             )
             self.push_status_label.setStyleSheet(self._get_success_label_style())
 
             doc_msg = f"\nDocuments: {docs_linked} linked to claims" if docs_linked else ""
             orphan_msg = f"\n{st_orphans} orphan stakes cleaned up" if st_orphans else ""
+            gpkg_info = "\nGeoPackage: uploaded and linked to claim package" if gpkg_uploaded else ""
             QMessageBox.information(
                 self,
                 "Push Complete",
                 f"LandHoldings: {lh_str}\n"
-                f"ClaimStakes: {st_str}{orphan_msg}{doc_msg}\n\n"
+                f"ClaimStakes: {st_str}{orphan_msg}{doc_msg}{gpkg_info}\n\n"
                 "Your claims are now available on geodb.io and the mobile app."
             )
 
             self.emit_status("Claims pushed to server successfully", "success")
-
-            # Track that claims have been pushed (for double-push warning)
-            self.state.claims_pushed = True
-            self.state.save_to_qgis_project()
-            if self.state.geopackage_path:
-                self.state.save_to_geopackage()
 
         except Exception as e:
             self.push_status_label.setText(f"Push failed: {e}")

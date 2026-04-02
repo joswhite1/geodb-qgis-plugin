@@ -781,6 +781,34 @@ class ClaimsManager:
             self.logger.error(f"[QCLAIMS] Push to server failed: {e}")
             raise
 
+    def link_geopackage(
+        self,
+        claim_package_id: int,
+        project_file_id: int,
+    ) -> Dict[str, Any]:
+        """
+        Link a ProjectFile (GeoPackage) to a ClaimPackage on the server.
+
+        Called after uploading the claims GeoPackage as a ProjectFile.
+
+        Args:
+            claim_package_id: Server-side ClaimPackage ID
+            project_file_id: Server-side ProjectFile ID of the uploaded GeoPackage
+
+        Returns:
+            Server response with package info and linked geopackage details
+        """
+        url = self.config.get_claims_url(
+            f'packages/{claim_package_id}/link-geopackage/'
+        )
+        self.logger.info(
+            f"[QCLAIMS] Linking GeoPackage ProjectFile {project_file_id} "
+            f"to ClaimPackage {claim_package_id}"
+        )
+        return self.api._make_request(
+            'PATCH', url, data={'project_file_id': project_file_id}
+        )
+
     def _format_landholding(
         self,
         claim: Dict[str, Any],

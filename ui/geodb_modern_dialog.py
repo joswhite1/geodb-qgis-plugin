@@ -2253,7 +2253,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         level is determined after login.
         """
         # Create claims wizard widget (default for staff/enterprise users)
-        self.claims_wizard = ClaimsWizardWidget(self.claims_manager, self)
+        self.claims_wizard = ClaimsWizardWidget(
+            self.claims_manager, self, data_manager=self.data_manager
+        )
 
         # Connect signals
         self.claims_wizard.status_message.connect(self._on_claims_status)
@@ -2436,7 +2438,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Create wizard if not exists
         if not self.claims_wizard:
-            self.claims_wizard = ClaimsWizardWidget(self.claims_manager, self)
+            self.claims_wizard = ClaimsWizardWidget(
+            self.claims_manager, self, data_manager=self.data_manager
+        )
             self.claims_wizard.status_message.connect(self._on_claims_status)
             self.claims_wizard.claims_processed.connect(self._on_claims_processed)
             self.claims_wizard.wizard_completed.connect(self._on_wizard_completed)

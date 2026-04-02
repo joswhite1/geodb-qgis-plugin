@@ -219,16 +219,18 @@ class ClaimsWizardWidget(QWidget):
     # Default to enterprise steps (rebuilt after access check)
     STEP_NAMES = ENTERPRISE_STEP_NAMES
 
-    def __init__(self, claims_manager: 'ClaimsManager', parent=None):
+    def __init__(self, claims_manager: 'ClaimsManager', parent=None, data_manager=None):
         """
         Initialize the wizard widget.
 
         Args:
             claims_manager: ClaimsManager for API calls
             parent: Parent widget
+            data_manager: Optional DataManager for file operations (GeoPackage upload)
         """
         super().__init__(parent)
         self.claims_manager = claims_manager
+        self.data_manager = data_manager
         self.logger = PluginLogger.get_logger()
         self.state = ClaimsWizardState()
         self.current_step = 0
@@ -398,7 +400,10 @@ class ClaimsWizardWidget(QWidget):
         ]
 
         for StepClass in step_classes:
-            step = StepClass(self.state, self.claims_manager, self)
+            step = StepClass(
+                self.state, self.claims_manager, self,
+                data_manager=self.data_manager
+            )
             self._connect_step_signals(step)
             self.step_widgets.append(step)
             self.stack.addWidget(step)
@@ -511,7 +516,10 @@ class ClaimsWizardWidget(QWidget):
             ]
 
         for StepClass in remaining_classes:
-            step = StepClass(self.state, self.claims_manager, self)
+            step = StepClass(
+                self.state, self.claims_manager, self,
+                data_manager=self.data_manager
+            )
             self._connect_step_signals(step)
             self.step_widgets.append(step)
             self.stack.addWidget(step)

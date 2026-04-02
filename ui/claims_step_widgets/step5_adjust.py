@@ -50,8 +50,8 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             "to change which corner is designated as the LM corner for each claim."
         )
 
-    def __init__(self, state, claims_manager, parent=None):
-        super().__init__(state, claims_manager, parent)
+    def __init__(self, state, claims_manager, parent=None, data_manager=None):
+        super().__init__(state, claims_manager, parent, data_manager=data_manager)
         self.logger = PluginLogger.get_logger()
         # Create storage manager for GeoPackage persistence
         from ...managers.claims_storage_manager import ClaimsStorageManager
