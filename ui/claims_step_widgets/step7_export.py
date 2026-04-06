@@ -13,7 +13,8 @@ from typing import List, Dict, Any
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QFrame, QScrollArea, QMessageBox, QProgressBar
+    QFrame, QScrollArea, QMessageBox, QProgressBar,
+    QFileDialog, QComboBox, QLineEdit, QTextEdit
 )
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsCoordinateReferenceSystem,
@@ -23,7 +24,7 @@ from qgis.core import (
 from .step_base import ClaimsStepBase
 from ...utils.logger import PluginLogger
 from ...utils.layer_utils import is_layer_valid
-from ...utils.compat import QFrame_NoFrame, QHeaderView_Stretch
+from ...utils.compat import QFrame_NoFrame, QHeaderView_Stretch, QHeaderView_ResizeToContents
 
 
 class ClaimsStep7Widget(ClaimsStepBase):
@@ -73,6 +74,9 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         # Generate Maps Group (independent, can be done separately)
         layout.addWidget(self._create_maps_group())
+
+        # Upload Documents to Package Group
+        layout.addWidget(self._create_upload_documents_group())
 
         layout.addStretch()
 
@@ -262,6 +266,348 @@ class ClaimsStep7Widget(ClaimsStepBase):
         layout.addWidget(self.maps_status_label)
 
         return group
+
+    # =========================================================================
+    # Upload Documents to Package
+    # =========================================================================
+
+    # Document type choices matching server ClaimPackageDocument.DOCUMENT_TYPE_CHOICES
+    DOCUMENT_TYPES = [
+        ('field_map', 'Map'),
+        ('location_notice', 'Location Notice'),
+        ('blm_filing', 'BLM Filing Receipt'),
+        ('county_recording', 'County Recording'),
+        ('survey', 'Survey/Plat'),
+        ('noith', 'Notice of Intent to Hold'),
+        ('qclaims_export', 'QClaims Export'),
+        ('work_package', 'Work Package'),
+        ('other', 'Other'),
+    ]
+
+    def _create_upload_documents_group(self) -> QGroupBox:
+        """Create the Upload Documents to Package group."""
+        group = QGroupBox("Upload Documents to Package")
+        group.setStyleSheet(self._get_group_style())
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
+
+        info_label = QLabel(
+            "Upload maps, filing receipts, county recordings, and other documents "
+            "to the claim package on geodb.io. Files are linked to all claims in "
+            "the package."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet(self._get_info_label_style())
+        layout.addWidget(info_label)
+
+        # --- File picker row ---
+        file_row = QHBoxLayout()
+        file_row.setSpacing(8)
+
+        self.upload_file_path = QLineEdit()
+        self.upload_file_path.setPlaceholderText("Select a file to upload...")
+        self.upload_file_path.setReadOnly(True)
+        self.upload_file_path.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                padding: 6px 10px;
+                background-color: #f9fafb;
+            }
+        """)
+        file_row.addWidget(self.upload_file_path, stretch=1)
+
+        browse_btn = QPushButton("Browse...")
+        browse_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f3f4f6;
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                padding: 6px 16px;
+                font-weight: 500;
+            }
+            QPushButton:hover { background-color: #e5e7eb; }
+        """)
+        browse_btn.clicked.connect(self._browse_upload_file)
+        file_row.addWidget(browse_btn)
+
+        layout.addLayout(file_row)
+
+        # --- Type + Title row ---
+        fields_row = QHBoxLayout()
+        fields_row.setSpacing(8)
+
+        # Document type combo
+        type_layout = QVBoxLayout()
+        type_label = QLabel("Document Type")
+        type_label.setStyleSheet("font-size: 11px; color: #6b7280; margin-bottom: 2px;")
+        type_layout.addWidget(type_label)
+
+        self.upload_doc_type = QComboBox()
+        for code, display in self.DOCUMENT_TYPES:
+            self.upload_doc_type.addItem(display, code)
+        self.upload_doc_type.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                padding: 6px 10px;
+                min-width: 160px;
+            }
+        """)
+        type_layout.addWidget(self.upload_doc_type)
+        fields_row.addLayout(type_layout)
+
+        # Title
+        title_layout = QVBoxLayout()
+        title_label = QLabel("Title (optional)")
+        title_label.setStyleSheet("font-size: 11px; color: #6b7280; margin-bottom: 2px;")
+        title_layout.addWidget(title_label)
+
+        self.upload_title = QLineEdit()
+        self.upload_title.setPlaceholderText("Auto-filled from filename")
+        self.upload_title.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                padding: 6px 10px;
+            }
+        """)
+        title_layout.addWidget(self.upload_title)
+        fields_row.addLayout(title_layout, stretch=1)
+
+        layout.addLayout(fields_row)
+
+        # --- Description row ---
+        desc_label = QLabel("Description (optional)")
+        desc_label.setStyleSheet("font-size: 11px; color: #6b7280; margin-bottom: 2px;")
+        layout.addWidget(desc_label)
+
+        self.upload_description = QTextEdit()
+        self.upload_description.setPlaceholderText("Optional description...")
+        self.upload_description.setMaximumHeight(60)
+        self.upload_description.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+        """)
+        layout.addWidget(self.upload_description)
+
+        # --- Upload button + progress ---
+        self.upload_progress = QProgressBar()
+        self.upload_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                text-align: center;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                background-color: #059669;
+                border-radius: 3px;
+            }
+        """)
+        self.upload_progress.hide()
+        layout.addWidget(self.upload_progress)
+
+        upload_btn_row = QHBoxLayout()
+
+        self.upload_btn = QPushButton("Upload to Package")
+        self.upload_btn.setStyleSheet(self._get_primary_button_style())
+        self.upload_btn.clicked.connect(self._upload_document)
+        upload_btn_row.addWidget(self.upload_btn)
+
+        self.refresh_docs_btn = QPushButton("Refresh List")
+        self.refresh_docs_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f3f4f6;
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: 500;
+            }
+            QPushButton:hover { background-color: #e5e7eb; }
+        """)
+        self.refresh_docs_btn.clicked.connect(self._refresh_documents_list)
+        upload_btn_row.addWidget(self.refresh_docs_btn)
+
+        upload_btn_row.addStretch()
+        layout.addLayout(upload_btn_row)
+
+        # --- Status label ---
+        self.upload_status_label = QLabel("")
+        self.upload_status_label.setStyleSheet(self._get_info_label_style())
+        layout.addWidget(self.upload_status_label)
+
+        # --- Uploaded documents table ---
+        self.docs_table = QTableWidget()
+        self.docs_table.setColumnCount(3)
+        self.docs_table.setHorizontalHeaderLabels(["Title", "Type", "Size"])
+        self.docs_table.horizontalHeader().setSectionResizeMode(0, QHeaderView_Stretch)
+        self.docs_table.horizontalHeader().setSectionResizeMode(1, QHeaderView_ResizeToContents)
+        self.docs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView_ResizeToContents)
+        self.docs_table.verticalHeader().setVisible(False)
+        self.docs_table.setMaximumHeight(150)
+        self.docs_table.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+                background-color: white;
+                gridline-color: #e5e7eb;
+            }
+            QHeaderView::section {
+                background-color: #f9fafb;
+                padding: 6px;
+                border: none;
+                border-bottom: 1px solid #e5e7eb;
+                font-weight: 600;
+                font-size: 11px;
+            }
+        """)
+        layout.addWidget(self.docs_table)
+
+        return group
+
+    def _browse_upload_file(self):
+        """Open file dialog to select a document to upload."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Document to Upload",
+            "",
+            "All Supported Files (*.pdf *.png *.jpg *.jpeg *.tif *.tiff *.gpx *.gpkg *.zip *.docx);;"
+            "PDF Files (*.pdf);;"
+            "Images (*.png *.jpg *.jpeg *.tif *.tiff);;"
+            "GPX Files (*.gpx);;"
+            "ZIP Archives (*.zip);;"
+            "All Files (*)"
+        )
+        if file_path:
+            self.upload_file_path.setText(file_path)
+            # Auto-fill title from filename if title is empty
+            if not self.upload_title.text().strip():
+                self.upload_title.setText(Path(file_path).stem)
+
+    def _upload_document(self):
+        """Upload the selected file to the claim package."""
+        file_path = self.upload_file_path.text().strip()
+        if not file_path:
+            QMessageBox.warning(self, "No File", "Please select a file to upload.")
+            return
+
+        if not Path(file_path).is_file():
+            QMessageBox.warning(self, "File Not Found", f"File not found:\n{file_path}")
+            return
+
+        if not self.state.claim_package_id:
+            QMessageBox.warning(
+                self, "No Package",
+                "No claim package exists yet.\n\n"
+                "Complete Step 6 (Generate Documents) first to create the package, "
+                "or push claims to the server."
+            )
+            return
+
+        doc_type = self.upload_doc_type.currentData()
+        title = self.upload_title.text().strip()
+        description = self.upload_description.toPlainText().strip()
+
+        self.upload_btn.setEnabled(False)
+        self.upload_btn.setText("Uploading...")
+        self.upload_progress.show()
+        self.upload_progress.setValue(30)
+
+        try:
+            result = self.claims_manager.upload_package_document(
+                claim_package_id=self.state.claim_package_id,
+                file_path=file_path,
+                document_type=doc_type,
+                title=title,
+                description=description,
+            )
+
+            self.upload_progress.setValue(100)
+
+            uploaded_title = result.get('title', Path(file_path).name)
+            type_display = result.get('document_type_display', doc_type)
+
+            self.upload_status_label.setText(
+                f"Uploaded: {uploaded_title} ({type_display})"
+            )
+            self.upload_status_label.setStyleSheet(self._get_success_label_style())
+
+            self.logger.info(
+                f"[CLAIMS] Uploaded document '{uploaded_title}' to package "
+                f"{self.state.claim_package_id}"
+            )
+
+            # Clear form for next upload
+            self.upload_file_path.clear()
+            self.upload_title.clear()
+            self.upload_description.clear()
+
+            # Refresh the documents list
+            self._refresh_documents_list()
+
+        except Exception as e:
+            self.logger.error(f"[CLAIMS] Document upload error: {e}")
+            self.upload_status_label.setText(f"Upload failed: {e}")
+            self.upload_status_label.setStyleSheet(self._get_error_label_style())
+            QMessageBox.critical(self, "Upload Error", f"Failed to upload document:\n\n{e}")
+
+        finally:
+            self.upload_btn.setEnabled(True)
+            self.upload_btn.setText("Upload to Package")
+            self.upload_progress.hide()
+
+    def _refresh_documents_list(self):
+        """Fetch and display documents already uploaded to this package."""
+        if not self.state.claim_package_id:
+            self.docs_table.setRowCount(0)
+            return
+
+        try:
+            result = self.claims_manager.list_package_documents(
+                self.state.claim_package_id
+            )
+            documents = result.get('documents', [])
+
+            self.docs_table.setRowCount(len(documents))
+            for row, doc in enumerate(documents):
+                title_item = QTableWidgetItem(doc.get('title', ''))
+                self.docs_table.setItem(row, 0, title_item)
+
+                type_display = doc.get('document_type_display', doc.get('document_type', ''))
+                type_item = QTableWidgetItem(type_display)
+                self.docs_table.setItem(row, 1, type_item)
+
+                file_size = doc.get('file_size', 0)
+                size_str = self._format_file_size(file_size) if file_size else ""
+                size_item = QTableWidgetItem(size_str)
+                self.docs_table.setItem(row, 2, size_item)
+
+            self.logger.info(
+                f"[CLAIMS] Loaded {len(documents)} documents for package "
+                f"{self.state.claim_package_id}"
+            )
+
+        except Exception as e:
+            self.logger.error(f"[CLAIMS] Error loading package documents: {e}")
+            self.docs_table.setRowCount(0)
+
+    @staticmethod
+    def _format_file_size(size_bytes: int) -> str:
+        """Format file size in human-readable form."""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        else:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+    # =========================================================================
+    # Map Generation
+    # =========================================================================
 
     def _generate_maps(self):
         """Generate all applicable print layout maps."""
@@ -993,6 +1339,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
         """Called when step becomes active."""
         self.load_state()
         self._refresh_waypoints_table()
+        self._refresh_documents_list()
 
     def on_leave(self):
         """Called when leaving step."""
@@ -1008,3 +1355,13 @@ class ClaimsStep7Widget(ClaimsStepBase):
         has_processed = len(self.state.processed_claims) > 0
         self.push_btn.setEnabled(has_processed)
         self.generate_maps_btn.setEnabled(has_processed)
+
+        # Upload requires a claim package to exist
+        has_package = bool(self.state.claim_package_id)
+        self.upload_btn.setEnabled(has_package)
+        self.refresh_docs_btn.setEnabled(has_package)
+        if not has_package:
+            self.upload_status_label.setText(
+                "Complete Step 6 or push claims first to enable document uploads."
+            )
+            self.upload_status_label.setStyleSheet(self._get_info_label_style())

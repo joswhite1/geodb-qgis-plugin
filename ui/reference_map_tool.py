@@ -539,7 +539,14 @@ class ReferencePointsWidget(QWidget):
         """
         # Check if we already have a valid layer reference that's still in the project
         # (layer might have been manually deleted by user)
-        if self._layer:
+        try:
+            layer_exists = self._layer is not None
+        except RuntimeError:
+            # Qt C/C++ object has been deleted
+            self._layer = None
+            layer_exists = False
+
+        if layer_exists:
             if is_layer_in_project(self._layer):
                 # Ensure name is correct (might have changed if project_name was set later)
                 if self._layer.name() != self._layer_display_name:

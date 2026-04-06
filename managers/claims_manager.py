@@ -809,6 +809,67 @@ class ClaimsManager:
             'PATCH', url, data={'project_file_id': project_file_id}
         )
 
+    def upload_package_document(
+        self,
+        claim_package_id: int,
+        file_path: str,
+        document_type: str = 'other',
+        title: str = '',
+        description: str = '',
+    ) -> Dict[str, Any]:
+        """
+        Upload a document file to a ClaimPackage on the server.
+
+        Creates a Document record and links it to the package and its claims.
+
+        Args:
+            claim_package_id: Server-side ClaimPackage ID
+            file_path: Local path to the file to upload
+            document_type: One of: location_notice, blm_filing, county_recording,
+                survey, noith, field_map, qclaims_export, work_package, other
+            title: Display title (defaults to filename on server)
+            description: Optional description
+
+        Returns:
+            Server response with created document info
+        """
+        url = self.config.get_claims_url(
+            f'packages/{claim_package_id}/upload-document/'
+        )
+
+        fields = {
+            'document_type': document_type,
+        }
+        if title:
+            fields['title'] = title
+        if description:
+            fields['description'] = description
+
+        self.logger.info(
+            f"[QCLAIMS] Uploading document '{file_path}' ({document_type}) "
+            f"to ClaimPackage {claim_package_id}"
+        )
+
+        return self.api.upload_file(url, file_path, fields, file_field_name='file')
+
+    def list_package_documents(
+        self,
+        claim_package_id: int,
+    ) -> Dict[str, Any]:
+        """
+        List all documents in a ClaimPackage.
+
+        Args:
+            claim_package_id: Server-side ClaimPackage ID
+
+        Returns:
+            Dict with 'documents' list and package info
+        """
+        url = self.config.get_claims_url(
+            f'packages/{claim_package_id}/documents/'
+        )
+        return self.api._make_request('GET', url)
+
     def _format_landholding(
         self,
         claim: Dict[str, Any],

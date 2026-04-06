@@ -98,9 +98,6 @@ def package_plugin():
     zip_filename = f'geodb_{version}.zip'
     zip_path = output_dir / zip_filename
 
-    # Also create a simple geodb.zip for easy upload
-    simple_zip_path = output_dir / 'geodb.zip'
-
     print(f"Packaging geodb.io plugin v{version}")
     print(f"Source: {plugin_dir}")
     print(f"Output: {zip_path}")
@@ -147,11 +144,6 @@ def package_plugin():
     print(f"  Files: {files_added}")
     print(f"  Size: {zip_path.stat().st_size / 1024:.1f} KB")
     print(f"  Output: {zip_path}")
-
-    # Create a copy without version for easy upload
-    import shutil
-    shutil.copy(zip_path, simple_zip_path)
-    print(f"  Copy: {simple_zip_path}")
 
     print()
     print("Next steps:")

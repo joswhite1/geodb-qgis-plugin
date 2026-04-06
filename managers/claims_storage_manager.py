@@ -420,14 +420,14 @@ class ClaimsStorageManager:
             raise ValueError("No GeoPackage available for saving reference point")
 
         try:
-            # Open the layer
-            layer_uri = f"{gpkg_path}|layername={self.REFERENCE_POINTS_TABLE}"
-            layer = QgsVectorLayer(layer_uri, "ref_points", "ogr")
+            # Open the layer (creates table if it doesn't exist yet)
+            layer = self.get_reference_points_layer(
+                gpkg_path=gpkg_path,
+                layer_display_name="ref_points",
+                epsg=epsg
+            )
 
-            if not layer.isValid():
-                self.logger.error(
-                    f"[CLAIMS STORAGE] Could not open layer: {layer_uri}"
-                )
+            if not layer or not layer.isValid():
                 raise Exception("Could not open reference points layer")
 
             # Create feature

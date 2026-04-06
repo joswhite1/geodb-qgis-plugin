@@ -90,8 +90,23 @@ try:
                 FieldType_LongLong = QVariant.LongLong
                 _compat_log("Using QVariant.Type for QgsField (Qt6 with QVariant)")
             except Exception as _e3:
-                _compat_log(f"ALL QgsField probes FAILED. Last error: {type(_e3).__name__}: {_e3}")
-                raise _e3
+                _compat_log(f"QVariant probe ALSO FAILED: {type(_e3).__name__}: {_e3}")
+                # Final fallback: string type names (some Mac QGIS builds)
+                try:
+                    _test_field = QgsField("_compat_test", typeName="QString")
+                    _compat_log("QgsField probe SUCCESS with string typeName")
+                    FieldType_QString = "QString"
+                    FieldType_Int = "Integer"
+                    FieldType_Double = "Real"
+                    FieldType_Bool = "Boolean"
+                    FieldType_QDate = "Date"
+                    FieldType_QDateTime = "DateTime"
+                    FieldType_QTime = "Time"
+                    FieldType_LongLong = "Integer64"
+                    _compat_log("Using string type names for QgsField")
+                except Exception as _e4:
+                    _compat_log(f"ALL QgsField probes FAILED. Last: {type(_e4).__name__}: {_e4}")
+                    raise _e4
 
 except (ImportError, AttributeError) as _e_import:
     _compat_log(f"QMetaType not available ({type(_e_import).__name__}: {_e_import}) — Qt5 path")

@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.9.0
+version=2.10.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,18 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.10.0 - NV filing maps, document upload, and compatibility fixes
+        - Generate dual NV state filing maps: 36"x24" ARCH D and 8.5"x14" legal size
+        - Add claim inset diagram on NV filing maps showing corner numbering and dimensions
+        - Filter waypoint labels on field maps: show corner/witness names only (LM symbols unlabeled)
+        - Hide LM corner layer for states without separate discovery monuments (ID, NM)
+        - Upload documents to claim packages on geodb.io (maps, filing receipts, etc.)
+        - List and manage uploaded package documents from Step 7
+        - Fix reference points layer creation in storage manager (auto-create table)
+        - Add string typeName fallback for QgsField on Mac QGIS builds
+        - Fix RuntimeError on deleted Qt C++ objects in step5 layer cleanup and reference map tool
+        - Remove plain geodb.zip copy from packaging script (versioned zip only)
+        - Multi-line NV filing map title for better readability
     2.9.0 - Claims GeoPackage server integration
         - Merge Push to Server into single Push & Upload button on Step 7
         - Auto-upload claims GeoPackage to server after pushing claims/stakes

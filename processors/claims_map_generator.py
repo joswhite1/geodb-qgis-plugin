@@ -46,6 +46,8 @@ from qgis.core import (
     QgsTextBufferSettings,
     QgsApplication,
     QgsReadWriteContext,
+    QgsFeatureRequest,
+    QgsProperty,
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor, QFont
@@ -146,9 +148,19 @@ class ClaimsMapGenerator:
 
         # 3. State Filing Map (AZ or NV only)
         state_code = self._get_claims_state()
-        if state_code in ('AZ', 'NV'):
+        if state_code == 'AZ':
             results['state_filing_map'] = self._create_state_filing_map(
                 state_code, layers, filing_extent
+            )
+        elif state_code == 'NV':
+            # NV requires TWO copies; generate both size options
+            # 24"x36" (ARCH D landscape) for mylar prints
+            results['state_filing_map'] = self._create_state_filing_map(
+                state_code, layers, filing_extent
+            )
+            # 8.5"x14" (legal) for photocopy-quality filing
+            results['state_filing_map_legal'] = self._create_nv_filing_map(
+                layers, filing_extent, template='legal'
             )
 
         return results
@@ -175,10 +187,12 @@ class ClaimsMapGenerator:
         layout = self._load_template(template_file, layout_name)
 
         # Build layer list: field map shows everything including waypoints
-        # Dimensions shown for field reference; no filing-specific annotations
+        # Use the filtered waypoints layer: corner/witness names labeled,
+        # LM/monument symbols shown without labels (LM name = claim name)
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=True,
+            use_waypoints_corners_only=True,
             include_dimensions=True,
         )
 
@@ -357,31 +371,49 @@ class ClaimsMapGenerator:
         self._fix_logo_paths(layout)
         self._remove_legend(layout)
 
+        # AZ keeps corner labels on the main map (bearings text references
+        # them by number) so no need for an inset diagram.
+
         QgsProject.instance().layoutManager().addLayout(layout)
         logger.info(f"[CLAIMS MAP] Created AZ filing map: {layout_name}")
         return layout_name
 
     def _create_nv_filing_map(
-        self, layers: Dict[str, Optional[QgsMapLayer]], extent: QgsRectangle
+        self,
+        layers: Dict[str, Optional[QgsMapLayer]],
+        extent: QgsRectangle,
+        template: str = 'large',
     ) -> str:
         """
         Create Nevada state filing map.
 
         NV requirements (NRS 517.040):
         - Scale >= 500 ft/inch (~1:6,000)
-        - Size 8.5"x14" or 24"x36" (using ARCH D 24x36)
+        - Size 8.5"x14" or 24"x36" landscape (ARCH D)
         - Monument positions/numbers
         - Courses/distances to public land survey corner
         - Township/range, quarter section/section
+
+        Uses an inset diagram for corner numbering instead of labeling
+        every corner on the main map (all claims have the same layout).
+
+        Args:
+            template: 'large' for 36"x24" ARCH D, 'legal' for 8.5"x14"
         """
         prefix = self.state.grid_name_prefix or "Claims"
+        size_label = "Legal" if template == 'legal' else "36x24"
         layout_name = self._get_unique_layout_name(
-            f"{prefix} Lode Claims - NV Filing Map"
+            f"{prefix} Lode Claims - NV Filing Map ({size_label})"
         )
-        layout = self._load_template('nv_state_filing_map.qpt', layout_name)
 
-        # NV filing map: claims + corners + PLSS, no waypoints
-        # Include corner labels, dimensions, tie line, reference point, monuments
+        template_file = (
+            'nv_state_filing_map_legal.qpt' if template == 'legal'
+            else 'nv_state_filing_map.qpt'
+        )
+        layout = self._load_template(template_file, layout_name)
+
+        # NV filing map: claims + PLSS, no waypoints, no individual corner labels
+        # Corner numbering is shown via an inset diagram instead
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=False,
@@ -389,7 +421,7 @@ class ClaimsMapGenerator:
             include_monuments=True,
             include_dimensions=True,
             include_tie_line=True,
-            include_corner_labels=True,
+            include_corner_labels=False,
             include_ref_point=True,
         )
 
@@ -406,7 +438,7 @@ class ClaimsMapGenerator:
 
         # Title line: "PREFIX Lode Claims, Claimant, County, Nevada"
         title_text = (
-            f"{prefix} Lode Claims, {self.state.claimant_name or 'Claimant'}, "
+            f"{prefix} Lode Claims\n{self.state.claimant_name or 'Claimant'}\n"
             f"{county}, {state_name}"
         )
 
@@ -419,8 +451,7 @@ class ClaimsMapGenerator:
             layout, 'Each claim is', 'Each claim is 1,500\' x 600\''
         )
 
-        # Fix rotated reference label: reset rotation and update text
-        # The template has a label rotated 19 degrees with sample data
+        # Update reference label text (template has rotation=0 now)
         if nv_ref:
             self._update_nv_reference_label(layout, nv_ref)
 
@@ -429,6 +460,9 @@ class ClaimsMapGenerator:
 
         self._fix_logo_paths(layout)
         self._remove_legend(layout)
+
+        # Add claim inset diagram showing corner numbers and dimensions
+        self._add_claim_inset(layout)
 
         QgsProject.instance().layoutManager().addLayout(layout)
         logger.info(f"[CLAIMS MAP] Created NV filing map: {layout_name}")
@@ -526,6 +560,137 @@ class ClaimsMapGenerator:
 
         except Exception as e:
             logger.warning(f"[CLAIMS MAP] Could not add NV map grid: {e}")
+
+    def _add_claim_inset(self, layout: QgsPrintLayout):
+        """
+        Add a schematic inset diagram showing a single representative claim
+        with corner numbers (C1-C4) and dimensions (1,500' x 600').
+
+        This replaces labeling every corner on the main map, since all
+        claims in a block share the same corner layout.  The inset is
+        drawn as text labels on a white rectangle in the lower-left of
+        the map area.
+        """
+        try:
+            from qgis.core import QgsLayoutItemShape
+
+            # Determine the first claim's corner ordering to get the
+            # correct corner-number arrangement
+            lm_corner = 1
+            if self.state.processed_claims:
+                lm_corner = self.state.processed_claims[0].get('lm_corner', 1)
+
+            # Position: lower-left of the map area, above the title block.
+            # Adapt to the actual page size (works for both 36x24 and legal).
+            page = layout.pageCollection().page(0)
+            page_h = page.pageSize().height()
+            map_item = self._find_map_item(layout)
+            map_bottom = map_item.pagePos().y() + map_item.sizeWithUnits().height()
+
+            inset_w = 100.0
+            inset_h = 75.0
+            inset_x = map_item.pagePos().x() + 5.0
+            inset_y = map_bottom - inset_h - 5.0
+
+            # White background box with border
+            bg = QgsLayoutItemShape(layout)
+            bg.setShapeType(QgsLayoutItemShape.Rectangle)
+            bg.attemptMove(
+                QgsLayoutPoint(inset_x, inset_y, QgsUnitTypes.LayoutMillimeters)
+            )
+            bg.attemptResize(
+                QgsLayoutSize(inset_w, inset_h, QgsUnitTypes.LayoutMillimeters)
+            )
+            # White fill with black border
+            symbol = QgsSymbol.defaultSymbol(2)  # Polygon
+            symbol.setColor(QColor(255, 255, 255, 230))
+            symbol.symbolLayer(0).setStrokeColor(QColor('#000000'))
+            symbol.symbolLayer(0).setStrokeWidth(0.5)
+            bg.setSymbol(symbol)
+            layout.addLayoutItem(bg)
+
+            # Title for the inset
+            title = self._create_text_label(
+                layout, "Typical Claim Layout",
+                inset_x + 5, inset_y + 3, inset_w - 10, 8,
+                font_size=9, bold=True,
+            )
+            title.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+            layout.addLayoutItem(title)
+
+            # Corner labels positioned around a virtual rectangle
+            # The claim rectangle occupies the center of the inset
+            rect_x = inset_x + 15
+            rect_y = inset_y + 15
+            rect_w = 70  # Proportional to 1500'
+            rect_h = 40  # Proportional to 600'
+
+            # Draw the claim rectangle outline
+            claim_rect = QgsLayoutItemShape(layout)
+            claim_rect.setShapeType(QgsLayoutItemShape.Rectangle)
+            claim_rect.attemptMove(
+                QgsLayoutPoint(rect_x, rect_y, QgsUnitTypes.LayoutMillimeters)
+            )
+            claim_rect.attemptResize(
+                QgsLayoutSize(rect_w, rect_h, QgsUnitTypes.LayoutMillimeters)
+            )
+            rect_sym = QgsSymbol.defaultSymbol(2)
+            rect_sym.setColor(QColor(255, 255, 255, 0))  # Transparent fill
+            rect_sym.symbolLayer(0).setStrokeColor(QColor('#333333'))
+            rect_sym.symbolLayer(0).setStrokeWidth(0.4)
+            claim_rect.setSymbol(rect_sym)
+            layout.addLayoutItem(claim_rect)
+
+            # Corner positions (x, y offsets from rect origin)
+            # Standard lode claim: C1=SE, C2=SW, C3=NW, C4=NE
+            corner_positions = {
+                1: (rect_x + rect_w - 2, rect_y + rect_h - 1),   # SE / bottom-right
+                2: (rect_x - 8, rect_y + rect_h - 1),              # SW / bottom-left
+                3: (rect_x - 8, rect_y - 1),                       # NW / top-left
+                4: (rect_x + rect_w - 2, rect_y - 1),              # NE / top-right
+            }
+
+            for corner_num, (cx, cy) in corner_positions.items():
+                lm_text = " (LM)" if corner_num == lm_corner else ""
+                label = self._create_text_label(
+                    layout, f"C{corner_num}{lm_text}",
+                    cx, cy, 18, 6, font_size=7, bold=True,
+                )
+                layout.addLayoutItem(label)
+
+            # Dimension labels along the sides
+            # Top/bottom: 1,500'
+            top_dim = self._create_text_label(
+                layout, "1,500'",
+                rect_x + rect_w / 2 - 10, rect_y - 7, 20, 6,
+                font_size=7,
+            )
+            top_dim.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+            layout.addLayoutItem(top_dim)
+
+            # Left/right: 600'
+            side_dim = self._create_text_label(
+                layout, "600'",
+                rect_x - 13, rect_y + rect_h / 2 - 3, 12, 6,
+                font_size=7,
+            )
+            side_dim.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+            layout.addLayoutItem(side_dim)
+
+            # Discovery monument marker (center of claim)
+            disc_label = self._create_text_label(
+                layout, "Discovery\nMonument",
+                rect_x + rect_w / 2 - 12, rect_y + rect_h / 2 - 5, 24, 12,
+                font_size=6,
+            )
+            disc_label.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+            disc_label.setVAlign(Qt.AlignmentFlag.AlignVCenter)
+            layout.addLayoutItem(disc_label)
+
+            logger.info("[CLAIMS MAP] Added claim inset diagram")
+
+        except Exception as e:
+            logger.warning(f"[CLAIMS MAP] Could not add claim inset: {e}")
 
     # =========================================================================
     # BASEMAP MANAGEMENT
@@ -1122,6 +1287,11 @@ class ClaimsMapGenerator:
         corner_label_layer = self._create_corner_label_layer()
         ref_point_layer = self._create_reference_point_layer()
 
+        waypoints_layer = find_layer('Claims Waypoints')
+        # Create a filtered copy that only labels corner/witness waypoints
+        # (LM names duplicate claim names, so we show LM symbols without labels)
+        waypoints_corners_only = self._create_waypoints_corners_only(waypoints_layer)
+
         return {
             'topo': find_layer('USGS Topo'),
             'claims': find_layer('Lode Claims'),
@@ -1129,7 +1299,8 @@ class ClaimsMapGenerator:
             'lm_corners': find_layer('LM Corners'),
             'centerlines': find_layer('Center Lines'),
             'monuments': find_layer('Monuments'),
-            'waypoints': find_layer('Claims Waypoints'),
+            'waypoints': waypoints_layer,
+            'waypoints_corners_only': waypoints_corners_only,
             'plss_sections': find_layer('PLSS Sections'),
             'plss_townships': find_layer('PLSS Townships'),
             'sideline_monuments': find_layer('Sideline Monuments'),
@@ -1161,6 +1332,10 @@ class ClaimsMapGenerator:
 
         return None
 
+    # States where the LM is just a corner designation (no separate discovery
+    # monument), so LM points should NOT be shown on the map.
+    _NO_LM_DISPLAY_STATES = {'ID', 'NM'}
+
     def _build_layer_list(
         self,
         layers: Dict[str, Optional[QgsMapLayer]],
@@ -1174,17 +1349,23 @@ class ClaimsMapGenerator:
         include_tie_line: bool = False,
         include_corner_labels: bool = False,
         include_ref_point: bool = False,
+        use_waypoints_corners_only: bool = False,
     ) -> List[QgsMapLayer]:
         """
         Build ordered layer list for a map item.
+
+        Args:
+            use_waypoints_corners_only: If True, use the filtered waypoints
+                layer that only labels corner/witness types (LM symbols shown
+                without labels since LM name = claim name).
 
         Layer order (top to bottom):
         1. Reference tie line + reference point (if included)
         2. Dimension annotations (if included)
         3. Corner labels (if included)
         4. Waypoints (if included)
-        5. Monuments
-        6. Corner Points / LM Corners (if included)
+        5. Monuments / LM Corners
+        6. Corner Points (if included)
         7. Center Lines
         8. Claims polygons
         9. PLSS Sections
@@ -1192,6 +1373,8 @@ class ClaimsMapGenerator:
         11. USGS Topo (bottom)
         """
         result = []
+        state_code = self._get_claims_state()
+        show_lm = state_code not in self._NO_LM_DISPLAY_STATES
 
         # Annotation layers on top so labels aren't obscured
         if include_ref_point and layers.get('ref_point'):
@@ -1206,8 +1389,12 @@ class ClaimsMapGenerator:
         if include_corner_labels and layers.get('corner_labels'):
             result.append(layers['corner_labels'])
 
-        if include_waypoints and layers.get('waypoints'):
-            result.append(layers['waypoints'])
+        if include_waypoints:
+            # Use filtered copy (corner/witness labels only) or full waypoints
+            if use_waypoints_corners_only and layers.get('waypoints_corners_only'):
+                result.append(layers['waypoints_corners_only'])
+            elif layers.get('waypoints'):
+                result.append(layers['waypoints'])
 
         if include_monuments and layers.get('monuments'):
             result.append(layers['monuments'])
@@ -1218,7 +1405,8 @@ class ClaimsMapGenerator:
         if include_sideline_monuments and layers.get('sideline_monuments'):
             result.append(layers['sideline_monuments'])
 
-        if include_corners and layers.get('lm_corners'):
+        # LM Corners: show symbol only for states with separate LMs
+        if include_corners and show_lm and layers.get('lm_corners'):
             result.append(layers['lm_corners'])
 
         if include_corners and layers.get('corners'):
@@ -2015,10 +2203,85 @@ class ClaimsMapGenerator:
         logger.info("[CLAIMS MAP] Created reference point layer")
         return layer
 
+    def _create_waypoints_corners_only(
+        self, source_layer: Optional[QgsVectorLayer]
+    ) -> Optional[QgsVectorLayer]:
+        """
+        Create a filtered copy of the waypoints layer that only labels
+        corner and witness waypoints.
+
+        LM/discovery/sideline/endline symbols are included but unlabeled,
+        since their names duplicate the claim name.  This avoids cluttering
+        the map while still showing all monument positions.
+        """
+        if not source_layer or not isinstance(source_layer, QgsVectorLayer):
+            return None
+
+        try:
+            # Clone the layer as a memory layer
+            clone = source_layer.materialize(
+                QgsFeatureRequest()
+            )
+            if not clone or not clone.isValid():
+                return None
+
+            clone.setName("Waypoints (corners labeled)")
+
+            # Copy the renderer from the source layer
+            clone.setRenderer(source_layer.renderer().clone())
+
+            # Apply labeling only for corner and witness types
+            label_settings = QgsPalLayerSettings()
+            # Only label corner and witness types using an expression filter
+            label_settings.fieldName = '"Name"'
+            label_settings.isExpression = True
+            label_settings.placement = Qgis.LabelPlacement.OverPoint
+
+            # Use data-defined show label to filter by waypoint_type
+            show_prop = QgsProperty.fromExpression(
+                "\"waypoint_type\" IN ('corner', 'witness')"
+            )
+            label_settings.dataDefinedProperties().setProperty(
+                QgsPalLayerSettings.Property.Show, show_prop
+            )
+
+            text_format = QgsTextFormat()
+            font = QFont("Arial", 8)
+            font.setBold(True)
+            text_format.setFont(font)
+            text_format.setColor(QColor('#000000'))
+
+            buffer_settings = QgsTextBufferSettings()
+            buffer_settings.setEnabled(True)
+            buffer_settings.setSize(1.5)
+            buffer_settings.setColor(QColor('#FFFFFF'))
+            text_format.setBuffer(buffer_settings)
+
+            label_settings.setFormat(text_format)
+            labeling = QgsVectorLayerSimpleLabeling(label_settings)
+            clone.setLabeling(labeling)
+            clone.setLabelsEnabled(True)
+
+            QgsProject.instance().addMapLayer(clone, False)
+            logger.info(
+                "[CLAIMS MAP] Created filtered waypoints layer "
+                "(corner/witness labels only)"
+            )
+            return clone
+
+        except Exception as e:
+            logger.warning(
+                f"[CLAIMS MAP] Could not create filtered waypoints layer: {e}"
+            )
+            return None
+
     def _cleanup_annotation_layers(self):
         """Remove temporary annotation layers from the project."""
         project = QgsProject.instance()
-        for name in ['Claim Dimensions', 'Reference Tie', 'Corner Labels', 'Reference Point']:
+        for name in [
+            'Claim Dimensions', 'Reference Tie', 'Corner Labels',
+            'Reference Point', 'Waypoints (corners labeled)',
+        ]:
             for layer in project.mapLayersByName(name):
                 project.removeMapLayer(layer.id())
 

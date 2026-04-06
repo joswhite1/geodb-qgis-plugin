@@ -775,7 +775,7 @@
    </customproperties>
   </LayoutObject>
  </LayoutItem>
- <LayoutItem excludeFromExports="0" visibility="1" size="201.3,218.713,mm" outlineWidthM="0.3,mm" keepLayerSet="true" position="7.29998,6.50763,mm" mapRotation="0" positionLock="false" blendMode="0" zValue="10" isTemporal="0" referencePoint="0" opacity="1" positionOnPage="7.29998,6.50763,mm" mapFlags="0" followPreset="false" id="" frameJoinStyle="miter" frame="true" templateUuid="{b54630d7-1025-4e58-b83a-fcc5c5e3040a}" type="65639" itemRotation="0" labelMargin="0,mm" uuid="{b54630d7-1025-4e58-b83a-fcc5c5e3040a}" drawCanvasItems="true" groupUuid="" background="true" followPresetName="">
+ <LayoutItem excludeFromExports="0" visibility="1" size="201.3,213.713,mm" outlineWidthM="0.3,mm" keepLayerSet="true" position="7.29998,6.50763,mm" mapRotation="0" positionLock="false" blendMode="0" zValue="10" isTemporal="0" referencePoint="0" opacity="1" positionOnPage="7.29998,6.50763,mm" mapFlags="0" followPreset="false" id="" frameJoinStyle="miter" frame="true" templateUuid="{b54630d7-1025-4e58-b83a-fcc5c5e3040a}" type="65639" itemRotation="0" labelMargin="0,mm" uuid="{b54630d7-1025-4e58-b83a-fcc5c5e3040a}" drawCanvasItems="true" groupUuid="" background="true" followPresetName="">
   <FrameColor alpha="255" green="0" red="0" blue="0"/>
   <BackgroundColor alpha="255" green="255" red="255" blue="255"/>
   <LayoutObject>

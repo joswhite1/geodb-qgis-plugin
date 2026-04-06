@@ -618,12 +618,12 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
         project = QgsProject.instance()
         for layer_key, layer in self.generated_layers.items():
-            if layer and is_layer_valid(layer):
-                try:
+            try:
+                if layer and is_layer_valid(layer):
                     project.removeMapLayer(layer.id())
                     self.logger.info(f"[CLAIMS] Removed old layer: {layer_key} ({layer.id()})")
-                except Exception:
-                    pass  # Layer may have already been removed
+            except RuntimeError:
+                pass  # Layer's C++ object already deleted
 
         # Clear state references to old monument layers
         self.state.monuments_layer_id = None
