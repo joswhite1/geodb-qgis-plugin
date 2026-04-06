@@ -513,7 +513,7 @@ CLAIM_STAKE_SCHEMA = ModelSchema(
                    description='ClaimPackage ID to scope stakes to a package'),
         # Stake type and status
         FieldSchema('stake_type', FieldType.STRING, length=2, default='WP',
-                   description='WP=Corner Waypoint, LM=Location Monument, SM=Sideline Monument, EM=Endline Monument'),
+                   description='WP=Corner Waypoint, LM=Location Monument, SL=Sideline, EL=Endline, WT=Witness Point'),
         FieldSchema('status', FieldType.STRING, length=2, default='PL',
                    description='PL=Planned, ST=Staked, VE=Verified'),
         # Target coordinates (from QClaims processing)
@@ -547,6 +547,8 @@ CLAIM_STAKE_SCHEMA = ModelSchema(
         # Notes and photos
         FieldSchema('notes', FieldType.STRING, length=1000,
                    description='Field notes about the stake'),
+        FieldSchema('extra_data', FieldType.STRING, length=0,
+                   description='JSON metadata (witnessed_stakes for WT type)'),
         FieldSchema('photo_count', FieldType.INTEGER, readonly=True,
                    description='Number of photos attached'),
         # Metadata

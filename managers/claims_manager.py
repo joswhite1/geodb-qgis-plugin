@@ -975,7 +975,7 @@ class ClaimsManager:
 
         ClaimStake model requires:
         - sequence_number: Waypoint reference ID (e.g., "WP 1", "LM 3")
-        - stake_type: 'WP' (corner/witness), 'LM' (location monument), 'SL' (sideline), 'EL' (endline)
+        - stake_type: 'WP' (corner), 'LM' (location monument), 'SL' (sideline), 'EL' (endline), 'WT' (witness)
         - target_latitude, target_longitude: Planned coordinates
         """
         stake_type_value = stake.get('type', 'corner')
@@ -985,8 +985,10 @@ class ClaimsManager:
             stake_type = 'SL'  # Sideline Monument (Wyoming)
         elif stake_type_value == 'endline':
             stake_type = 'EL'  # Endline Monument (Arizona)
+        elif stake_type_value == 'witness':
+            stake_type = 'WT'  # Witness Point
         else:
-            stake_type = 'WP'  # Corner Waypoint (also used for witness points)
+            stake_type = 'WP'  # Corner Waypoint
 
         # Get sequence number - server returns 'sequence_number' from _deduplicate_waypoints
         # Fall back to 'name' for backward compatibility, then construct if needed
@@ -1016,6 +1018,16 @@ class ClaimsManager:
         # Scope to claim_package so multiple claim groups can coexist
         if claim_package_id is not None:
             record['claim_package'] = claim_package_id
+
+        # Store witness metadata so server can link witness to parent claims
+        if stake_type == 'WT':
+            witnessed_stakes = stake.get('witnessed_stakes', [])
+            if witnessed_stakes:
+                record['extra_data'] = {
+                    'witnessed_stakes': witnessed_stakes,
+                    'on_boundary': stake.get('on_boundary', False),
+                    'shared': stake.get('shared', False),
+                }
 
         # Filter through schema to ensure only expected fields are sent
         from ..models.schemas import get_schema
