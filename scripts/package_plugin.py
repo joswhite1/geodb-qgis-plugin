@@ -52,6 +52,7 @@ EXCLUDE_PATTERNS = [
     '.DS_Store',
     'Thumbs.db',
     '*.tmp',
+    '.tmp.',   # catch .py.tmp.12345 style temp files
     '*.bak',
     '~',
     '.devmode',  # Dev mode flag - must never be included in releases
