@@ -18,7 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QFrame, QScrollArea, QComboBox
 )
 from qgis.PyQt.QtCore import QTimer
-from qgis.core import QgsProject, QgsCoordinateReferenceSystem
+from qgis.core import QgsProject, QgsCoordinateReferenceSystem, QgsRectangle
 
 from .step_base import ClaimsStepBase
 from ...utils.compat import QFrame_NoFrame
@@ -287,6 +287,19 @@ class ClaimsStep1Widget(ClaimsStepBase):
         btn_layout.addStretch()
 
         layout.addLayout(btn_layout)
+
+        # Separator + Legacy claims button on its own line
+        legacy_layout = QHBoxLayout()
+        self.legacy_btn = QPushButton("Load Legacy Claims && Generate Maps...")
+        self.legacy_btn.setStyleSheet(self._get_secondary_button_style())
+        self.legacy_btn.setToolTip(
+            "Load a GeoPackage from the old QClaims plugin and generate\n"
+            "field maps, filing maps, and state filing maps in one step."
+        )
+        self.legacy_btn.clicked.connect(self._load_legacy_claims)
+        legacy_layout.addWidget(self.legacy_btn)
+        legacy_layout.addStretch()
+        layout.addLayout(legacy_layout)
 
         return group
 
@@ -570,6 +583,24 @@ class ClaimsStep1Widget(ClaimsStepBase):
             # Clear any previous fulfillment context (proposed claims are not orders)
             self.state.clear_fulfillment_context()
 
+            # Auto-populate claimant info from company address if available
+            company_address = claims_data.get('company_address')
+            if company_address:
+                if company_address.get('claimant_name') and not self.state.claimant_name:
+                    self.state.claimant_name = company_address['claimant_name']
+                if company_address.get('address_1') and not self.state.address_line1:
+                    self.state.address_line1 = company_address['address_1']
+                if company_address.get('address_2') and not self.state.address_line2:
+                    self.state.address_line2 = company_address['address_2']
+                if company_address.get('address_3') and not self.state.address_line3:
+                    self.state.address_line3 = company_address['address_3']
+
+            # Auto-populate monument type from state-specific default
+            default_monument = claims_data.get('default_monument_type')
+            if default_monument and self.state.monument_type == "2' wooden post":
+                # Only override the generic default, not user-customized values
+                self.state.monument_type = default_monument
+
             # Create a memory layer from the GeoJSON features
             self._load_proposed_claims_to_layer(claims_data)
 
@@ -851,6 +882,88 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         if path:
             self._load_geopackage(path)
+
+    def _load_legacy_claims(self):
+        """Load an old QClaims GeoPackage and generate all maps in one step."""
+        default_dir = str(Path.home() / "Documents")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Legacy QClaims GeoPackage",
+            default_dir,
+            "GeoPackage Files (*.gpkg);;All Files (*)"
+        )
+        if not path:
+            return
+
+        from ...processors.legacy_claims_loader import (
+            is_legacy_qclaims_geopackage, LegacyClaimsLoader
+        )
+
+        if not is_legacy_qclaims_geopackage(path):
+            QMessageBox.warning(
+                self,
+                "Not a Legacy GeoPackage",
+                "This file does not appear to be an old QClaims GeoPackage.\n\n"
+                "Legacy GeoPackages have a 'qclaims_metadata' table. "
+                "Use 'Browse Local...' for new-format GeoPackages."
+            )
+            return
+
+        self.emit_status("Loading legacy claims...", "info")
+
+        try:
+            loader = LegacyClaimsLoader(path)
+            results = loader.load_and_generate_maps()
+
+            # Update path display
+            self.gpkg_path_label.setText(path)
+
+            # Zoom to the loaded layers
+            self._zoom_to_loaded_layers(loader)
+
+            # Report results
+            map_names = list(results.values())
+            self.emit_status(
+                f"Generated {len(map_names)} map(s): {', '.join(map_names)}",
+                "success"
+            )
+            QMessageBox.information(
+                self,
+                "Maps Generated",
+                f"Successfully loaded legacy claims and generated {len(map_names)} map layout(s):\n\n"
+                + '\n'.join(f"  - {name}" for name in map_names)
+                + "\n\nOpen the Print Layout manager (Project > Layouts) to view and export them."
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to load legacy claims:\n\n{e}"
+            )
+            import traceback
+            traceback.print_exc()
+
+    def _zoom_to_loaded_layers(self, loader):
+        """Zoom map canvas to the extent of layers loaded by legacy loader."""
+        try:
+            from qgis.utils import iface
+            if not iface or not iface.mapCanvas():
+                return
+
+            combined = QgsRectangle()
+            for layer in loader._loaded_layers.values():
+                if layer.isValid() and not layer.extent().isEmpty():
+                    if combined.isEmpty():
+                        combined = layer.extent()
+                    else:
+                        combined.combineExtentWith(layer.extent())
+
+            if not combined.isEmpty():
+                combined.scale(1.1)
+                iface.mapCanvas().setExtent(combined)
+                iface.mapCanvas().refresh()
+        except Exception:
+            pass
 
     def _refresh_server_geopackages(self):
         """Fetch claims-linked GeoPackages from the server for the current project."""

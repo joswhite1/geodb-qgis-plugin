@@ -527,7 +527,7 @@
    </customproperties>
   </LayoutObject>
  </LayoutItem>
- <LayoutItem id="" excludeFromExports="0" enableZRange="0" frame="true" background="true" zValue="10" blendMode="0" mapRotation="0" position="8.09671,6.50763,mm" positionLock="false" uuid="{f93d3dd2-4a7f-4ff8-aef8-6f025f42da6c}" visibility="1" drawCanvasItems="true" referencePoint="0" followPresetName="" isTemporal="0" opacity="1" followPreset="false" frameJoinStyle="miter" itemRotation="0" groupUuid="" positionOnPage="8.09671,6.50763,mm" outlineWidthM="0.3,mm" templateUuid="{f93d3dd2-4a7f-4ff8-aef8-6f025f42da6c}" size="263.207,149.987,mm" type="65639" mapFlags="0" keepLayerSet="false" labelMargin="0,mm">
+ <LayoutItem id="" excludeFromExports="0" enableZRange="0" frame="true" background="true" zValue="10" blendMode="0" mapRotation="0" position="8.09671,6.50763,mm" positionLock="false" uuid="{f93d3dd2-4a7f-4ff8-aef8-6f025f42da6c}" visibility="1" drawCanvasItems="true" referencePoint="0" followPresetName="" isTemporal="0" opacity="1" followPreset="false" frameJoinStyle="miter" itemRotation="0" groupUuid="" positionOnPage="8.09671,6.50763,mm" outlineWidthM="0.3,mm" templateUuid="{f93d3dd2-4a7f-4ff8-aef8-6f025f42da6c}" size="263.207,144,mm" type="65639" mapFlags="0" keepLayerSet="false" labelMargin="0,mm">
   <FrameColor blue="0" red="0" alpha="255" green="0"/>
   <BackgroundColor blue="255" red="255" alpha="255" green="255"/>
   <LayoutObject>

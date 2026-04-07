@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.10.0
+version=2.11.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,17 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.11.0 - Legacy claims loader, field map tweaks, and staff order improvements
+        - Add one-click legacy claims loader: load old QClaims GeoPackages and generate all maps
+        - New LegacyClaimsLoader processor reads qclaims_metadata, maps old table names, applies styling
+        - Builds processed_claims from legacy corner points, monuments, and endline monuments
+        - Parses QSecs/Meridian fields into PLSS dict for filing map labels
+        - Creates Claims Waypoints layer with waypoint_type field from old Symbol values
+        - Auto-generates field map, filing map, and AZ state filing map from legacy data
+        - Remove corner point symbols and C1-C4 labels from field maps (waypoint labels suffice)
+        - Resize landscape map template for better label clearance
+        - Auto-populate claimant info and monument type from staff order data
+        - Pass company address and default monument type through staff orders dialog
     2.10.0 - NV filing maps, document upload, and compatibility fixes
         - Generate dual NV state filing maps: 36"x24" ARCH D and 8.5"x14" legal size
         - Add claim inset diagram on NV filing maps showing corner numbering and dimensions

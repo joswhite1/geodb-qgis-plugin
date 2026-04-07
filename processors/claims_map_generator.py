@@ -188,11 +188,15 @@ class ClaimsMapGenerator:
 
         # Build layer list: field map shows everything including waypoints
         # Use the filtered waypoints layer: corner/witness names labeled,
-        # LM/monument symbols shown without labels (LM name = claim name)
+        # LM/monument symbols shown without labels (LM name = claim name).
+        # Corner labels (C1-C4) and corner point symbols are omitted —
+        # the waypoint labels already provide navigation reference.
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=True,
             use_waypoints_corners_only=True,
+            include_corners=False,
+            include_corner_labels=False,
             include_dimensions=True,
         )
 

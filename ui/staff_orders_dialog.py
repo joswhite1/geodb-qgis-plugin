@@ -73,6 +73,8 @@ class StaffOrdersDialog(QDialog):
         self.projects_with_claims: List[Dict[str, Any]] = []
         self.selected_project: Optional[Dict[str, Any]] = None
         self.proposed_claims: List[Dict[str, Any]] = []
+        self._company_address: Optional[Dict[str, str]] = None
+        self._default_monument_type: Optional[str] = None
 
         self._setup_ui()
         self._load_all_data()
@@ -465,6 +467,9 @@ class StaffOrdersDialog(QDialog):
         try:
             result = self.claims_manager.get_proposed_claims(project_id)
             self.proposed_claims = result.get('proposed_claims', [])
+            # Store company address and default monument type for auto-population
+            self._company_address = result.get('company_address')
+            self._default_monument_type = result.get('default_monument_type')
             self._populate_proposed_table()
         except Exception as e:
             QMessageBox.warning(
@@ -733,7 +738,9 @@ class StaffOrdersDialog(QDialog):
             'project_name': project_name,
             'company_id': self.selected_project.get('company_id'),
             'company_name': self.selected_project.get('company_name'),
-            'claims': selected_claims
+            'claims': selected_claims,
+            'company_address': self._company_address,
+            'default_monument_type': self._default_monument_type,
         }
 
         # Emit signal
