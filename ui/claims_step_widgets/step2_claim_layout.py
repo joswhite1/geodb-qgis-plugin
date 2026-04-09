@@ -256,19 +256,14 @@ class ClaimsStep2Widget(ClaimsStepBase):
         # Numbering row
         number_layout = QHBoxLayout()
 
-        self.auto_number_btn = QPushButton("Auto-Number Claims")
-        self.auto_number_btn.setToolTip(
-            "Assign sequential numbers based on position (west to east, north to south)"
+        self.number_and_rename_btn = QPushButton("Number && Rename Claims")
+        self.number_and_rename_btn.setToolTip(
+            "Auto-number claims by position (west to east, north to south) "
+            "then rename using the name prefix"
         )
-        self.auto_number_btn.setStyleSheet(self._get_secondary_button_style())
-        self.auto_number_btn.clicked.connect(self._auto_number_claims)
-        number_layout.addWidget(self.auto_number_btn)
-
-        self.rename_btn = QPushButton("Rename Claims")
-        self.rename_btn.setToolTip("Rename all claims using the name prefix and auto-assigned numbers")
-        self.rename_btn.setStyleSheet(self._get_secondary_button_style())
-        self.rename_btn.clicked.connect(self._rename_claims)
-        number_layout.addWidget(self.rename_btn)
+        self.number_and_rename_btn.setStyleSheet(self._get_secondary_button_style())
+        self.number_and_rename_btn.clicked.connect(self._number_and_rename_claims)
+        number_layout.addWidget(self.number_and_rename_btn)
 
         number_layout.addStretch()
 
@@ -482,8 +477,7 @@ class ClaimsStep2Widget(ClaimsStepBase):
     def _set_tools_enabled(self, enabled: bool):
         """Enable or disable grid tools."""
         self.move_grid_btn.setEnabled(enabled)
-        self.auto_number_btn.setEnabled(enabled)
-        self.rename_btn.setEnabled(enabled)
+        self.number_and_rename_btn.setEnabled(enabled)
 
     # =========================================================================
     # Grid Tools
@@ -522,42 +516,8 @@ class ClaimsStep2Widget(ClaimsStepBase):
         if layer:
             layer.triggerRepaint()
 
-    def _auto_number_claims(self):
-        """Auto-number claims based on spatial position."""
-        layer = self._get_selected_layer()
-        if not layer:
-            QMessageBox.warning(self, "No Layer", "Please select a claims layer first.")
-            return
-
-        try:
-            processor = self._get_grid_processor()
-
-            # First, refresh the layer's spatial index in case user deleted
-            # features using QGIS's native tools (which doesn't auto-refresh)
-            processor.refresh_layer_spatial_index(layer)
-
-            count = processor.autopopulate_manual_fid(layer)
-
-            # Refresh the map canvas to ensure display matches geometry
-            from qgis.utils import iface
-            if iface and iface.mapCanvas():
-                iface.mapCanvas().refresh()
-
-            QMessageBox.information(
-                self,
-                "Auto-Number Complete",
-                f"Assigned Manual FID to {count} claims.\n\n"
-                "Claims are numbered west-to-east, north-to-south.\n\n"
-                "Click 'Rename Claims' to apply names and reset FIDs to match."
-            )
-
-            self.emit_status(f"Auto-numbered {count} claims", "success")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-
-    def _rename_claims(self):
-        """Rename claims using the name prefix and Manual_FID order."""
+    def _number_and_rename_claims(self):
+        """Auto-number claims by position, then rename using the name prefix."""
         layer = self._get_selected_layer()
         if not layer:
             QMessageBox.warning(self, "No Layer", "Please select a claims layer first.")
@@ -568,24 +528,29 @@ class ClaimsStep2Widget(ClaimsStepBase):
         try:
             processor = self._get_grid_processor()
 
-            # First, refresh the layer's spatial index in case user deleted
+            # Refresh the layer's spatial index in case user deleted
             # features using QGIS's native tools (which doesn't auto-refresh)
             processor.refresh_layer_spatial_index(layer)
 
-            count = processor.rename_claims(layer, base_name, use_manual_fid=True)
+            # Step 1: Auto-number (assigns Manual_FID by spatial position)
+            num_count = processor.autopopulate_manual_fid(layer)
 
-            # Refresh the canvas
+            # Step 2: Rename (applies name prefix using Manual_FID order)
+            rename_count = processor.rename_claims(layer, base_name, use_manual_fid=True)
+
+            # Refresh the map canvas to ensure display matches geometry
             from qgis.utils import iface
             if iface and iface.mapCanvas():
                 iface.mapCanvas().refresh()
 
             QMessageBox.information(
                 self,
-                "Rename Complete",
-                f"Renamed {count} claims using prefix '{base_name}'."
+                "Number & Rename Complete",
+                f"Numbered {num_count} claims (west-to-east, north-to-south) "
+                f"and renamed {rename_count} claims using prefix '{base_name}'."
             )
 
-            self.emit_status(f"Renamed {count} claims", "success")
+            self.emit_status(f"Numbered and renamed {rename_count} claims", "success")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))

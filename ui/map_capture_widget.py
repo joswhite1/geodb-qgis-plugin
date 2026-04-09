@@ -267,6 +267,24 @@ class MapCaptureWidget(QWidget):
         # Compute resolution using actual image dimensions
         resolution = (extent.xMaximum() - extent.xMinimum()) / width_px
 
+        # Re-render in EPSG:3857 (Web Mercator) for better alignment on
+        # Google/Apple Maps.  The mobile basemap uses Web Mercator tiles, so
+        # an image rendered in the same projection minimises overlay offset.
+        native_crs = crs
+        if native_crs.authid() != 'EPSG:3857':
+            try:
+                result_3857 = self._render_in_3857(
+                    extent, native_crs, width_px, height_px
+                )
+                if result_3857:
+                    os.remove(file_path)  # clean up native-CRS capture
+                    (file_path, epsg, bounds, resolution,
+                     width_px, height_px) = result_3857
+            except Exception as exc:
+                self.logger.warning(
+                    f"3857 re-render failed, using native CRS: {exc}"
+                )
+
         # Store capture state
         self._captured_file_path = file_path
         self._captured_epsg = epsg
@@ -359,6 +377,8 @@ class MapCaptureWidget(QWidget):
                 epsg=self._captured_epsg,
                 bounds=self._captured_bounds,
                 resolution=self._captured_resolution,
+                pixel_width=self._captured_width,
+                pixel_height=self._captured_height,
                 progress_callback=self._on_upload_progress
             )
 
@@ -392,6 +412,77 @@ class MapCaptureWidget(QWidget):
     def _on_upload_progress(self, percent: int, message: str):
         """Handle upload progress updates."""
         self._show_status(f"{message} ({percent}%)", "info")
+
+    def _render_in_3857(self, native_extent, native_crs, width_px, height_px):
+        """Re-render the current map layers in EPSG:3857 (Web Mercator).
+
+        Returns (file_path, epsg, bounds, resolution, width, height) on
+        success, or None if the render fails.
+        """
+        from qgis.core import (
+            QgsMapSettings,
+            QgsMapRendererCustomPainterJob,
+            QgsCoordinateReferenceSystem,
+            QgsCoordinateTransform,
+            QgsProject,
+        )
+        from qgis.PyQt.QtGui import QImage, QPainter
+        from qgis.PyQt.QtCore import QSize
+        from qgis.utils import iface
+
+        crs_3857 = QgsCoordinateReferenceSystem('EPSG:3857')
+
+        # Transform the native extent to EPSG:3857
+        xform = QgsCoordinateTransform(
+            native_crs, crs_3857, QgsProject.instance()
+        )
+        extent_3857 = xform.transformBoundingBox(native_extent)
+
+        # Configure map settings for 3857 render
+        settings = QgsMapSettings()
+        settings.setDestinationCrs(crs_3857)
+        settings.setExtent(extent_3857)
+        settings.setOutputSize(QSize(width_px, height_px))
+        settings.setLayers(iface.mapCanvas().layers())
+        settings.setBackgroundColor(iface.mapCanvas().canvasColor())
+
+        # Render to a QImage
+        image = QImage(
+            QSize(width_px, height_px),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        image.fill(0)
+        painter = QPainter(image)
+        job = QgsMapRendererCustomPainterJob(settings, painter)
+        job.start()
+        job.waitForFinished()
+        painter.end()
+
+        # Save to temp file
+        temp_dir = tempfile.gettempdir()
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        file_path = os.path.join(
+            temp_dir, f"geodb_map_capture_3857_{timestamp}.png"
+        )
+        if not image.save(file_path, "PNG"):
+            self.logger.warning("Failed to save 3857 re-rendered image")
+            return None
+
+        bounds_3857 = [
+            extent_3857.xMinimum(),
+            extent_3857.yMinimum(),
+            extent_3857.xMaximum(),
+            extent_3857.yMaximum(),
+        ]
+        resolution_3857 = (
+            (extent_3857.xMaximum() - extent_3857.xMinimum()) / width_px
+        )
+
+        self.logger.info(
+            f"Re-rendered capture in EPSG:3857 "
+            f"({width_px}x{height_px}, res={resolution_3857:.4f})"
+        )
+        return file_path, 3857, bounds_3857, resolution_3857, width_px, height_px
 
     def _show_status(self, message: str, level: str = "info"):
         """Show a status message below the upload button."""

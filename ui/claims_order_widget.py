@@ -339,17 +339,13 @@ class ClaimsOrderWidget(QWidget):
         # Grid tools row
         tools_layout = QHBoxLayout()
 
-        self.auto_number_btn = QPushButton("Auto-Number")
-        self.auto_number_btn.setToolTip("Assign sequential numbers based on position")
-        self.auto_number_btn.setStyleSheet(self._get_secondary_button_style())
-        self.auto_number_btn.clicked.connect(self._auto_number_claims)
-        tools_layout.addWidget(self.auto_number_btn)
-
-        self.rename_btn = QPushButton("Rename Claims")
-        self.rename_btn.setToolTip("Rename claims with a new prefix")
-        self.rename_btn.setStyleSheet(self._get_secondary_button_style())
-        self.rename_btn.clicked.connect(self._rename_claims)
-        tools_layout.addWidget(self.rename_btn)
+        self.number_and_rename_btn = QPushButton("Number && Rename Claims")
+        self.number_and_rename_btn.setToolTip(
+            "Auto-number claims by position then rename using the name prefix"
+        )
+        self.number_and_rename_btn.setStyleSheet(self._get_secondary_button_style())
+        self.number_and_rename_btn.clicked.connect(self._number_and_rename_claims)
+        tools_layout.addWidget(self.number_and_rename_btn)
 
         tools_layout.addStretch()
         layout.addLayout(tools_layout)
@@ -620,46 +616,29 @@ class ClaimsOrderWidget(QWidget):
             self.logger.error(f"[CLAIMS ORDER] Grid generation failed: {e}")
             QMessageBox.critical(self, "Error", f"Failed to generate grid: {e}")
 
-    def _auto_number_claims(self):
-        """Auto-number claims based on position."""
+    def _number_and_rename_claims(self):
+        """Auto-number claims by position, then rename using the name prefix."""
         if not self._claims_layer:
             QMessageBox.warning(self, "No Layer", "Please select a claims layer first.")
             return
+
+        base_name = self.name_prefix_edit.text().strip() or "GE"
 
         try:
             from ..processors.grid_processor import GridProcessor
             processor = GridProcessor()
-            processor.auto_number_claims(self._claims_layer, self.name_prefix_edit.text())
+
+            # Step 1: Auto-number (assigns Manual_FID by spatial position)
+            processor.autopopulate_manual_fid(self._claims_layer)
+
+            # Step 2: Rename (applies name prefix using numbering order)
+            processor.rename_claims(self._claims_layer, base_name, use_manual_fid=True)
+
             self._claims_layer.triggerRepaint()
-            self.status_message.emit("Claims auto-numbered", "info")
+            self.status_message.emit(f"Claims numbered and renamed with prefix: {base_name}", "info")
         except Exception as e:
-            self.logger.error(f"[CLAIMS ORDER] Auto-number failed: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to auto-number claims: {e}")
-
-    def _rename_claims(self):
-        """Rename claims with a new prefix."""
-        if not self._claims_layer:
-            QMessageBox.warning(self, "No Layer", "Please select a claims layer first.")
-            return
-
-        from qgis.PyQt.QtWidgets import QInputDialog
-        new_prefix, ok = QInputDialog.getText(
-            self, "Rename Claims",
-            "Enter new name prefix:",
-            text=self.name_prefix_edit.text()
-        )
-
-        if ok and new_prefix:
-            try:
-                from ..processors.grid_processor import GridProcessor
-                processor = GridProcessor()
-                processor.rename_claims(self._claims_layer, new_prefix)
-                self._claims_layer.triggerRepaint()
-                self.name_prefix_edit.setText(new_prefix)
-                self.status_message.emit(f"Claims renamed with prefix: {new_prefix}", "info")
-            except Exception as e:
-                self.logger.error(f"[CLAIMS ORDER] Rename failed: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to rename claims: {e}")
+            self.logger.error(f"[CLAIMS ORDER] Number and rename failed: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to number and rename claims: {e}")
 
     def _update_pricing_summary(self):
         """Update the pricing summary display."""

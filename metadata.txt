@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.11.0
+version=2.12.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,10 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.12.0 - Map capture Web Mercator re-render and claims UI streamlining
+        - Re-render map captures in EPSG:3857 for better alignment on mobile basemaps
+        - Send pixel_width and pixel_height with map capture uploads for server-side georeferencing
+        - Merge Auto-Number and Rename Claims into single "Number & Rename Claims" button (Step 2 and Order widget)
     2.11.0 - Legacy claims loader, field map tweaks, and staff order improvements
         - Add one-click legacy claims loader: load old QClaims GeoPackages and generate all maps
         - New LegacyClaimsLoader processor reads qclaims_metadata, maps old table names, applies styling

@@ -547,6 +547,8 @@ class DataManager:
         epsg: Optional[int] = None,
         bounds: Optional[List[float]] = None,
         resolution: Optional[float] = None,
+        pixel_width: Optional[int] = None,
+        pixel_height: Optional[int] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None
     ) -> Dict[str, Any]:
         """
@@ -592,6 +594,10 @@ class DataManager:
             fields['bounds'] = json_module.dumps(bounds)
         if resolution is not None:
             fields['resolution'] = str(resolution)
+        if pixel_width is not None:
+            fields['pixel_width'] = str(pixel_width)
+        if pixel_height is not None:
+            fields['pixel_height'] = str(pixel_height)
 
         # Get the upload URL
         url = self.config.endpoints['project_files']
