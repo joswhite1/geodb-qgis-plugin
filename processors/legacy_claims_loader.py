@@ -1,40 +1,43 @@
 # -*- coding: utf-8 -*-
 """
-Legacy Claims Loader
+Claims Loader
 
-Loads claims data from old QClaims-format GeoPackages (pre-geodb plugin),
-builds the layers and state needed by ClaimsMapGenerator, applies styling,
-and generates field/filing maps in one shot.
+Loads claims data from GeoPackages and generates field/filing maps in one
+shot — without re-running the wizard steps.  Supports two formats:
 
-Old QClaims GeoPackage format:
-- Metadata table: qclaims_metadata (key/value pairs)
-- Dynamic table names: "{prefix} Lode Claims", "{prefix} Initial Claim Layout"
-- Fixed table names: corner points, LM Corners, Center Lines, Monuments,
-  Endline_Monuments, References, Waypoints
-- CRS: UTM (e.g. EPSG:26911)
+1. **Old QClaims format** (pre-geodb plugin):
+   - Metadata table: ``qclaims_metadata`` (key/value pairs)
+   - Dynamic table names: "{prefix} Lode Claims", etc.
+   - Fixed table names: corner points, LM Corners, Center Lines, Monuments,
+     Endline_Monuments, References, Waypoints
+
+2. **New geodb-plugin format** (current plugin):
+   - Metadata table: ``claims_metadata`` (key/value pairs)
+   - Fixed table names: lode_claims, corner_points, lm_corners, center_lines,
+     monuments, endline_monuments, reference_points, claim_waypoints
+
+A single :class:`ClaimsLoader` class handles both formats; the differences
+live in a :class:`ClaimsFormat` spec object that describes the metadata key
+names, table names, and format-specific quirks.
 """
+import json
 import logging
 import sqlite3
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from qgis.core import (
     Qgis,
+    QgsCategorizedSymbolRenderer,
     QgsCoordinateReferenceSystem,
-    QgsCoordinateTransform,
     QgsFeature,
-    QgsFeatureRequest,
     QgsField,
     QgsFields,
-    QgsGeometry,
-    QgsMapLayer,
     QgsMarkerSymbol,
     QgsPalLayerSettings,
-    QgsPointXY,
     QgsProject,
-    QgsProperty,
-    QgsRectangle,
+    QgsRendererCategory,
     QgsSimpleFillSymbolLayer,
     QgsSimpleLineSymbolLayer,
     QgsSimpleMarkerSymbolLayer,
@@ -45,8 +48,6 @@ from qgis.core import (
     QgsVectorLayer,
     QgsVectorLayerSimpleLabeling,
     QgsWkbTypes,
-    QgsCategorizedSymbolRenderer,
-    QgsRendererCategory,
 )
 from qgis.PyQt.QtGui import QColor, QFont
 
@@ -62,6 +63,10 @@ _SYMBOL_TO_TYPE = {
     'Flag, Green': 'sideline',
 }
 
+
+# =========================================================================
+# FORMAT DETECTION
+# =========================================================================
 
 def is_legacy_qclaims_geopackage(path: str) -> bool:
     """Check if a GeoPackage is an old QClaims-format file.
@@ -89,30 +94,186 @@ def is_legacy_qclaims_geopackage(path: str) -> bool:
         return False
 
 
-class LegacyClaimsLoader:
-    """Load old QClaims GeoPackages and generate maps from them.
+def is_new_format_claims_geopackage(path: str) -> bool:
+    """Check if a GeoPackage is a new geodb-plugin-format claims file."""
+    try:
+        conn = sqlite3.connect(path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='claims_metadata'"
+        )
+        has_metadata = cursor.fetchone() is not None
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='lode_claims'"
+        )
+        has_claims = cursor.fetchone() is not None
+
+        conn.close()
+        return has_metadata and has_claims
+    except Exception:
+        return False
+
+
+def is_any_claims_geopackage(path: str) -> bool:
+    """Check if a GeoPackage is either an old QClaims or new geodb claims file."""
+    return is_legacy_qclaims_geopackage(path) or is_new_format_claims_geopackage(path)
+
+
+# =========================================================================
+# FORMAT SPECIFICATION
+# =========================================================================
+
+@dataclass
+class ClaimsFormat:
+    """Describes a GeoPackage claims format.
+
+    Each format (legacy QClaims vs new geodb-plugin) uses different metadata
+    table/key names, layer table names, and storage conventions. This object
+    captures those differences so a single loader can handle both.
+    """
+
+    name: str  # human-readable tag for logs, e.g. "LEGACY" or "CLAIMS"
+
+    # Metadata table
+    metadata_table: str
+    metadata_keys: Dict[str, str]  # logical name -> actual key in this format
+
+    # Layer tables — list of (table_name_or_factory, display_name) pairs.
+    # If the entry is a callable, it's called with the prefix to get the
+    # actual table name (legacy uses "{prefix} Lode Claims").
+    claims_layers: List[tuple]
+
+    # Waypoints handling
+    waypoints_table: str
+    waypoints_needs_conversion: bool  # True for legacy (Symbol → waypoint_type)
+
+    # References handling
+    references_mode: str  # "table" (legacy) or "metadata_json" (new)
+    references_table: str  # only used if references_mode == "table"
+
+    # Whether the claims layer has QSecs/Meridian fields for PLSS parsing
+    has_plss_fields: bool
+
+    # Main claims table name (for CRS detection) — may be a factory
+    claims_table_for_crs: Any  # str or callable(prefix) -> str
+
+
+def _legacy_claims_table(prefix: str) -> str:
+    return f"{prefix} Lode Claims"
+
+
+LEGACY_FORMAT = ClaimsFormat(
+    name='LEGACY',
+    metadata_table='qclaims_metadata',
+    metadata_keys={
+        'prefix': 'base_name',
+        'claimant_name': 'claimant_name',
+        'address_1': 'address_1',
+        'city': 'city',
+        'state': 'state',
+        'zip': 'zip_code',
+        'mining_district': 'mining_district',
+        'monument_type': 'monument_type',
+        'monument_inset': 'monument_inset_ft',
+    },
+    claims_layers=[
+        (_legacy_claims_table, 'Lode Claims'),
+        ('corner points', 'Corner Points'),
+        ('LM Corners', 'LM Corners'),
+        ('Center Lines', 'Center Lines'),
+        ('Monuments', 'Monuments'),
+        ('Endline_Monuments', 'Endline Monuments'),
+    ],
+    waypoints_table='Waypoints',
+    waypoints_needs_conversion=True,
+    references_mode='table',
+    references_table='References',
+    has_plss_fields=True,
+    claims_table_for_crs=_legacy_claims_table,
+)
+
+
+NEW_FORMAT = ClaimsFormat(
+    name='CLAIMS',
+    metadata_table='claims_metadata',
+    metadata_keys={
+        'prefix': 'grid_name_prefix',
+        'claimant_name': 'claimant_name',
+        'address_line1': 'address_line1',
+        'address_line2': 'address_line2',
+        'address_line3': 'address_line3',
+        'mining_district': 'mining_district',
+        'monument_type': 'monument_type',
+        'monument_inset': 'monument_inset_ft',
+        'grid_rows': 'grid_rows',
+        'grid_cols': 'grid_cols',
+        'grid_azimuth': 'grid_azimuth',
+        'lm_corner': 'lm_corner',
+        'reference_points_json': 'reference_points',
+        'claim_package_id': 'claim_package_id',
+    },
+    claims_layers=[
+        ('lode_claims', 'Lode Claims'),
+        ('corner_points', 'Corner Points'),
+        ('lm_corners', 'LM Corners'),
+        ('center_lines', 'Center Lines'),
+        ('monuments', 'Monuments'),
+        ('endline_monuments', 'Endline Monuments'),
+    ],
+    waypoints_table='claim_waypoints',
+    waypoints_needs_conversion=False,
+    references_mode='metadata_json',
+    references_table='',
+    has_plss_fields=False,
+    claims_table_for_crs='lode_claims',
+)
+
+
+# =========================================================================
+# UNIFIED CLAIMS LOADER
+# =========================================================================
+
+class ClaimsLoader:
+    """Load a claims GeoPackage (either format) and generate maps.
 
     Usage::
 
-        loader = LegacyClaimsLoader(gpkg_path)
+        loader = ClaimsLoader(gpkg_path)  # auto-detects format
         results = loader.load_and_generate_maps()
         # results is a dict like {'field_map': 'layout_name', ...}
+
+    You can also pass an explicit :class:`ClaimsFormat` if auto-detection
+    isn't appropriate for the caller.
     """
 
-    def __init__(self, gpkg_path: str):
+    def __init__(self, gpkg_path: str, fmt: Optional[ClaimsFormat] = None):
         self.gpkg_path = gpkg_path
+        self.fmt = fmt or self._detect_format(gpkg_path)
         self.metadata: Dict[str, str] = {}
         self.prefix: str = ""
         self.epsg: int = 0
         self.crs: Optional[QgsCoordinateReferenceSystem] = None
         self._loaded_layers: Dict[str, QgsVectorLayer] = {}
 
+    @staticmethod
+    def _detect_format(path: str) -> ClaimsFormat:
+        if is_legacy_qclaims_geopackage(path):
+            return LEGACY_FORMAT
+        if is_new_format_claims_geopackage(path):
+            return NEW_FORMAT
+        raise ValueError(
+            "Not a recognised claims GeoPackage (expected qclaims_metadata "
+            "or claims_metadata table)."
+        )
+
     # =========================================================================
     # PUBLIC API
     # =========================================================================
 
     def load_and_generate_maps(self) -> Dict[str, str]:
-        """One-shot: load legacy data, build layers, generate all maps.
+        """One-shot: load data, build layers, generate all maps.
 
         Returns:
             Dict mapping map type to layout name (same as
@@ -144,23 +305,31 @@ class LegacyClaimsLoader:
     # METADATA
     # =========================================================================
 
+    def _meta_key(self, logical_name: str) -> str:
+        """Look up the format-specific metadata key for a logical name."""
+        return self.fmt.metadata_keys.get(logical_name, logical_name)
+
+    def _meta_get(self, logical_name: str, default: str = '') -> str:
+        """Get a metadata value by its logical (format-agnostic) name."""
+        return self.metadata.get(self._meta_key(logical_name), default)
+
     def _read_metadata(self):
-        """Read qclaims_metadata key-value table."""
+        """Read the metadata key-value table."""
         conn = sqlite3.connect(self.gpkg_path)
         cursor = conn.cursor()
 
-        cursor.execute("SELECT key, value FROM qclaims_metadata")
+        cursor.execute(f"SELECT key, value FROM {self.fmt.metadata_table}")
         self.metadata = dict(cursor.fetchall())
         conn.close()
 
-        self.prefix = self.metadata.get('base_name', '')
+        self.prefix = self._meta_get('prefix')
         if not self.prefix:
-            # Try to extract from GeoPackage filename
+            # Fall back to GeoPackage filename
             self.prefix = Path(self.gpkg_path).stem.split(' ')[0]
 
         logger.info(
-            f"[LEGACY] Read metadata: prefix={self.prefix}, "
-            f"claimant={self.metadata.get('claimant_name', '?')}"
+            f"[{self.fmt.name}] Read metadata: prefix={self.prefix}, "
+            f"claimant={self._meta_get('claimant_name', '?')}"
         )
 
     def _detect_crs(self):
@@ -168,8 +337,13 @@ class LegacyClaimsLoader:
         conn = sqlite3.connect(self.gpkg_path)
         cursor = conn.cursor()
 
-        # Get SRS from the main claims table
-        claims_table = f"{self.prefix} Lode Claims"
+        # Resolve the main claims table name for this format
+        table_spec = self.fmt.claims_table_for_crs
+        if callable(table_spec):
+            claims_table = table_spec(self.prefix)
+        else:
+            claims_table = table_spec
+
         cursor.execute(
             "SELECT srs_id FROM gpkg_geometry_columns WHERE table_name=?",
             (claims_table,)
@@ -178,7 +352,7 @@ class LegacyClaimsLoader:
         if row:
             self.epsg = row[0]
         else:
-            # Fallback: pick the first non-4326 SRS
+            # Fallback: first non-4326 SRS in the file
             cursor.execute(
                 "SELECT DISTINCT srs_id FROM gpkg_geometry_columns WHERE srs_id != 4326"
             )
@@ -190,7 +364,7 @@ class LegacyClaimsLoader:
 
         if self.epsg:
             self.crs = QgsCoordinateReferenceSystem(f"EPSG:{self.epsg}")
-            logger.info(f"[LEGACY] Detected CRS: EPSG:{self.epsg}")
+            logger.info(f"[{self.fmt.name}] Detected CRS: EPSG:{self.epsg}")
 
     # =========================================================================
     # LAYER LOADING
@@ -205,17 +379,8 @@ class LegacyClaimsLoader:
         group_name = f"Claims Workflow [{self.prefix} Lode Claims]"
         group = get_or_create_claims_group(group_name, root)
 
-        # Map: (old table name, new display name)
-        table_map = [
-            (f"{self.prefix} Lode Claims", "Lode Claims"),
-            ("corner points", "Corner Points"),
-            ("LM Corners", "LM Corners"),
-            ("Center Lines", "Center Lines"),
-            ("Monuments", "Monuments"),
-            ("Endline_Monuments", "Endline Monuments"),
-        ]
-
-        for table_name, display_name in table_map:
+        for table_spec, display_name in self.fmt.claims_layers:
+            table_name = table_spec(self.prefix) if callable(table_spec) else table_spec
             layer_uri = f"{self.gpkg_path}|layername={table_name}"
             layer = QgsVectorLayer(layer_uri, display_name, "ogr")
             if layer.isValid() and layer.featureCount() > 0:
@@ -223,28 +388,50 @@ class LegacyClaimsLoader:
                 group.insertLayer(0, layer)
                 self._loaded_layers[display_name] = layer
                 logger.info(
-                    f"[LEGACY] Loaded '{display_name}' from '{table_name}' "
+                    f"[{self.fmt.name}] Loaded '{display_name}' from '{table_name}' "
                     f"({layer.featureCount()} features)"
                 )
 
-        # Waypoints need special handling: create a memory layer with the
-        # waypoint_type field that the map generator expects.
-        self._create_waypoints_layer(group)
+        # Waypoints: either load directly or convert from the old Symbol-based format
+        if self.fmt.waypoints_needs_conversion:
+            self._create_waypoints_layer_from_symbols(group)
+        else:
+            self._load_waypoints_layer_direct(group)
 
-    def _create_waypoints_layer(self, group):
-        """Build a Claims Waypoints memory layer from the old Waypoints table.
+    def _load_waypoints_layer_direct(self, group):
+        """Load the waypoints table directly (new format).
 
-        The old format stores waypoint type in the Symbol field. The new map
-        generator expects a waypoint_type field. We create a memory layer
-        with both fields populated.
+        The new format already stores ``waypoint_type`` and ``claim`` fields,
+        so no conversion is needed.
         """
-        source_uri = f"{self.gpkg_path}|layername=Waypoints"
-        source = QgsVectorLayer(source_uri, "_tmp_waypoints", "ogr")
-        if not source.isValid() or source.featureCount() == 0:
-            logger.warning("[LEGACY] Waypoints table not found or empty")
+        source_uri = f"{self.gpkg_path}|layername={self.fmt.waypoints_table}"
+        layer = QgsVectorLayer(source_uri, "Claims Waypoints", "ogr")
+        if not layer.isValid() or layer.featureCount() == 0:
+            logger.warning(
+                f"[{self.fmt.name}] {self.fmt.waypoints_table} table not found or empty"
+            )
             return
 
-        # Build memory layer with correct fields
+        QgsProject.instance().addMapLayer(layer, False)
+        group.insertLayer(0, layer)
+        self._loaded_layers["Claims Waypoints"] = layer
+        logger.info(
+            f"[{self.fmt.name}] Loaded Claims Waypoints ({layer.featureCount()} features)"
+        )
+
+    def _create_waypoints_layer_from_symbols(self, group):
+        """Build a Claims Waypoints memory layer from the old Waypoints table.
+
+        The old format stores waypoint type in the Symbol field. The map
+        generator expects a ``waypoint_type`` field. We create a memory layer
+        with both fields populated.
+        """
+        source_uri = f"{self.gpkg_path}|layername={self.fmt.waypoints_table}"
+        source = QgsVectorLayer(source_uri, "_tmp_waypoints", "ogr")
+        if not source.isValid() or source.featureCount() == 0:
+            logger.warning(f"[{self.fmt.name}] Waypoints table not found or empty")
+            return
+
         display_name = "Claims Waypoints"
         crs_str = self.crs.authid() if self.crs else "EPSG:4326"
 
@@ -284,12 +471,8 @@ class LegacyClaimsLoader:
             new_feat['Date'] = feat['Date'] or ''
             new_feat['Time'] = feat['Time'] or ''
 
-            # Map Symbol → waypoint_type
             symbol = feat['Symbol'] or ''
             new_feat['waypoint_type'] = _SYMBOL_TO_TYPE.get(symbol, 'corner')
-
-            # Try to associate with a claim from the Name field
-            name = feat['Name'] or ''
             new_feat['claim'] = ''  # Old format doesn't store claim association
 
             features.append(new_feat)
@@ -301,7 +484,7 @@ class LegacyClaimsLoader:
         group.insertLayer(0, mem_layer)
         self._loaded_layers["Claims Waypoints"] = mem_layer
         logger.info(
-            f"[LEGACY] Created Claims Waypoints layer with "
+            f"[{self.fmt.name}] Created Claims Waypoints layer with "
             f"{len(features)} waypoints"
         )
 
@@ -326,7 +509,7 @@ class LegacyClaimsLoader:
                 try:
                     style_fn(layer)
                 except Exception as e:
-                    logger.warning(f"[LEGACY] Could not style '{name}': {e}")
+                    logger.warning(f"[{self.fmt.name}] Could not style '{name}': {e}")
 
     def _style_lode_claims(self, layer: QgsVectorLayer):
         """Light blue fill with steel blue outline, claim name labels."""
@@ -494,7 +677,6 @@ class LegacyClaimsLoader:
         renderer = QgsCategorizedSymbolRenderer('waypoint_type', categories)
         layer.setRenderer(renderer)
 
-        # Labeling
         label_settings = QgsPalLayerSettings()
         label_settings.fieldName = 'Name'
         label_settings.enabled = True
@@ -517,76 +699,93 @@ class LegacyClaimsLoader:
     # =========================================================================
 
     def _build_wizard_state(self):
-        """Build a ClaimsWizardState populated from legacy metadata + features.
-
-        The map generator reads state.processed_claims, state.reference_points,
-        state.grid_name_prefix, state.claimant_name, state.project_epsg,
-        state.monument_type, etc.
-        """
+        """Build a ClaimsWizardState populated from metadata and features."""
         from ..ui.claims_wizard_state import ClaimsWizardState
 
         state = ClaimsWizardState()
         state.geopackage_path = self.gpkg_path
         state.grid_name_prefix = self.prefix
-        state.claimant_name = self.metadata.get('claimant_name', '')
-        state.address_line1 = self.metadata.get('address_1', '')
-        state.address_line2 = (
-            f"{self.metadata.get('city', '')}, "
-            f"{self.metadata.get('state', '')} "
-            f"{self.metadata.get('zip_code', '')}"
-        ).strip(', ')
-        state.monument_inset_ft = float(
-            self.metadata.get('monument_inset_ft', '25.0')
-        )
-        state.monument_type = "2' wooden post"
+        state.claimant_name = self._meta_get('claimant_name')
+
+        # Address fields — legacy stores city/state/zip separately, new format
+        # stores pre-formatted address_line1/2/3.
+        if self.fmt is LEGACY_FORMAT:
+            state.address_line1 = self._meta_get('address_1')
+            state.address_line2 = (
+                f"{self._meta_get('city')}, "
+                f"{self._meta_get('state')} "
+                f"{self._meta_get('zip')}"
+            ).strip(', ')
+        else:
+            state.address_line1 = (
+                self._meta_get('address_line1')
+                or self.metadata.get('claimant_address', '')
+            )
+            state.address_line2 = (
+                self._meta_get('address_line2')
+                or self.metadata.get('claimant_city', '')
+            )
+            state.address_line3 = (
+                self._meta_get('address_line3')
+                or self.metadata.get('claimant_state', '')
+            )
+
+        state.mining_district = self._meta_get('mining_district')
+        state.monument_type = self._meta_get('monument_type') or "2' wooden post"
+        state.monument_inset_ft = float(self._meta_get('monument_inset') or '25.0')
         state.project_epsg = self.epsg if self.epsg else None
 
-        # Build processed_claims from the claims layer features
+        # New-format extras
+        if self.fmt is NEW_FORMAT:
+            state.grid_rows = int(self._meta_get('grid_rows') or '2')
+            state.grid_cols = int(self._meta_get('grid_cols') or '4')
+            state.grid_azimuth = float(self._meta_get('grid_azimuth') or '0.0')
+            state.lm_corner = int(self._meta_get('lm_corner') or '1')
+
+            pkg_id = self._meta_get('claim_package_id')
+            state.claim_package_id = int(pkg_id) if pkg_id else None
+
         state.processed_claims = self._build_processed_claims()
-
-        # Build reference_points from the References table
         state.reference_points = self._build_reference_points()
-
-        # Mark as fully processed so map generator doesn't complain
         state.completed_steps = [1, 2, 3, 4, 5, 6]
 
         return state
 
     def _build_processed_claims(self) -> List[Dict[str, Any]]:
-        """Build the processed_claims list from the old claims layer.
+        """Build the processed_claims list from the claims layer features.
 
-        The map generator needs each claim dict to have: name, state, county,
-        corners (with easting/northing), lm_corner, plss, and optionally
-        endline_monuments.
+        Corners are extracted from the polygon vertices of each claim (the
+        authoritative geometry). The corner_points table is not used because
+        its coordinates may differ from the polygon.
         """
         claims_layer = self._loaded_layers.get('Lode Claims')
-        corners_layer = self._loaded_layers.get('Corner Points')
         endline_layer = self._loaded_layers.get('Endline Monuments')
         monuments_layer = self._loaded_layers.get('Monuments')
 
         if not claims_layer:
-            logger.warning("[LEGACY] No Lode Claims layer found")
+            logger.warning(f"[{self.fmt.name}] No Lode Claims layer found")
             return []
 
-        # Index corner points by claim name
+        # Extract corners from polygon vertices
         corners_by_claim: Dict[str, List[Dict]] = {}
-        if corners_layer:
-            for feat in corners_layer.getFeatures():
-                claim = feat['Claim']
-                geom = feat.geometry()
-                pt = geom.asPoint() if geom else None
-                if claim and pt:
-                    corners_by_claim.setdefault(claim, []).append({
-                        'corner_number': feat['Corner #'],
-                        'easting': pt.x(),
-                        'northing': pt.y(),
-                    })
-
-        # Sort corners by corner number within each claim
-        for claim_name in corners_by_claim:
-            corners_by_claim[claim_name].sort(
-                key=lambda c: c.get('corner_number', 0)
-            )
+        for feat in claims_layer.getFeatures():
+            name = feat['Name']
+            geom = feat.geometry()
+            if not geom or geom.isEmpty():
+                continue
+            polygon = geom.asPolygon()
+            if not polygon:
+                continue
+            # Exterior ring; last point duplicates first, so skip it
+            ring = polygon[0]
+            corners = []
+            for i, pt in enumerate(ring[:-1]):
+                corners.append({
+                    'corner_number': i + 1,
+                    'easting': pt.x(),
+                    'northing': pt.y(),
+                })
+            corners_by_claim[name] = corners
 
         # Index endline monuments by claim name
         endlines_by_claim: Dict[str, List[Dict]] = {}
@@ -615,16 +814,19 @@ class LegacyClaimsLoader:
                         'northing': pt.y(),
                     }
 
-        # Build processed claims
+        # Build processed claims list
         claims = []
         for feat in claims_layer.getFeatures():
             name = feat['Name']
             corners = corners_by_claim.get(name, [])
 
-            # Parse QSecs into PLSS dict
-            qsecs = feat['QSecs'] or ''
-            meridian = feat['Meridian'] or ''
-            plss = self._parse_qsecs_to_plss(qsecs, meridian)
+            # Parse PLSS info if this format has QSecs/Meridian fields
+            plss: Dict[str, str] = {}
+            if self.fmt.has_plss_fields:
+                field_names = feat.fields().names()
+                qsecs = feat['QSecs'] if 'QSecs' in field_names else ''
+                meridian = feat['Meridian'] if 'Meridian' in field_names else ''
+                plss = self._parse_qsecs_to_plss(qsecs or '', meridian or '')
 
             claim_dict = {
                 'name': name,
@@ -640,12 +842,24 @@ class LegacyClaimsLoader:
             }
             claims.append(claim_dict)
 
-        logger.info(f"[LEGACY] Built {len(claims)} processed claims")
+        logger.info(f"[{self.fmt.name}] Built {len(claims)} processed claims")
         return claims
 
     def _build_reference_points(self) -> List[Dict[str, Any]]:
-        """Build reference_points from the old References table."""
-        ref_uri = f"{self.gpkg_path}|layername=References"
+        """Build reference_points from wherever this format stores them."""
+        if self.fmt.references_mode == 'metadata_json':
+            ref_json = self.metadata.get(
+                self._meta_key('reference_points_json'), '[]'
+            )
+            try:
+                points = json.loads(ref_json)
+            except (ValueError, TypeError):
+                points = []
+            logger.info(f"[{self.fmt.name}] Found {len(points)} reference point(s)")
+            return points
+
+        # references_mode == 'table' — read from a point layer
+        ref_uri = f"{self.gpkg_path}|layername={self.fmt.references_table}"
         ref_layer = QgsVectorLayer(ref_uri, "_tmp_refs", "ogr")
         if not ref_layer.isValid() or ref_layer.featureCount() == 0:
             return []
@@ -661,37 +875,33 @@ class LegacyClaimsLoader:
                     'northing': pt.y(),
                 })
 
-        logger.info(f"[LEGACY] Found {len(points)} reference point(s)")
+        logger.info(f"[{self.fmt.name}] Found {len(points)} reference point(s)")
         return points
 
     def _parse_qsecs_to_plss(self, qsecs: str, meridian: str) -> Dict[str, str]:
-        """Parse QSecs string like 'SE Quarter of SEC 04, T008N, R001E; ...'
-        into a PLSS dict with section, township, range.
+        """Parse a QSecs string into a PLSS dict.
 
-        Takes the first quarter-section entry.
+        Takes the first quarter-section entry from a string like
+        'SE Quarter of SEC 04, T008N, R001E; ...'.
         """
         if not qsecs:
             return {}
 
-        # Take first entry (before semicolon)
         first = qsecs.split(';')[0].strip()
         if not first:
             return {}
 
-        plss = {}
+        plss: Dict[str, str] = {}
 
-        # Extract section
         import re
         sec_match = re.search(r'SEC\s+(\d+)', first, re.IGNORECASE)
         if sec_match:
             plss['section'] = sec_match.group(1).lstrip('0') or '0'
 
-        # Extract township
         twp_match = re.search(r'(T\d+[NS])', first, re.IGNORECASE)
         if twp_match:
             plss['township'] = twp_match.group(1)
 
-        # Extract range
         rng_match = re.search(r'(R\d+[EW])', first, re.IGNORECASE)
         if rng_match:
             plss['range'] = rng_match.group(1)

@@ -144,13 +144,18 @@ class ClaimsMapGenerator:
         results['field_map'] = self._create_field_map(layers, field_extent)
 
         # 2. Filing Map
-        results['filing_map'] = self._create_filing_map(layers, filing_extent)
+        # AZ uses claims-only extent — the tie to the survey monument is
+        # communicated via the reference text so the reference point does
+        # not need to be visible on the map.  Other states include the
+        # reference point so the tie line is drawn.
+        state_code = self._get_claims_state()
+        filing_map_extent = field_extent if state_code == 'AZ' else filing_extent
+        results['filing_map'] = self._create_filing_map(layers, filing_map_extent)
 
         # 3. State Filing Map (AZ or NV only)
-        state_code = self._get_claims_state()
         if state_code == 'AZ':
             results['state_filing_map'] = self._create_state_filing_map(
-                state_code, layers, filing_extent
+                state_code, layers, field_extent
             )
         elif state_code == 'NV':
             # NV requires TWO copies; generate both size options
@@ -228,10 +233,27 @@ class ClaimsMapGenerator:
     def _create_filing_map(
         self, layers: Dict[str, Optional[QgsMapLayer]], extent: QgsRectangle
     ) -> str:
-        """Create a filing map without waypoints, with PLSS."""
+        """Create the generic filing map.
+
+        For AZ projects, this reuses the polished AZ state filing map
+        template and build pipeline — the "Filing Map" and "AZ Filing Map"
+        end up as the same high-quality output (just with different layout
+        titles) so users don't have to choose between two presentations.
+
+        For other states, falls back to the legacy landscape/portrait
+        template approach.
+        """
+        state_code = self._get_claims_state()
+
+        # AZ: share the AZ state filing map pipeline
+        if state_code == 'AZ':
+            return self._build_az_style_filing_map(
+                layers, extent, map_title='Filing Map'
+            )
+
+        # Generic fallback for non-AZ states
         prefix = self.state.grid_name_prefix or "Claims"
 
-        # Auto-detect orientation
         if extent.width() > extent.height():
             template_file = 'filing_map_landscape.qpt'
         else:
@@ -242,8 +264,6 @@ class ClaimsMapGenerator:
         )
         layout = self._load_template(template_file, layout_name)
 
-        # Filing map: no waypoints, no centerlines
-        # Includes: corner labels, dimensions, tie line, reference point, monuments
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=False,
@@ -273,7 +293,6 @@ class ClaimsMapGenerator:
         self._configure_scale_bars(layout, use_feet=True)
         self._remove_legend(layout)
 
-        # Add filing-specific text labels programmatically
         self._add_filing_text_labels(layout, map_item)
 
         QgsProject.instance().layoutManager().addLayout(layout)
@@ -307,14 +326,38 @@ class ClaimsMapGenerator:
         - Monument types, bearing/distance between corners
         - Tie to survey monument
         """
+        return self._build_az_style_filing_map(
+            layers, extent, map_title='AZ Filing Map'
+        )
+
+    def _build_az_style_filing_map(
+        self,
+        layers: Dict[str, Optional[QgsMapLayer]],
+        extent: QgsRectangle,
+        map_title: str,
+    ) -> str:
+        """Shared builder for AZ-style filing maps.
+
+        Used by both ``_create_az_filing_map`` (the ARS 27-203 state filing
+        map) and ``_create_filing_map`` for AZ projects, so the generic
+        filing map and the state filing map produce consistent, polished
+        output from the same template and pipeline.
+
+        Args:
+            layers: Layer collection from ``_collect_layers``.
+            extent: Map extent (claims-only for AZ — reference point is
+                conveyed via the reference text, not the map graphic).
+            map_title: Shown in the title-block "County Filing Map" slot,
+                e.g. ``'Filing Map'`` or ``'AZ Filing Map'``.
+        """
         prefix = self.state.grid_name_prefix or "Claims"
         layout_name = self._get_unique_layout_name(
-            f"{prefix} Lode Claims - AZ Filing Map"
+            f"{prefix} Lode Claims - {map_title}"
         )
         layout = self._load_template('az_state_filing_map.qpt', layout_name)
 
-        # AZ filing map: include monuments + endline monuments, no waypoints
-        # Include corner labels, dimensions, tie line, reference point
+        # Layer selection: monuments + endline monuments, no waypoints,
+        # corner labels + dimensions + tie line + reference point.
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=False,
@@ -330,13 +373,13 @@ class ClaimsMapGenerator:
 
         map_item = self._find_map_item(layout)
 
-        # AZ max scale: 1:24,000
+        # AZ max scale: 1:24,000 (ARS 27-203)
         self._configure_map_item(
             map_item, map_layers, extent, max_scale=24000
         )
 
         actual_scale = map_item.scale()
-        scale_ft = int(round(actual_scale / 12))  # Convert to feet per inch
+        scale_ft = int(round(actual_scale / 12))  # feet per inch
         scale_text = f'scale 1":{scale_ft:,}\' (1:{int(actual_scale):,})'
 
         county_state = self._get_county_state()
@@ -345,13 +388,10 @@ class ClaimsMapGenerator:
             'Gold Express Mines, Inc': self.state.claimant_name or 'Client',
             'Copper Butte LODE claims': f"{prefix} LODE Claims",
             'Pinal County, AZ': county_state,
-            'County Filing Map': 'County Filing Map',
+            'County Filing Map': map_title,
+            'scale 1":2000\' (1:24,000)': scale_text,
         }
 
-        # Scale text
-        label_values['scale 1":2000\' (1:24,000)'] = scale_text
-
-        # CRS
         crs_label = self._get_crs_label()
         if crs_label:
             label_values['CRS: NAD83 / UTM Zone 11N'] = f"CRS: {crs_label}"
@@ -359,27 +399,42 @@ class ClaimsMapGenerator:
         # Bearings and distances (auto-generated from corners)
         bearings_text = self._generate_az_bearings_text()
         if bearings_text:
-            self._populate_labels_startswith(layout, 'Bearings and distances', bearings_text)
+            self._populate_labels_startswith(
+                layout, 'Bearings and distances', bearings_text
+            )
 
         # Monument description
         monument_text = self._generate_monument_text()
         if monument_text:
-            self._populate_labels_startswith(layout, 'Corners are all', monument_text)
+            self._populate_labels_startswith(
+                layout, 'Corners are all', monument_text
+            )
 
         # Reference point / PLSS tie
         reference_text = self._generate_reference_text()
         if reference_text:
-            self._populate_labels_startswith(layout, 'Reference:', reference_text)
+            self._populate_labels_startswith(
+                layout, 'Reference:', reference_text
+            )
 
         self._populate_labels(layout, label_values)
         self._fix_logo_paths(layout)
-        self._remove_legend(layout)
 
-        # AZ keeps corner labels on the main map (bearings text references
-        # them by number) so no need for an inset diagram.
+        # Configure legend to show only monument markers
+        self._configure_az_filing_legend(layout, map_layers)
+
+        # Resize variable-length text labels to fit their actual content.
+        self._autofit_text_labels(layout)
+
+        # Configure scale bars for feet with segments appropriate to scale
+        self._configure_scale_bars(layout, use_feet=True)
+        self._adjust_scale_bar_segments(layout, map_item)
+
+        # Move the main scale bar + scale text down into the title block
+        self._move_scalebar_into_titleblock(layout)
 
         QgsProject.instance().layoutManager().addLayout(layout)
-        logger.info(f"[CLAIMS MAP] Created AZ filing map: {layout_name}")
+        logger.info(f"[CLAIMS MAP] Created {map_title}: {layout_name}")
         return layout_name
 
     def _create_nv_filing_map(
@@ -1018,6 +1073,89 @@ class ClaimsMapGenerator:
                 item.setUnitsPerSegment(500)  # 500 ft per segment
                 item.setUnitLabel('ft')
 
+    def _adjust_scale_bar_segments(
+        self, layout: QgsPrintLayout, map_item: QgsLayoutItemMap
+    ):
+        """Choose scale-bar segment size appropriate to the map scale.
+
+        The default 500 ft/segment works for large claim groups but is
+        too coarse for small groups (3 claims ≈ 4,500 ft across).  This
+        picks a nice round segment size so the bar has 4 segments and
+        spans roughly one-third to one-half the map width.
+        """
+        SEGMENT_OPTIONS = [50, 100, 200, 250, 500, 1000, 2000, 2500, 5000]
+
+        map_width_mm = map_item.sizeWithUnits().width()
+        scale = map_item.scale()
+        # Map width in feet
+        map_width_ft = (map_width_mm / 25.4) * (scale / 12)
+        # Target: 4 segments spanning ~1/3 of map width
+        target_total = map_width_ft / 3
+        target_segment = target_total / 4
+
+        best = 500
+        for opt in SEGMENT_OPTIONS:
+            if opt >= target_segment:
+                best = opt
+                break
+        else:
+            best = SEGMENT_OPTIONS[-1]
+
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemScaleBar):
+                item.setNumberOfSegments(4)
+                item.setUnitsPerSegment(best)
+
+    def _autofit_text_labels(self, layout: QgsPrintLayout):
+        """Resize variable-length text labels to fit their actual content.
+
+        Keeps label width constrained so text wraps within the page rather
+        than running off the right edge.  Height is estimated from the
+        wrapped line count.
+        """
+        from qgis.PyQt.QtGui import QFontMetrics
+
+        # Get page and map dimensions for width constraints
+        page = layout.pageCollection().page(0)
+        page_width = page.pageSize().width()
+        right_margin = 8.0  # mm
+
+        dynamic_prefixes = ('Bearings and distances', 'Corners are all', 'Reference:')
+        for item in layout.items():
+            if not isinstance(item, QgsLayoutItemLabel):
+                continue
+            text = item.text().strip()
+            if any(text.startswith(p) for p in dynamic_prefixes):
+                # Constrain width so label doesn't extend past the page edge
+                label_x = item.pagePos().x()
+                available_width = page_width - label_x - right_margin
+
+                # Get the font metrics to estimate wrapped height
+                font = item.font()
+                fm = QFontMetrics(font)
+                line_height_px = fm.lineSpacing()
+
+                # Convert available width from mm to approximate pixels (96 dpi)
+                width_px = available_width * (96 / 25.4)
+
+                # Count wrapped lines by measuring each paragraph
+                total_lines = 0
+                for paragraph in text.split('\n'):
+                    if not paragraph.strip():
+                        total_lines += 1
+                        continue
+                    text_width_px = fm.horizontalAdvance(paragraph)
+                    lines = max(1, -(-text_width_px // int(width_px)))  # ceil div
+                    total_lines += int(lines)
+
+                # Convert pixel height back to mm, with padding
+                height_mm = (total_lines * line_height_px) / (96 / 25.4) + 4
+
+                item.attemptResize(
+                    QgsLayoutSize(available_width, height_mm,
+                                  item.sizeWithUnits().units())
+                )
+
     def _configure_legend(
         self, layout: QgsPrintLayout, map_layers: List[QgsMapLayer],
     ):
@@ -1067,6 +1205,72 @@ class ClaimsMapGenerator:
             if isinstance(item, QgsLayoutItemLegend):
                 layout.removeLayoutItem(item)
                 return
+
+    def _configure_az_filing_legend(
+        self, layout: QgsPrintLayout, map_layers: List[QgsMapLayer]
+    ):
+        """Configure the legend for AZ filing maps.
+
+        Shows only Location Monument and Endline Monument markers so the
+        reader can distinguish monument types on the map.
+        """
+        legend_item = None
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemLegend):
+                legend_item = item
+                break
+
+        if not legend_item:
+            return
+
+        # Link to the map item
+        map_item = self._find_map_item(layout)
+        if map_item:
+            legend_item.setLinkedMap(map_item)
+
+        # Only include monument layers
+        legend_names = {'Monuments', 'Endline Monuments'}
+        legend_model = legend_item.model()
+        root_group = legend_model.rootGroup()
+        root_group.removeAllChildren()
+
+        for layer in map_layers:
+            if layer.name() in legend_names:
+                root_group.addLayer(layer)
+
+        legend_item.setAutoUpdateModel(False)
+        legend_item.setTitle('')
+        legend_item.adjustBoxSize()
+
+    def _move_scalebar_into_titleblock(self, layout: QgsPrintLayout):
+        """Move the main scale bar and scale text label down into the title
+        block area so they don't overlap the map content.
+
+        The template has the main scale bar at y≈225mm (bottom of map area).
+        This shifts it down to sit inside the title block band.
+        """
+        # Title block starts at roughly y=238mm in the AZ template
+        target_scalebar_y = 244.0  # mm — inside title block
+        target_scaletext_y = 248.0
+
+        for item in layout.items():
+            if isinstance(item, QgsLayoutItemScaleBar):
+                pos = item.pagePos()
+                size = item.sizeWithUnits()
+                # Only move the large main scale bar (width > 100mm)
+                if size.width() > 100:
+                    item.attemptMove(
+                        QgsLayoutPoint(pos.x(), target_scalebar_y,
+                                       QgsUnitTypes.LayoutMillimeters)
+                    )
+            elif isinstance(item, QgsLayoutItemLabel):
+                text = item.text().strip()
+                if text.startswith('scale 1"'):
+                    pos = item.pagePos()
+                    item.attemptMove(
+                        QgsLayoutPoint(pos.x(), target_scaletext_y,
+                                       QgsUnitTypes.LayoutMillimeters)
+                    )
 
     # =========================================================================
     # MAP ITEM CONFIGURATION

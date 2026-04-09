@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.12.0
+version=2.13.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,18 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.13.0 - Unified claims loader and AZ filing map polish
+        - Claims loader now handles both old QClaims and new geodb-plugin GeoPackage formats
+        - Single "Load Claims & Generate Maps" button loads either format without re-running the wizard
+        - Extract format differences into ClaimsFormat spec so one loader class handles both
+        - Build corners from claim polygon vertices (authoritative geometry) instead of corner_points table
+        - New format reads reference points from claims_metadata JSON; legacy reads from References table
+        - AZ generic Filing Map now reuses the polished AZ state filing map pipeline (same template and output)
+        - AZ filing maps use claims-only extent; tie to survey monument conveyed via reference text
+        - Add monument-only legend (Location + Endline Monuments) to AZ filing maps
+        - Auto-fit variable-length text labels (bearings, monument, reference) so they wrap within the page
+        - Scale-bar segment size now adapts to map scale so small claim groups get appropriate 50-250 ft segments
+        - Move main scale bar and scale text into the title block so they don't overlap map content
     2.12.0 - Map capture Web Mercator re-render and claims UI streamlining
         - Re-render map captures in EPSG:3857 for better alignment on mobile basemaps
         - Send pixel_width and pixel_height with map capture uploads for server-side georeferencing

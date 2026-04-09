@@ -288,13 +288,14 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         layout.addLayout(btn_layout)
 
-        # Separator + Legacy claims button on its own line
+        # Separator + Load & Generate Maps button on its own line
         legacy_layout = QHBoxLayout()
-        self.legacy_btn = QPushButton("Load Legacy Claims && Generate Maps...")
+        self.legacy_btn = QPushButton("Load Claims && Generate Maps...")
         self.legacy_btn.setStyleSheet(self._get_secondary_button_style())
         self.legacy_btn.setToolTip(
-            "Load a GeoPackage from the old QClaims plugin and generate\n"
-            "field maps, filing maps, and state filing maps in one step."
+            "Load a claims GeoPackage (old QClaims or current plugin format)\n"
+            "and generate field maps, filing maps, and state filing maps\n"
+            "in one step — without re-running the wizard."
         )
         self.legacy_btn.clicked.connect(self._load_legacy_claims)
         legacy_layout.addWidget(self.legacy_btn)
@@ -884,11 +885,11 @@ class ClaimsStep1Widget(ClaimsStepBase):
             self._load_geopackage(path)
 
     def _load_legacy_claims(self):
-        """Load an old QClaims GeoPackage and generate all maps in one step."""
+        """Load a claims GeoPackage (old or new format) and generate maps."""
         default_dir = str(Path.home() / "Documents")
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Legacy QClaims GeoPackage",
+            "Select Claims GeoPackage",
             default_dir,
             "GeoPackage Files (*.gpkg);;All Files (*)"
         )
@@ -896,23 +897,23 @@ class ClaimsStep1Widget(ClaimsStepBase):
             return
 
         from ...processors.legacy_claims_loader import (
-            is_legacy_qclaims_geopackage, LegacyClaimsLoader
+            is_any_claims_geopackage, ClaimsLoader
         )
 
-        if not is_legacy_qclaims_geopackage(path):
+        if not is_any_claims_geopackage(path):
             QMessageBox.warning(
                 self,
-                "Not a Legacy GeoPackage",
-                "This file does not appear to be an old QClaims GeoPackage.\n\n"
-                "Legacy GeoPackages have a 'qclaims_metadata' table. "
-                "Use 'Browse Local...' for new-format GeoPackages."
+                "Not a Claims GeoPackage",
+                "This file does not appear to be a claims GeoPackage.\n\n"
+                "Expected a 'qclaims_metadata' table (old QClaims format) "
+                "or a 'claims_metadata' table (current plugin format)."
             )
             return
 
-        self.emit_status("Loading legacy claims...", "info")
+        self.emit_status("Loading claims...", "info")
 
         try:
-            loader = LegacyClaimsLoader(path)
+            loader = ClaimsLoader(path)
             results = loader.load_and_generate_maps()
 
             # Update path display
@@ -930,7 +931,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             QMessageBox.information(
                 self,
                 "Maps Generated",
-                f"Successfully loaded legacy claims and generated {len(map_names)} map layout(s):\n\n"
+                f"Successfully loaded claims and generated {len(map_names)} map layout(s):\n\n"
                 + '\n'.join(f"  - {name}" for name in map_names)
                 + "\n\nOpen the Print Layout manager (Project > Layouts) to view and export them."
             )
@@ -938,13 +939,13 @@ class ClaimsStep1Widget(ClaimsStepBase):
             QMessageBox.critical(
                 self,
                 "Error",
-                f"Failed to load legacy claims:\n\n{e}"
+                f"Failed to load claims:\n\n{e}"
             )
             import traceback
             traceback.print_exc()
 
     def _zoom_to_loaded_layers(self, loader):
-        """Zoom map canvas to the extent of layers loaded by legacy loader."""
+        """Zoom map canvas to the extent of layers loaded by a claims loader."""
         try:
             from qgis.utils import iface
             if not iface or not iface.mapCanvas():
