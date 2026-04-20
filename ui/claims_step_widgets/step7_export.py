@@ -211,6 +211,16 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         return group
 
+    # Value / label pairs for the map-orientation dropdown (kept in sync
+    # with ClaimsWizardState.map_orientation). "auto" picks orientation
+    # from the extent aspect ratio; "both" generates two layouts.
+    MAP_ORIENTATION_CHOICES = [
+        ('auto', 'Auto (by extent)'),
+        ('portrait', 'Portrait'),
+        ('landscape', 'Landscape'),
+        ('both', 'Both (generate each)'),
+    ]
+
     def _create_maps_group(self) -> QGroupBox:
         """Create the Generate Maps group."""
         group = QGroupBox("Generate Maps")
@@ -226,6 +236,38 @@ class ClaimsStep7Widget(ClaimsStepBase):
         info_label.setWordWrap(True)
         info_label.setStyleSheet(self._get_info_label_style())
         layout.addWidget(info_label)
+
+        # Orientation picker (Field Map + generic Filing Map only — state
+        # filing maps use fixed jurisdiction-specific templates).
+        orient_row = QHBoxLayout()
+        orient_row.setSpacing(8)
+
+        orient_label = QLabel("Page orientation:")
+        orient_label.setStyleSheet(self._get_info_label_style())
+        orient_row.addWidget(orient_label)
+
+        self.orientation_combo = QComboBox()
+        for value, display in self.MAP_ORIENTATION_CHOICES:
+            self.orientation_combo.addItem(display, value)
+        # Preselect from current state
+        current = getattr(self.state, 'map_orientation', 'auto') or 'auto'
+        idx = next(
+            (i for i, (v, _) in enumerate(self.MAP_ORIENTATION_CHOICES) if v == current),
+            0
+        )
+        self.orientation_combo.setCurrentIndex(idx)
+        self.orientation_combo.setToolTip(
+            "Portrait/landscape choice applies to the Field Map and generic "
+            "Filing Map. 'Auto' picks by extent aspect ratio (including the "
+            "reference point, when present). 'Both' creates two layouts.\n\n"
+            "State filing maps (AZ, NV) use fixed templates."
+        )
+        self.orientation_combo.currentIndexChanged.connect(
+            self._on_orientation_changed
+        )
+        orient_row.addWidget(self.orientation_combo, stretch=1)
+
+        layout.addLayout(orient_row)
 
         # Progress bar (hidden until generating)
         self.maps_progress = QProgressBar()
@@ -609,6 +651,17 @@ class ClaimsStep7Widget(ClaimsStepBase):
     # Map Generation
     # =========================================================================
 
+    def _on_orientation_changed(self, index: int):
+        """Persist the chosen orientation to state on every selection change."""
+        if index < 0:
+            return
+        value = self.orientation_combo.itemData(index)
+        if isinstance(value, str):
+            self.state.map_orientation = value
+            self.logger.debug(
+                f"[CLAIMS] Map orientation set to '{value}'"
+            )
+
     def _generate_maps(self):
         """Generate all applicable print layout maps."""
         if not self.state.processed_claims:
@@ -618,6 +671,12 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 "Complete Step 6 first."
             )
             return
+
+        # Mirror the dropdown into state in case the change signal didn't
+        # fire (e.g. programmatic updates).
+        orientation_value = self.orientation_combo.currentData()
+        if isinstance(orientation_value, str):
+            self.state.map_orientation = orientation_value
 
         self.generate_maps_btn.setEnabled(False)
         self.generate_maps_btn.setText("Generating...")

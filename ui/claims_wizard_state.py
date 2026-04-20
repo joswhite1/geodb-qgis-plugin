@@ -65,6 +65,14 @@ class ClaimsWizardState:
     monument_inset_ft: float = 25.0  # Default 25 feet from centerline
     lm_corner: int = 1  # Default Corner 1 for LM designation (ID/NM)
 
+    # Step 7: Map output options
+    # Controls page orientation for field and generic filing maps.
+    # Values: "auto" (aspect-ratio heuristic), "portrait", "landscape", "both".
+    # "both" generates two layouts per map (portrait + landscape).
+    # State filing maps (AZ/NV) use fixed, jurisdiction-specific templates
+    # and ignore this preference for compliance reasons.
+    map_orientation: str = "auto"
+
     # Step 5: Processing Results
     processed_claims: List[Dict[str, Any]] = field(default_factory=list)
     processed_waypoints: List[Dict[str, Any]] = field(default_factory=list)
@@ -269,6 +277,7 @@ class ClaimsWizardState:
                 'monument_inset_ft': str(self.monument_inset_ft),
                 'lm_corner': str(self.lm_corner),
                 'reference_points': json.dumps(self.reference_points),
+                'map_orientation': self.map_orientation,
                 'completed_steps': json.dumps(self.completed_steps),
                 'claim_package_id': str(self.claim_package_id) if self.claim_package_id else '',
                 'claims_pushed': '1' if self.claims_pushed else '',
@@ -413,6 +422,11 @@ class ClaimsWizardState:
             ref_points_json = metadata.get('reference_points', '[]')
             self.reference_points = json.loads(ref_points_json)
 
+            orientation_value = metadata.get('map_orientation', 'auto') or 'auto'
+            if orientation_value not in ('auto', 'portrait', 'landscape', 'both'):
+                orientation_value = 'auto'
+            self.map_orientation = orientation_value
+
             completed_json = metadata.get('completed_steps', '[]')
             self.completed_steps = json.loads(completed_json)
 
@@ -480,6 +494,7 @@ class ClaimsWizardState:
         self.grid_cols = 4
         self.grid_azimuth = 0.0
         self.reference_points = []
+        self.map_orientation = "auto"
         self.monument_inset_ft = 25.0
         self.lm_corner = 1
         self.processed_claims = []

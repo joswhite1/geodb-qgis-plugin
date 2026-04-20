@@ -140,17 +140,43 @@ class ClaimsMapGenerator:
             layers['claims'], include_reference=True
         )
 
-        # 1. Field Map (auto-detect orientation)
-        results['field_map'] = self._create_field_map(layers, field_extent)
+        # 1. Field Map (orientation from state; "auto" uses extent aspect)
+        state_code = self._get_claims_state()
+        field_orientations = self._resolve_orientations(field_extent, state_code)
+        field_map_names = []
+        for orient in field_orientations:
+            field_map_names.append(
+                self._create_field_map(
+                    layers, field_extent,
+                    orientation=orient,
+                    label_orientation=len(field_orientations) > 1,
+                )
+            )
+        # Keep the legacy single-value key for back-compat; expose full list
+        # when multiple orientations were generated.
+        results['field_map'] = field_map_names[0] if field_map_names else ''
+        if len(field_map_names) > 1:
+            results['field_map_all'] = ', '.join(field_map_names)
 
         # 2. Filing Map
         # AZ uses claims-only extent — the tie to the survey monument is
         # communicated via the reference text so the reference point does
         # not need to be visible on the map.  Other states include the
         # reference point so the tie line is drawn.
-        state_code = self._get_claims_state()
         filing_map_extent = field_extent if state_code == 'AZ' else filing_extent
-        results['filing_map'] = self._create_filing_map(layers, filing_map_extent)
+        filing_orientations = self._resolve_orientations(filing_map_extent, state_code)
+        filing_map_names = []
+        for orient in filing_orientations:
+            filing_map_names.append(
+                self._create_filing_map(
+                    layers, filing_map_extent,
+                    orientation=orient,
+                    label_orientation=len(filing_orientations) > 1,
+                )
+            )
+        results['filing_map'] = filing_map_names[0] if filing_map_names else ''
+        if len(filing_map_names) > 1:
+            results['filing_map_all'] = ', '.join(filing_map_names)
 
         # 3. State Filing Map (AZ or NV only)
         if state_code == 'AZ':
@@ -158,37 +184,104 @@ class ClaimsMapGenerator:
                 state_code, layers, field_extent
             )
         elif state_code == 'NV':
-            # NV requires TWO copies; generate both size options
-            # 24"x36" (ARCH D landscape) for mylar prints
+            # NV requires TWO copies. The 24"×36" ARCH D sheet is fixed
+            # landscape (suitable for any claim-block aspect). The 8.5"×14"
+            # legal sheet is generated in BOTH orientations so a user can
+            # pick the one that best fits the claim-block + reference-point
+            # extent (NRS 517.040 does not mandate orientation).
             results['state_filing_map'] = self._create_state_filing_map(
                 state_code, layers, filing_extent
             )
-            # 8.5"x14" (legal) for photocopy-quality filing
             results['state_filing_map_legal'] = self._create_nv_filing_map(
                 layers, filing_extent, template='legal'
             )
+            results['state_filing_map_legal_landscape'] = self._create_nv_filing_map(
+                layers, filing_extent, template='legal_landscape'
+            )
 
         return results
+
+    def _resolve_orientations(
+        self, extent: QgsRectangle, state_code: str
+    ) -> List[str]:
+        """Translate state.map_orientation into concrete orientation(s).
+
+        Returns a list of "portrait" / "landscape" values. State filing
+        maps (AZ, NV) use fixed templates, so this helper is only
+        consulted for the Field Map and generic Filing Map paths. When
+        the generic filing map is rebuilt as an AZ-style map (AZ claims),
+        orientation is moot — that path uses a single layout and honors
+        the selection by returning one entry.
+
+        Args:
+            extent: map extent (used when orientation is "auto")
+            state_code: two-letter state code of the project
+        """
+        choice = (getattr(self.state, 'map_orientation', 'auto') or 'auto').lower()
+
+        # AZ shares a single fixed-template path for both filing-map
+        # variants, so multiple orientations would just create duplicate
+        # layouts. Collapse to a single choice.
+        if state_code == 'AZ':
+            return ['landscape']
+
+        if choice == 'portrait':
+            return ['portrait']
+        if choice == 'landscape':
+            return ['landscape']
+        if choice == 'both':
+            return ['portrait', 'landscape']
+
+        # "auto" (default) — pick from extent aspect ratio.
+        if extent.width() > extent.height():
+            return ['landscape']
+        return ['portrait']
+
+    @staticmethod
+    def _resolve_concrete_orientation(
+        orientation: Optional[str], extent: QgsRectangle
+    ) -> str:
+        """Coerce an orientation argument to 'portrait' or 'landscape'.
+
+        None / unknown → extent-aspect heuristic (legacy behavior).
+        """
+        if orientation in ('portrait', 'landscape'):
+            return orientation
+        return 'landscape' if extent.width() > extent.height() else 'portrait'
 
     # =========================================================================
     # MAP CREATION
     # =========================================================================
 
     def _create_field_map(
-        self, layers: Dict[str, Optional[QgsMapLayer]], extent: QgsRectangle
+        self,
+        layers: Dict[str, Optional[QgsMapLayer]],
+        extent: QgsRectangle,
+        orientation: Optional[str] = None,
+        label_orientation: bool = False,
     ) -> str:
-        """Create a field map with waypoints, claims, topo."""
+        """Create a field map with waypoints, claims, topo.
+
+        Args:
+            orientation: "portrait" or "landscape". If None, falls back to
+                an extent-aspect heuristic (legacy behavior).
+            label_orientation: when True, the orientation is appended to the
+                layout name (e.g. "… Field Map (Landscape)"). Used when
+                multiple orientations are generated in one run to keep
+                layout names unique and user-legible.
+        """
         prefix = self.state.grid_name_prefix or "Claims"
 
-        # Auto-detect orientation: landscape if wider than tall
-        if extent.width() > extent.height():
-            template_file = 'field_map_landscape.qpt'
-        else:
-            template_file = 'field_map_portrait.qpt'
-
-        layout_name = self._get_unique_layout_name(
-            f"{prefix} Lode Claims - Field Map"
+        orientation = self._resolve_concrete_orientation(orientation, extent)
+        template_file = (
+            'field_map_landscape.qpt' if orientation == 'landscape'
+            else 'field_map_portrait.qpt'
         )
+
+        base_name = f"{prefix} Lode Claims - Field Map"
+        if label_orientation:
+            base_name = f"{base_name} ({orientation.capitalize()})"
+        layout_name = self._get_unique_layout_name(base_name)
         layout = self._load_template(template_file, layout_name)
 
         # Build layer list: field map shows everything including waypoints
@@ -231,7 +324,11 @@ class ClaimsMapGenerator:
         return layout_name
 
     def _create_filing_map(
-        self, layers: Dict[str, Optional[QgsMapLayer]], extent: QgsRectangle
+        self,
+        layers: Dict[str, Optional[QgsMapLayer]],
+        extent: QgsRectangle,
+        orientation: Optional[str] = None,
+        label_orientation: bool = False,
     ) -> str:
         """Create the generic filing map.
 
@@ -239,9 +336,11 @@ class ClaimsMapGenerator:
         template and build pipeline — the "Filing Map" and "AZ Filing Map"
         end up as the same high-quality output (just with different layout
         titles) so users don't have to choose between two presentations.
+        Orientation is ignored in that branch.
 
-        For other states, falls back to the legacy landscape/portrait
-        template approach.
+        For other states, the landscape/portrait template is selected from
+        the explicit ``orientation`` argument (from state.map_orientation)
+        or, when None, an extent-aspect heuristic.
         """
         state_code = self._get_claims_state()
 
@@ -254,14 +353,16 @@ class ClaimsMapGenerator:
         # Generic fallback for non-AZ states
         prefix = self.state.grid_name_prefix or "Claims"
 
-        if extent.width() > extent.height():
-            template_file = 'filing_map_landscape.qpt'
-        else:
-            template_file = 'filing_map_portrait.qpt'
-
-        layout_name = self._get_unique_layout_name(
-            f"{prefix} Lode Claims - Filing Map"
+        orientation = self._resolve_concrete_orientation(orientation, extent)
+        template_file = (
+            'filing_map_landscape.qpt' if orientation == 'landscape'
+            else 'filing_map_portrait.qpt'
         )
+
+        base_name = f"{prefix} Lode Claims - Filing Map"
+        if label_orientation:
+            base_name = f"{base_name} ({orientation.capitalize()})"
+        layout_name = self._get_unique_layout_name(base_name)
         layout = self._load_template(template_file, layout_name)
 
         map_layers = self._build_layer_list(
@@ -448,7 +549,10 @@ class ClaimsMapGenerator:
 
         NV requirements (NRS 517.040):
         - Scale >= 500 ft/inch (~1:6,000)
-        - Size 8.5"x14" or 24"x36" landscape (ARCH D)
+        - Size 8.5"x14" or 24"x36" (ARCH D)
+          (NRS does not mandate orientation for the legal sheet; we ship
+          both portrait and landscape variants so users can pick whichever
+          fits the claim-block + reference-point extent.)
         - Monument positions/numbers
         - Courses/distances to public land survey corner
         - Township/range, quarter section/section
@@ -457,17 +561,25 @@ class ClaimsMapGenerator:
         every corner on the main map (all claims have the same layout).
 
         Args:
-            template: 'large' for 36"x24" ARCH D, 'legal' for 8.5"x14"
+            template: one of
+                'large' — 36"x24" ARCH D, landscape (nv_state_filing_map.qpt)
+                'legal' — 8.5"x14" portrait (nv_state_filing_map_legal.qpt)
+                'legal_landscape' — 14"x8.5" landscape
+                    (nv_state_filing_map_legal_landscape.qpt)
         """
         prefix = self.state.grid_name_prefix or "Claims"
-        size_label = "Legal" if template == 'legal' else "36x24"
+        if template == 'legal':
+            size_label = "Legal"
+            template_file = 'nv_state_filing_map_legal.qpt'
+        elif template == 'legal_landscape':
+            size_label = "Legal Landscape"
+            template_file = 'nv_state_filing_map_legal_landscape.qpt'
+        else:
+            size_label = "36x24"
+            template_file = 'nv_state_filing_map.qpt'
+
         layout_name = self._get_unique_layout_name(
             f"{prefix} Lode Claims - NV Filing Map ({size_label})"
-        )
-
-        template_file = (
-            'nv_state_filing_map_legal.qpt' if template == 'legal'
-            else 'nv_state_filing_map.qpt'
         )
         layout = self._load_template(template_file, layout_name)
 
@@ -2342,11 +2454,26 @@ class ClaimsMapGenerator:
 
     def _create_reference_point_layer(self) -> Optional[QgsVectorLayer]:
         """
-        Create a memory point layer with the reference/survey monument
-        point, styled with a distinctive symbol and labeled.
+        Resolve the reference/survey monument layer for map rendering.
+
+        Prefers a persistent GeoPackage-backed layer that is already part
+        of the QGIS project (added by Step 3's reference map tool or by
+        `_load_layers` on project revisit). Falls back to a styled memory
+        layer when no persistent layer is available (e.g. GeoPackages
+        written before this path was persisted, or callers without a
+        GeoPackage).
+
+        The persistent layer is what makes the reference point survive a
+        toggle of "Lock Styles For Layers" in the layout composer — the
+        layer lives in the project tree, not only on the print template.
         """
         if not self.state.reference_points:
             return None
+
+        # Prefer an already-persistent Reference Points layer.
+        persistent = self._find_persistent_reference_point_layer()
+        if persistent is not None:
+            return persistent
 
         ref = self.state.reference_points[0]
         ref_easting = ref.get('easting', 0)
@@ -2371,7 +2498,72 @@ class ClaimsMapGenerator:
 
         layer.commitChanges()
 
-        # Style: red triangle
+        self._style_reference_point_layer(layer, label_field='label')
+
+        QgsProject.instance().addMapLayer(layer, False)
+        logger.info("[CLAIMS MAP] Created reference point memory layer (no GeoPackage-backed layer available)")
+        return layer
+
+    def _find_persistent_reference_point_layer(self) -> Optional[QgsVectorLayer]:
+        """Locate an existing persistent reference-points layer in the project.
+
+        Checks (in order) project-suffixed then bare variants of the
+        display names used by storage_manager and reference_map_tool:
+        "Reference Points" (plural, new/persistent format) and
+        "Reference Point" (singular) — for back-compat.
+
+        Returns a :class:`QgsVectorLayer` if a non-memory layer with at
+        least one feature is found, else None.
+        """
+        project = QgsProject.instance()
+        prefix = self.state.grid_name_prefix or ""
+        suffix = f" [{prefix} Lode Claims]" if prefix else ""
+
+        candidate_names = []
+        for base in ("Reference Points", "Reference Point", "ref_points"):
+            candidate_names.append(f"{base}{suffix}")
+            candidate_names.append(base)
+
+        for name in candidate_names:
+            for layer in project.mapLayersByName(name):
+                if not isinstance(layer, QgsVectorLayer):
+                    continue
+                # Skip memory layers — those are the ephemeral ones we are
+                # replacing. A GeoPackage-backed layer has an OGR source.
+                if layer.dataProvider() and layer.dataProvider().name() == "memory":
+                    continue
+                if layer.featureCount() == 0:
+                    continue
+                label_field = self._infer_reference_label_field(layer)
+                self._style_reference_point_layer(layer, label_field=label_field)
+                logger.info(
+                    f"[CLAIMS MAP] Using persistent reference point layer: {layer.name()}"
+                )
+                return layer
+
+        return None
+
+    @staticmethod
+    def _infer_reference_label_field(layer: QgsVectorLayer) -> str:
+        """Choose a sensible label field on a reference-points layer.
+
+        storage_manager uses 'name'; the legacy memory layer used 'label'.
+        Fall back to the first string field if neither is present.
+        """
+        fields = layer.fields()
+        names = [f.name() for f in fields]
+        for candidate in ("name", "label", "Name"):
+            if candidate in names:
+                return candidate
+        return names[0] if names else "name"
+
+    def _style_reference_point_layer(
+        self, layer: QgsVectorLayer, label_field: str = "name"
+    ) -> None:
+        """Apply the red-triangle + italic-label style used on filing maps.
+
+        Idempotent: safe to call repeatedly on the same layer.
+        """
         symbol = QgsSymbol.defaultSymbol(layer.geometryType())
         symbol.deleteSymbolLayer(0)
         marker = QgsSimpleMarkerSymbolLayer()
@@ -2384,9 +2576,8 @@ class ClaimsMapGenerator:
         renderer = QgsSingleSymbolRenderer(symbol)
         layer.setRenderer(renderer)
 
-        # Label
         label_settings = QgsPalLayerSettings()
-        label_settings.fieldName = '"label"'
+        label_settings.fieldName = f'"{label_field}"'
         label_settings.isExpression = True
         label_settings.placement = Qgis.LabelPlacement.OverPoint
 
@@ -2406,10 +2597,6 @@ class ClaimsMapGenerator:
         labeling = QgsVectorLayerSimpleLabeling(label_settings)
         layer.setLabeling(labeling)
         layer.setLabelsEnabled(True)
-
-        QgsProject.instance().addMapLayer(layer, False)
-        logger.info("[CLAIMS MAP] Created reference point layer")
-        return layer
 
     def _create_waypoints_corners_only(
         self, source_layer: Optional[QgsVectorLayer]
@@ -2484,13 +2671,23 @@ class ClaimsMapGenerator:
             return None
 
     def _cleanup_annotation_layers(self):
-        """Remove temporary annotation layers from the project."""
+        """Remove temporary annotation layers from the project.
+
+        Only removes memory-backed layers — persistent GeoPackage-backed
+        layers (e.g. a "Reference Points" layer that was saved by Step 3
+        or loaded on revisit) are left alone so they survive across map
+        regenerations. "Reference Point" (singular) here is the legacy
+        memory-only name; persistent layers are plural "Reference Points".
+        """
         project = QgsProject.instance()
         for name in [
             'Claim Dimensions', 'Reference Tie', 'Corner Labels',
             'Reference Point', 'Waypoints (corners labeled)',
         ]:
             for layer in project.mapLayersByName(name):
+                provider = layer.dataProvider()
+                if provider is not None and provider.name() != "memory":
+                    continue
                 project.removeMapLayer(layer.id())
 
     # =========================================================================

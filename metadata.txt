@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.13.0
+version=2.14.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,19 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.14.0 - Persistent reference points, map-orientation control, NV legal landscape
+        - Reference Points layer is now loaded into the Claims Workflow group on project revisit,
+          so it remains visible when "Lock Styles For Layers" is toggled in the layout composer
+        - Reference Points persist as a real GeoPackage-backed layer (not an ephemeral memory layer),
+          so their symbology survives across map regenerations
+        - Add Page Orientation dropdown on Step 7: Auto (default), Portrait, Landscape, or Both
+        - Field Map and generic Filing Map honor the orientation choice; "Both" generates two layouts
+          with "(Portrait)"/"(Landscape)" suffixes so users can pick whichever fits the claim-block
+          plus reference-point extent
+        - NV state filing map now ships the 8.5"x14" legal sheet in BOTH portrait and landscape
+          orientations alongside the 36"x24" ARCH D sheet (NRS 517.040 does not mandate legal orientation)
+        - New template: nv_state_filing_map_legal_landscape.qpt (14"x8.5" with vertical title block)
+        - AZ state filing map continues to use its fixed template (unchanged)
     2.13.0 - Unified claims loader and AZ filing map polish
         - Claims loader now handles both old QClaims and new geodb-plugin GeoPackage formats
         - Single "Load Claims & Generate Maps" button loads either format without re-running the wizard

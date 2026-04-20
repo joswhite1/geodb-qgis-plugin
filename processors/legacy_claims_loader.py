@@ -398,6 +398,13 @@ class ClaimsLoader:
         else:
             self._load_waypoints_layer_direct(group)
 
+        # Reference points: load the persistent OGR layer so the ref point
+        # survives in the Layers panel and on the print template after a
+        # "Lock Styles For Layers" toggle. Always attempted regardless of
+        # whether any reference points were entered — the table may be
+        # empty on older GeoPackages, in which case this is a no-op.
+        self._load_reference_points_layer(group)
+
     def _load_waypoints_layer_direct(self, group):
         """Load the waypoints table directly (new format).
 
@@ -488,6 +495,36 @@ class ClaimsLoader:
             f"{len(features)} waypoints"
         )
 
+    def _load_reference_points_layer(self, group):
+        """Load the persistent reference points layer from the GeoPackage.
+
+        New format: ``reference_points`` OGR table. Legacy QClaims: the
+        ``References`` OGR table. In both cases the geometry is a Point
+        layer — we add it to the Claims Workflow group and style it so it
+        matches the symbology used on generated filing maps.
+        """
+        if self.fmt.references_mode == 'metadata_json':
+            table_name = 'reference_points'
+        else:
+            table_name = self.fmt.references_table
+
+        if not table_name:
+            return
+
+        source_uri = f"{self.gpkg_path}|layername={table_name}"
+        layer = QgsVectorLayer(source_uri, "Reference Points", "ogr")
+        if not layer.isValid() or layer.featureCount() == 0:
+            # Quietly skip — legitimate case when no ref points were
+            # entered, or an older GeoPackage predates the table.
+            return
+
+        QgsProject.instance().addMapLayer(layer, False)
+        group.insertLayer(0, layer)
+        self._loaded_layers["Reference Points"] = layer
+        logger.info(
+            f"[{self.fmt.name}] Loaded Reference Points ({layer.featureCount()} features)"
+        )
+
     # =========================================================================
     # STYLING
     # =========================================================================
@@ -502,6 +539,7 @@ class ClaimsLoader:
             'Monuments': self._style_monuments,
             'Endline Monuments': self._style_endline_monuments,
             'Claims Waypoints': self._style_waypoints,
+            'Reference Points': self._style_reference_points,
         }
         for name, style_fn in style_map.items():
             layer = self._loaded_layers.get(name)
@@ -626,6 +664,56 @@ class ClaimsLoader:
         marker.setStrokeColor(QColor(29, 78, 216))
         symbol.changeSymbolLayer(0, marker)
         layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        layer.triggerRepaint()
+
+    def _style_reference_points(self, layer: QgsVectorLayer):
+        """Red triangle + italic red label, matching filing-map symbology.
+
+        Legacy GeoPackages store the label in 'Description' (References
+        table); the new format uses 'name'. Fall back to the first string
+        field if neither is present.
+        """
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        marker = QgsSimpleMarkerSymbolLayer()
+        marker.setShape(QgsSimpleMarkerSymbolLayer.Triangle)
+        marker.setSize(3.5)
+        marker.setColor(QColor(204, 0, 0))
+        marker.setStrokeColor(QColor(0, 0, 0))
+        marker.setStrokeWidth(0.4)
+        symbol.changeSymbolLayer(0, marker)
+        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+
+        field_names = [f.name() for f in layer.fields()]
+        label_field = None
+        for candidate in ('name', 'Description', 'label', 'Name'):
+            if candidate in field_names:
+                label_field = candidate
+                break
+        if label_field is None and field_names:
+            label_field = field_names[0]
+
+        if label_field:
+            label_settings = QgsPalLayerSettings()
+            label_settings.fieldName = label_field
+            label_settings.enabled = True
+            label_settings.placement = Qgis.LabelPlacement.OverPoint
+
+            text_format = QgsTextFormat()
+            italic_font = QFont("Arial", 7)
+            italic_font.setItalic(True)
+            text_format.setFont(italic_font)
+            text_format.setColor(QColor(204, 0, 0))
+
+            buf = QgsTextBufferSettings()
+            buf.setEnabled(True)
+            buf.setSize(1.5)
+            buf.setColor(QColor(255, 255, 255))
+            text_format.setBuffer(buf)
+
+            label_settings.setFormat(text_format)
+            layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
+            layer.setLabelsEnabled(True)
+
         layer.triggerRepaint()
 
     def _style_waypoints(self, layer: QgsVectorLayer):
