@@ -12,9 +12,10 @@ Map types:
 - State Filing Map (AZ/NV): State-specific requirements (scale, bearings, etc.)
 """
 import math
+import os
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Callable, Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from qgis.core import (
     Qgis,
@@ -34,6 +35,8 @@ from qgis.core import (
     QgsRectangle,
     QgsCoordinateReferenceSystem,
     QgsFeature,
+    QgsField,
+    QgsFields,
     QgsGeometry,
     QgsPointXY,
     QgsSymbol,
@@ -53,8 +56,11 @@ from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtXml import QDomDocument
 
+from ..utils.compat import FieldType_QString, FieldType_Double, FieldType_Int
+
 if TYPE_CHECKING:
     from ..ui.claims_wizard_state import ClaimsWizardState
+    from ..managers.claims_storage_manager import ClaimsStorageManager
 
 logger = logging.getLogger('geodb')
 
@@ -2181,6 +2187,127 @@ class ClaimsMapGenerator:
     # MAP ANNOTATION LAYERS
     # =========================================================================
 
+    def _get_claims_storage(self) -> Optional["ClaimsStorageManager"]:
+        """Return a storage manager bound to the project's GeoPackage, or None.
+
+        None when the project has no configured GeoPackage path (ad-hoc
+        flows, tests) or the file has been moved/deleted. Callers fall
+        back to memory-layer behaviour in that case.
+        """
+        gpkg = getattr(self.state, 'geopackage_path', None)
+        if not gpkg or not os.path.exists(gpkg):
+            return None
+        try:
+            from ..managers.claims_storage_manager import ClaimsStorageManager
+            mgr = ClaimsStorageManager()
+            mgr.set_current_geopackage(gpkg)
+            group_name = getattr(self.state, 'claims_group_name', None)
+            if group_name:
+                mgr.set_claims_group_name(group_name)
+            return mgr
+        except Exception as e:
+            logger.warning(f"[CLAIMS MAP] Could not open claims storage: {e}")
+            return None
+
+    def _build_or_load_annotation_layer(
+        self,
+        *,
+        table_name: str,
+        display_name: str,
+        geometry_type: str,
+        field_defs: List[Tuple[str, Any]],
+        features_builder: Callable[[QgsFields], List[QgsFeature]],
+    ) -> Optional[QgsVectorLayer]:
+        """Create + populate an annotation layer, preferring the project GeoPackage.
+
+        When the project has a writable GeoPackage, the layer is created
+        in it as a real OGR table via ClaimsStorageManager and registered
+        to the Claims Workflow group. It appears in the Layers panel and
+        survives a "Lock Styles For Layers" toggle in the print-layout
+        composer — the original bug.
+
+        Falls back to a memory layer added outside the layer tree (legacy
+        behaviour) when no GeoPackage is available or the write fails.
+        """
+        epsg = self.state.project_epsg or 4326
+        crs = QgsCoordinateReferenceSystem(f"EPSG:{epsg}")
+
+        qfields = QgsFields()
+        for field_name, field_type in field_defs:
+            qfields.append(QgsField(field_name, field_type))
+
+        storage = self._get_claims_storage()
+        if storage is not None:
+            try:
+                layer = storage.create_or_update_layer(
+                    table_name=table_name,
+                    layer_display_name=display_name,
+                    geometry_type=geometry_type,
+                    fields=qfields,
+                    crs=crs,
+                    add_to_project=True,
+                )
+                if layer and layer.isValid():
+                    features = features_builder(layer.fields())
+                    if features:
+                        ok, _ = layer.dataProvider().addFeatures(features)
+                        if not ok:
+                            logger.warning(
+                                f"[CLAIMS MAP] addFeatures failed on persistent "
+                                f"'{display_name}': "
+                                f"{layer.dataProvider().error().message()}"
+                            )
+                    layer.updateExtents()
+                    return layer
+            except Exception as e:
+                logger.warning(
+                    f"[CLAIMS MAP] Could not persist '{display_name}' to "
+                    f"GeoPackage ({e}); falling back to memory layer."
+                )
+
+        # Memory fallback.
+        mem_layer = QgsVectorLayer(
+            f"{geometry_type}?crs={crs.authid()}", display_name, "memory"
+        )
+        if not mem_layer.isValid():
+            return None
+        mem_layer.dataProvider().addAttributes(qfields.toList())
+        mem_layer.updateFields()
+        features = features_builder(mem_layer.fields())
+        if features:
+            mem_layer.dataProvider().addFeatures(features)
+            mem_layer.updateExtents()
+        QgsProject.instance().addMapLayer(mem_layer, False)
+        return mem_layer
+
+    def _register_annotation_layer(self, layer: QgsVectorLayer):
+        """Add a GeoPackage-backed layer to the project + Claims Workflow group.
+
+        Idempotent — if the layer is already registered or in the group,
+        does nothing. Used by the reference-point persistence path where
+        ``ClaimsStorageManager.get_reference_points_layer`` returns the
+        OGR layer but does not install it in the layer tree itself.
+        """
+        project = QgsProject.instance()
+        if project.mapLayer(layer.id()) is None:
+            project.addMapLayer(layer, False)
+
+        try:
+            from ..utils.layer_utils import get_or_create_claims_group
+            group_name = getattr(self.state, 'claims_group_name', None)
+            group = get_or_create_claims_group(group_name)
+            already_in_group = any(
+                hasattr(c, 'layerId') and c.layerId() == layer.id()
+                for c in group.children()
+            )
+            if not already_in_group:
+                group.addLayer(layer)
+        except Exception as e:
+            logger.warning(
+                f"[CLAIMS MAP] Could not add '{layer.name()}' to Claims "
+                f"Workflow group ({e}); layer remains in project root."
+            )
+
     def _create_dimension_layer(self) -> Optional[QgsVectorLayer]:
         """
         Create a memory layer with line segments along each claim edge,
@@ -2274,11 +2401,16 @@ class ClaimsMapGenerator:
 
     def _create_reference_tie_layer(self) -> Optional[QgsVectorLayer]:
         """
-        Create a memory layer with a dashed line from the reference point
+        Create a line layer with a dashed tie line from the reference point
         to Corner No. 1 of the first claim, labeled with bearing and distance.
 
         This is the standard "tie line" shown on mining claim filing maps
         connecting the claim to a known survey monument.
+
+        Persisted to the project GeoPackage when one is configured so that
+        the line + label survive a "Lock Styles For Layers" toggle in the
+        print layout composer (memory layers not in the project tree vanish
+        on unlock). Falls back to a memory layer otherwise.
         """
         if not self.state.reference_points or not self.state.processed_claims:
             return None
@@ -2302,29 +2434,43 @@ class ClaimsMapGenerator:
         bearing = self._calc_bearing(ref_easting, ref_northing, corner_e, corner_n)
         dist_ft = self._calc_distance_ft(ref_easting, ref_northing, corner_e, corner_n)
         surveyors = self._bearing_to_surveyors(bearing)
+        label = f"{surveyors}  {dist_ft:,.2f}'"
 
-        epsg = self.state.project_epsg or 4326
-        uri = f"LineString?crs=EPSG:{epsg}&field=label:string&field=distance_ft:double&field=bearing:string"
-        layer = QgsVectorLayer(uri, "Reference Tie", "memory")
-        if not layer.isValid():
+        def build_features(fields: QgsFields) -> List[QgsFeature]:
+            feat = QgsFeature(fields)
+            feat.setGeometry(QgsGeometry.fromPolylineXY([
+                QgsPointXY(ref_easting, ref_northing),
+                QgsPointXY(corner_e, corner_n),
+            ]))
+            feat.setAttribute('label', label)
+            feat.setAttribute('distance_ft', round(dist_ft, 2))
+            feat.setAttribute('bearing', surveyors)
+            return [feat]
+
+        from ..managers.claims_storage_manager import ClaimsStorageManager
+        layer = self._build_or_load_annotation_layer(
+            table_name=ClaimsStorageManager.REFERENCE_TIE_TABLE,
+            display_name="Reference Tie",
+            geometry_type='LineString',
+            field_defs=[
+                ('label', FieldType_QString),
+                ('distance_ft', FieldType_Double),
+                ('bearing', FieldType_QString),
+            ],
+            features_builder=build_features,
+        )
+        if layer is None:
             return None
 
-        layer.startEditing()
+        self._style_reference_tie_layer(layer)
+        logger.info(
+            f"[CLAIMS MAP] Reference tie layer: {surveyors}, {dist_ft:,.2f}'"
+        )
+        return layer
 
-        feat = QgsFeature(layer.fields())
-        feat.setGeometry(QgsGeometry.fromPolylineXY([
-            QgsPointXY(ref_easting, ref_northing),
-            QgsPointXY(corner_e, corner_n),
-        ]))
-        label = f"{surveyors}  {dist_ft:,.2f}'"
-        feat.setAttribute('label', label)
-        feat.setAttribute('distance_ft', round(dist_ft, 2))
-        feat.setAttribute('bearing', surveyors)
-        layer.addFeature(feat)
-
-        layer.commitChanges()
-
-        # Style: dashed red line
+    @staticmethod
+    def _style_reference_tie_layer(layer: QgsVectorLayer):
+        """Apply the dashed-red-line + italic-label style to a tie-line layer."""
         symbol = QgsSymbol.defaultSymbol(layer.geometryType())
         symbol.deleteSymbolLayer(0)
 
@@ -2334,10 +2480,8 @@ class ClaimsMapGenerator:
         line_sym.setPenStyle(Qt.PenStyle.DashLine)
         symbol.appendSymbolLayer(line_sym)
 
-        renderer = QgsSingleSymbolRenderer(symbol)
-        layer.setRenderer(renderer)
+        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
 
-        # Label: centered along the line
         label_settings = QgsPalLayerSettings()
         label_settings.fieldName = '"label"'
         label_settings.isExpression = True
@@ -2357,61 +2501,72 @@ class ClaimsMapGenerator:
         text_format.setBuffer(buffer_settings)
 
         label_settings.setFormat(text_format)
-        labeling = QgsVectorLayerSimpleLabeling(label_settings)
-        layer.setLabeling(labeling)
+        layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
         layer.setLabelsEnabled(True)
-
-        # Don't add to layer tree
-        QgsProject.instance().addMapLayer(layer, False)
-        logger.info(
-            f"[CLAIMS MAP] Created reference tie layer: {surveyors}, {dist_ft:,.2f}'"
-        )
-        return layer
+        layer.triggerRepaint()
 
     def _create_corner_label_layer(self) -> Optional[QgsVectorLayer]:
         """
-        Create a memory point layer with corner labels (C1, C2, C3, C4)
-        for each claim, positioned at each corner.
+        Create a point layer with corner labels (C1, C2, C3, C4) for each
+        claim, positioned at each corner.
 
         Used on filing maps where corner identification is required.
+        Persisted to the project GeoPackage when one is configured so the
+        labels survive a "Lock Styles For Layers" toggle in the composer.
         """
         claims = self.state.processed_claims
         if not claims:
             return None
 
-        epsg = self.state.project_epsg or 4326
-        uri = f"Point?crs=EPSG:{epsg}&field=label:string&field=claim:string&field=corner_num:integer"
-        layer = QgsVectorLayer(uri, "Corner Labels", "memory")
-        if not layer.isValid():
+        def build_features(fields: QgsFields) -> List[QgsFeature]:
+            feats = []
+            for claim in claims:
+                corners = claim.get('corners', [])
+                claim_name = claim.get('name', '')
+                lm_corner = claim.get('lm_corner', 1)
+
+                for corner in corners:
+                    e = corner.get('easting', 0)
+                    n = corner.get('northing', 0)
+                    num = corner.get('corner_number', 0)
+
+                    # Label format: "C1" or "C1 (LM)" for the location monument corner
+                    label = f"C{num}"
+                    if num == lm_corner:
+                        label = f"C{num} (LM)"
+
+                    feat = QgsFeature(fields)
+                    feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(e, n)))
+                    feat.setAttribute('label', label)
+                    feat.setAttribute('claim', claim_name)
+                    feat.setAttribute('corner_num', num)
+                    feats.append(feat)
+            return feats
+
+        from ..managers.claims_storage_manager import ClaimsStorageManager
+        layer = self._build_or_load_annotation_layer(
+            table_name=ClaimsStorageManager.CORNER_LABELS_TABLE,
+            display_name="Corner Labels",
+            geometry_type='Point',
+            field_defs=[
+                ('label', FieldType_QString),
+                ('claim', FieldType_QString),
+                ('corner_num', FieldType_Int),
+            ],
+            features_builder=build_features,
+        )
+        if layer is None:
             return None
 
-        layer.startEditing()
+        self._style_corner_label_layer(layer)
+        logger.info(
+            f"[CLAIMS MAP] Corner label layer: {layer.featureCount()} points"
+        )
+        return layer
 
-        for claim in claims:
-            corners = claim.get('corners', [])
-            claim_name = claim.get('name', '')
-            lm_corner = claim.get('lm_corner', 1)
-
-            for corner in corners:
-                e = corner.get('easting', 0)
-                n = corner.get('northing', 0)
-                num = corner.get('corner_number', 0)
-
-                # Label format: "C1" or "C1 (LM)" for the location monument corner
-                label = f"C{num}"
-                if num == lm_corner:
-                    label = f"C{num} (LM)"
-
-                feat = QgsFeature(layer.fields())
-                feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(e, n)))
-                feat.setAttribute('label', label)
-                feat.setAttribute('claim', claim_name)
-                feat.setAttribute('corner_num', num)
-                layer.addFeature(feat)
-
-        layer.commitChanges()
-
-        # Style: small black circle
+    @staticmethod
+    def _style_corner_label_layer(layer: QgsVectorLayer):
+        """Apply the small-black-dot + bold-label style to a corner-labels layer."""
         symbol = QgsSymbol.defaultSymbol(layer.geometryType())
         symbol.deleteSymbolLayer(0)
         marker = QgsSimpleMarkerSymbolLayer()
@@ -2420,10 +2575,8 @@ class ClaimsMapGenerator:
         marker.setStrokeColor(QColor('#FFFFFF'))
         marker.setStrokeWidth(0.3)
         symbol.appendSymbolLayer(marker)
-        renderer = QgsSingleSymbolRenderer(symbol)
-        layer.setRenderer(renderer)
+        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
 
-        # Label: offset above-right with white buffer
         label_settings = QgsPalLayerSettings()
         label_settings.fieldName = '"label"'
         label_settings.isExpression = True
@@ -2442,39 +2595,121 @@ class ClaimsMapGenerator:
         text_format.setBuffer(buffer_settings)
 
         label_settings.setFormat(text_format)
-        labeling = QgsVectorLayerSimpleLabeling(label_settings)
-        layer.setLabeling(labeling)
+        layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
         layer.setLabelsEnabled(True)
-
-        QgsProject.instance().addMapLayer(layer, False)
-        logger.info(
-            f"[CLAIMS MAP] Created corner label layer with {layer.featureCount()} points"
-        )
-        return layer
+        layer.triggerRepaint()
 
     def _create_reference_point_layer(self) -> Optional[QgsVectorLayer]:
         """
         Resolve the reference/survey monument layer for map rendering.
 
-        Prefers a persistent GeoPackage-backed layer that is already part
-        of the QGIS project (added by Step 3's reference map tool or by
-        `_load_layers` on project revisit). Falls back to a styled memory
-        layer when no persistent layer is available (e.g. GeoPackages
-        written before this path was persisted, or callers without a
-        GeoPackage).
+        Resolution order:
 
-        The persistent layer is what makes the reference point survive a
-        toggle of "Lock Styles For Layers" in the layout composer — the
-        layer lives in the project tree, not only on the print template.
+        1. An already-persistent Reference Points layer in the project
+           (added by Step 3's reference map tool, the legacy loader, or
+           a previous map generation).
+        2. If the project has a GeoPackage, write the state reference
+           points into its ``reference_points`` table and use the new
+           OGR-backed layer. This is what covers legacy GeoPackages and
+           walkthroughs that reach map generation without Step 3 having
+           saved the points itself.
+        3. A styled memory layer as last-resort fallback — only reached
+           when no GeoPackage is configured at all.
+
+        Making the layer persistent is what lets the reference point
+        survive a toggle of "Lock Styles For Layers" in the layout
+        composer: memory layers not in the project tree vanish on unlock.
         """
         if not self.state.reference_points:
             return None
 
-        # Prefer an already-persistent Reference Points layer.
+        # 1. Prefer an already-persistent Reference Points layer.
         persistent = self._find_persistent_reference_point_layer()
         if persistent is not None:
             return persistent
 
+        # 2. Try to write into the project GeoPackage.
+        persistent = self._persist_reference_point_layer()
+        if persistent is not None:
+            return persistent
+
+        # 3. Memory fallback (legacy behaviour when no GeoPackage exists).
+        return self._create_reference_point_memory_layer()
+
+    def _persist_reference_point_layer(self) -> Optional[QgsVectorLayer]:
+        """Write state reference points to the GeoPackage and register the layer.
+
+        Returns None when no GeoPackage is configured, when writing fails,
+        or when state.reference_points is empty. Idempotent: running
+        generate_all_maps repeatedly adds any new points but skips
+        coordinates already present in the table.
+        """
+        storage = self._get_claims_storage()
+        if storage is None:
+            return None
+
+        prefix = self.state.grid_name_prefix or ""
+        display_name = (
+            f"Reference Points [{prefix} Lode Claims]" if prefix
+            else "Reference Points"
+        )
+        epsg = self.state.project_epsg or 4326
+
+        try:
+            ref_layer = storage.get_reference_points_layer(
+                layer_display_name=display_name,
+                epsg=epsg,
+            )
+            if ref_layer is None or not ref_layer.isValid():
+                return None
+
+            # Gather existing coordinates so regeneration doesn't duplicate.
+            existing: set = set()
+            for f in ref_layer.getFeatures():
+                e = f.attribute('easting')
+                n = f.attribute('northing')
+                if e is not None and n is not None:
+                    existing.add((round(float(e), 6), round(float(n), 6)))
+
+            wrote = 0
+            for ref in self.state.reference_points:
+                e = ref.get('easting', 0)
+                n = ref.get('northing', 0)
+                if (not e and not n) or (round(e, 6), round(n, 6)) in existing:
+                    continue
+                storage.save_reference_point(
+                    QgsPointXY(e, n),
+                    ref.get('name', 'Survey Monument'),
+                    epsg,
+                )
+                wrote += 1
+            if wrote:
+                ref_layer.dataProvider().reloadData()
+
+            # Register the layer with the project + Claims Workflow group.
+            self._register_annotation_layer(ref_layer)
+            self._style_reference_point_layer(ref_layer)
+
+            if wrote:
+                logger.info(
+                    f"[CLAIMS MAP] Persisted {wrote} reference point(s) to GeoPackage"
+                )
+            else:
+                logger.info(
+                    "[CLAIMS MAP] Using GeoPackage reference_points table "
+                    "(already populated)"
+                )
+            return ref_layer
+
+        except Exception as e:
+            logger.warning(
+                f"[CLAIMS MAP] Could not persist reference points to "
+                f"GeoPackage ({e}); falling back to memory layer."
+            )
+            return None
+
+    def _create_reference_point_memory_layer(self) -> Optional[QgsVectorLayer]:
+        """Build the legacy memory-layer reference point (no-GeoPackage path)."""
         ref = self.state.reference_points[0]
         ref_easting = ref.get('easting', 0)
         ref_northing = ref.get('northing', 0)
@@ -2501,7 +2736,10 @@ class ClaimsMapGenerator:
         self._style_reference_point_layer(layer, label_field='label')
 
         QgsProject.instance().addMapLayer(layer, False)
-        logger.info("[CLAIMS MAP] Created reference point memory layer (no GeoPackage-backed layer available)")
+        logger.info(
+            "[CLAIMS MAP] Created reference point memory layer "
+            "(no GeoPackage available)"
+        )
         return layer
 
     def _find_persistent_reference_point_layer(self) -> Optional[QgsVectorLayer]:

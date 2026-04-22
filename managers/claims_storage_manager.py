@@ -61,6 +61,13 @@ class ClaimsStorageManager:
     SIDELINE_MONUMENTS_TABLE = 'sideline_monuments'
     ENDLINE_MONUMENTS_TABLE = 'endline_monuments'
 
+    # Filing-map annotation layers (Step 7 - Generate). Persisted so that
+    # the red tie line / corner labels survive a "Lock Styles For Layers"
+    # toggle in the print layout composer, which otherwise hides memory
+    # layers that are not in the project layer tree.
+    REFERENCE_TIE_TABLE = 'reference_tie'
+    CORNER_LABELS_TABLE = 'corner_labels'
+
     # Metadata keys
     KEY_IDENTIFIER = '_qclaims_geopackage'
     KEY_PROJECT_NAME = 'project_name'

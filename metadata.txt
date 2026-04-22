@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.14.0
+version=2.14.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,17 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.14.1 - Persistent filing-map annotations
+        - Red reference tie line + bearing/distance label now persist as a GeoPackage-backed
+          layer so they remain visible when "Lock Styles For Layers" is unchecked in the
+          print layout composer (previously ephemeral memory layer — vanished on unlock)
+        - Corner labels (C1/C2/C3/C4, with LM flag) persist the same way
+        - Reference Point marker: when a map is regenerated and no persistent layer exists
+          yet, the state reference points are written into the GeoPackage reference_points
+          table and loaded as a real layer — covers legacy QClaims GeoPackages and any
+          walkthrough that reaches Step 7 without Step 3 having persisted the points
+        - Works on both entry paths: walkthrough (Step 7 Generate Maps) and legacy loader
+          (one-click "Load Claims & Generate Maps" on older GeoPackages)
     2.14.0 - Persistent reference points, map-orientation control, NV legal landscape
         - Reference Points layer is now loaded into the Claims Workflow group on project revisit,
           so it remains visible when "Lock Styles For Layers" is toggled in the layout composer
