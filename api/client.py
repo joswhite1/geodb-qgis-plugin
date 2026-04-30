@@ -839,7 +839,8 @@ class APIClient:
     def bulk_upsert_records(
         self,
         model_name: str,
-        records: List[Dict[str, Any]]
+        records: List[Dict[str, Any]],
+        cleanup_orphans: bool = False
     ) -> Dict[str, Any]:
         """
         Bulk create or update multiple records in a single request.
@@ -851,6 +852,13 @@ class APIClient:
         Args:
             model_name: Model name (e.g., 'PointSample', 'DrillCollar')
             records: List of record data dicts (each must include natural key fields)
+            cleanup_orphans: For models that support it (currently ClaimStake), opt
+                into post-upsert orphan cleanup. The server hard-deletes any
+                Planned-status records in the same project/package whose natural
+                keys are NOT in this push. Use when the caller is pushing the
+                authoritative full set (e.g. after re-processing claims). Default
+                False — partial pushes (e.g. a field-worker mobile sync) MUST NOT
+                set this, or unrelated PL records get wiped.
 
         Returns:
             Dict with 'results', 'errors', and 'summary' keys:
@@ -865,6 +873,8 @@ class APIClient:
             raise ValueError(f"Unknown model: {model_name}")
 
         url = f"{endpoint}bulk/"
+        if cleanup_orphans:
+            url = f"{url}?cleanup_orphans=true"
         return self._make_request('POST', url, data=records)
 
     def check_conflicts(

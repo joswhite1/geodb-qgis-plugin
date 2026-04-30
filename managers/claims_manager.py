@@ -729,12 +729,15 @@ class ClaimsManager:
             stakes_result = {}
 
             if stake_records:
-                # Push stakes FIRST so they exist when LandHoldings are created
-                # Use bulk upsert endpoint which includes orphan cleanup logic:
+                # Push stakes FIRST so they exist when LandHoldings are created.
+                # cleanup_orphans=True opts into the server's post-upsert cleanup:
                 # when claims are re-processed, sequence numbers may change due to
-                # nearest-neighbor sorting. The server's _bulk_upsert override
-                # detects and removes orphan stakes (Planned status only) that are
-                # no longer in the incoming batch.
+                # nearest-neighbor sorting. The server hard-deletes any Planned
+                # stakes in this project+package whose sequence_number isn't in
+                # this push. ONLY safe here because the QGIS plugin pushes the
+                # full authoritative set after re-processing — a partial push
+                # (e.g. a mobile field-worker sync) would catastrophically wipe
+                # every other PL stake. The server defaults the flag to False.
 
                 # Debug: Log first stake record to verify format
                 if stake_records:
@@ -746,7 +749,8 @@ class ClaimsManager:
 
                 stakes_result = self.api.bulk_upsert_records(
                     'ClaimStake',
-                    stake_records
+                    stake_records,
+                    cleanup_orphans=True
                 )
                 self.logger.info(
                     f"[QCLAIMS] Pushed {len(stake_records)} ClaimStakes via bulk upsert"
