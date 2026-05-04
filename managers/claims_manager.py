@@ -874,6 +874,40 @@ class ClaimsManager:
         )
         return self.api._make_request('GET', url)
 
+    def generate_package_maps(
+        self,
+        claim_package_id: int,
+        regenerate: bool = False,
+    ) -> Dict[str, Any]:
+        """Trigger server-side claim-map rendering for a package.
+
+        Pairs with the local QGIS print-layout generation in step 7 — the
+        plugin produces the editable layouts client-side, then calls this
+        endpoint to also persist polished server-side renders (per-state
+        filing + field + location maps with Vision QC where enabled) as
+        ClaimPackageDocument(document_type='field_map') rows.
+
+        Args:
+            claim_package_id: Server-side ClaimPackage ID
+            regenerate: If True, soft-delete prior auto-generated maps and
+                render fresh. If False (default), server short-circuits with
+                already-generated documents when present.
+
+        Returns:
+            Dict with 'generated' (list of {document_id, title, download_url, ...}),
+            'skipped_already_generated' (bool), and package info.
+        """
+        url = self.config.get_claims_url(
+            f'packages/{claim_package_id}/generate-maps/'
+        )
+        self.logger.info(
+            f"[QCLAIMS] Triggering server-side map generation for "
+            f"ClaimPackage {claim_package_id} (regenerate={regenerate})"
+        )
+        return self.api._make_request(
+            'POST', url, data={'regenerate': bool(regenerate)},
+        )
+
     def _format_landholding(
         self,
         claim: Dict[str, Any],

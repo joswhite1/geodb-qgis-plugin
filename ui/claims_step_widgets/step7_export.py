@@ -683,6 +683,11 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.maps_progress.show()
         self.maps_progress.setValue(0)
 
+        local_layout_names: list = []
+        local_error: Exception | None = None
+        server_summary: dict | None = None
+        server_error: Exception | None = None
+
         try:
             from ...processors.claims_map_generator import ClaimsMapGenerator
 
@@ -692,51 +697,116 @@ class ClaimsStep7Widget(ClaimsStepBase):
             self.maps_progress.setValue(30)
             results = generator.generate_all_maps()
 
-            self.maps_progress.setValue(90)
+            self.maps_progress.setValue(60)
 
-            # Build summary of created layouts
-            layout_names = [v for v in results.values() if v]
-            self.maps_progress.setValue(100)
-
-            state_code = results.get('state_filing_map')
-            state_note = ""
-            if state_code:
-                state_note = (
-                    "\n\nNote: State filing map included for state-specific "
-                    "requirements."
-                )
-
-            QMessageBox.information(
-                self, "Maps Generated",
-                f"Created {len(layout_names)} print layout(s):\n\n"
-                + "\n".join(f"  \u2022 {name}" for name in layout_names)
-                + state_note
-                + "\n\nOpen the Layout Manager (Project \u2192 Layouts) "
-                "to view, edit, and export them."
-            )
-
-            self.maps_status_label.setText(
-                f"Generated {len(layout_names)} map layout(s)"
-            )
-            self.maps_status_label.setStyleSheet(self._get_success_label_style())
+            local_layout_names = [v for v in results.values() if v]
             self.logger.info(
-                f"[CLAIMS] Generated {len(layout_names)} map layouts: "
-                + ", ".join(layout_names)
+                f"[CLAIMS] Generated {len(local_layout_names)} local layouts: "
+                + ", ".join(local_layout_names)
             )
 
         except Exception as e:
-            self.logger.error(f"[CLAIMS] Map generation error: {e}")
-            self.maps_status_label.setText(f"Error: {e}")
+            local_error = e
+            self.logger.error(f"[CLAIMS] Local map generation error: {e}")
+
+        # Server-side render (independent of local \u2014 local can succeed and
+        # server fail, or vice versa). Only attempts when a package exists.
+        if self.state.claim_package_id:
+            try:
+                self.maps_progress.setValue(70)
+                self.generate_maps_btn.setText("Rendering on server...")
+                server_summary = self.claims_manager.generate_package_maps(
+                    claim_package_id=self.state.claim_package_id,
+                )
+                self.maps_progress.setValue(95)
+                self.logger.info(
+                    f"[CLAIMS] Server-side maps for package "
+                    f"{self.state.claim_package_id}: "
+                    f"{len(server_summary.get('generated', []))} generated, "
+                    f"already_generated="
+                    f"{server_summary.get('skipped_already_generated', False)}"
+                )
+            except Exception as e:
+                server_error = e
+                self.logger.error(
+                    f"[CLAIMS] Server-side map generation error for package "
+                    f"{self.state.claim_package_id}: {e}"
+                )
+
+        self.maps_progress.setValue(100)
+
+        # Status + dialog summary \u2014 combine local + server outcomes.
+        msg_parts: list[str] = []
+        if local_layout_names:
+            state_note = ""
+            results_dict = results if 'results' in dir() else {}
+            if isinstance(results_dict, dict) and results_dict.get('state_filing_map'):
+                state_note = (
+                    "\nState filing map included for state-specific "
+                    "requirements."
+                )
+            msg_parts.append(
+                f"Local QGIS layouts: {len(local_layout_names)} created"
+                + (":\n  \u2022 " + "\n  \u2022 ".join(local_layout_names))
+                + state_note
+            )
+        elif local_error is not None:
+            msg_parts.append(f"Local QGIS layouts: failed ({local_error})")
+
+        if server_summary is not None:
+            generated = server_summary.get('generated', [])
+            if server_summary.get('skipped_already_generated'):
+                msg_parts.append(
+                    f"\nServer-side maps: already generated "
+                    f"({len(generated)} on file). "
+                    "Re-run with regenerate to refresh."
+                )
+            else:
+                gen_titles = [g.get('title', '?') for g in generated]
+                msg_parts.append(
+                    f"\nServer-side maps: {len(generated)} rendered"
+                    + ("\n  \u2022 " + "\n  \u2022 ".join(gen_titles)
+                       if gen_titles else "")
+                )
+        elif server_error is not None:
+            msg_parts.append(
+                f"\nServer-side maps: failed ({server_error}).\n"
+                "Local QGIS layouts above are still usable."
+            )
+        elif not self.state.claim_package_id:
+            msg_parts.append(
+                "\nServer-side maps: skipped (no claim package on the server "
+                "yet \u2014 complete Step 6 to push the package)."
+            )
+
+        if local_layout_names or (server_summary and server_summary.get('generated')):
+            msg = "\n".join(msg_parts).strip()
+            QMessageBox.information(
+                self, "Maps Generated",
+                msg
+                + "\n\nOpen the Layout Manager (Project \u2192 Layouts) to "
+                "view + edit the local layouts. Server-rendered maps are "
+                "attached to the claim package in geoDB."
+            )
+            self.maps_status_label.setText(
+                f"Generated {len(local_layout_names)} local + "
+                f"{len((server_summary or {}).get('generated', []))} server map(s)"
+            )
+            self.maps_status_label.setStyleSheet(self._get_success_label_style())
+        else:
+            err_lines = [str(local_error) if local_error else None,
+                         str(server_error) if server_error else None]
+            err_msg = "; ".join(e for e in err_lines if e) or "Unknown error"
+            self.maps_status_label.setText(f"Error: {err_msg}")
             self.maps_status_label.setStyleSheet(self._get_error_label_style())
             QMessageBox.critical(
                 self, "Map Generation Error",
-                f"Failed to generate maps:\n\n{e}"
+                f"Failed to generate maps:\n\n{err_msg}"
             )
 
-        finally:
-            self.generate_maps_btn.setEnabled(True)
-            self.generate_maps_btn.setText("Generate Maps")
-            self.maps_progress.hide()
+        self.generate_maps_btn.setEnabled(True)
+        self.generate_maps_btn.setText("Generate Maps")
+        self.maps_progress.hide()
 
     # =========================================================================
     # Waypoints Methods
