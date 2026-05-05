@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.15.1
+version=2.16.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,18 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.16.0 - Async preview-layer generation for large claim blocks (700+ claims)
+        - Plugin now opts into the server's async path on POST .../preview-layers/ and
+          .../update-lm-corner-layers/ via X-Async-Capable header — the server kicks the
+          heavy compute onto a background worker, returns 202 + a session id, and the
+          plugin polls a status endpoint until the result is ready
+        - Side-steps the ~100s Cloudflare origin-read timeout that was returning 502
+          Bad Gateway to the plugin even though the server was happily computing the
+          full 714-claim result over 3+ minutes server-side
+        - Backwards compatible: legacy synchronous responses from older servers (or
+          small block fast-paths) pass through the polling helper unchanged
+        - 14-minute client-side wall-clock cap on polling so a stuck job surfaces a
+          clean error instead of hanging forever
     2.15.1 - Long-running request reliability for large claim blocks
         - Set explicit 5-minute network transfer timeout on all API calls so QGIS does not
           abort the read mid-response on long-running endpoints (claims/preview-layers/

@@ -1129,6 +1129,92 @@ class ClaimsManager:
     # Preview Layers (Server-side Layer Generation)
     # =========================================================================
 
+    # Long-running preview-layer endpoints regularly need 1-3 minutes server-side
+    # for blocks of 200+ claims. Cloudflare in front of api.geodb.io caps origin
+    # reads at ~100s and returns 502 well before the server is done. The async
+    # path opts into a 202+poll handshake that side-steps the proxy timeout: POST
+    # with `X-Async-Capable: 1`, server kicks the work onto a background thread
+    # and returns 202 + a session id, plugin then polls a status endpoint until
+    # the result is ready. Old servers that don't recognise the header still
+    # return the legacy synchronous body, which the polling helper passes through
+    # unchanged — so no upgrade lockstep is required.
+    PREVIEW_LAYERS_ASYNC_HEADER = {'X-Async-Capable': '1'}
+    # Server worker is killed after ~15 min if a pod rolls; cap our wait below
+    # that so we surface a clean error instead of polling indefinitely.
+    PREVIEW_LAYERS_MAX_WAIT_SECONDS = 14 * 60
+
+    def _post_preview_layers_async(
+        self,
+        url: str,
+        data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        POST a preview-layers job and, when the server replies 202, poll the
+        status endpoint until the final payload is available.
+
+        The 202 body shape is `{"status": "pending", "session_id", "status_url",
+        "poll_interval_seconds"}`. A legacy sync server returns the full payload
+        directly (with `summary`/`layers` keys and no `status: pending` marker),
+        in which case we just pass it through.
+        """
+        initial = self.api._make_request(
+            'POST', url, data=data,
+            headers=self.PREVIEW_LAYERS_ASYNC_HEADER,
+        )
+
+        # Sync path (legacy server, or future "small block" fast-path): the body
+        # is already the full result. Detect via the explicit pending marker so
+        # that an async server can never be mistaken for sync regardless of
+        # which keys end up in the eventual final payload.
+        if not (
+            isinstance(initial, dict)
+            and initial.get('status') == 'pending'
+            and initial.get('session_id')
+        ):
+            return initial
+
+        session_id = initial['session_id']
+        # Server returns a path like `/api/v2/claims/preview-layers/status/<id>/`,
+        # but our `base_url` already includes `/api/v2`. Build the URL via
+        # `get_claims_url` to stay consistent with every other claims endpoint
+        # and avoid double-prefixing.
+        status_url = self.config.get_claims_url(f'preview-layers/status/{session_id}/')
+        poll_interval = max(1, int(initial.get('poll_interval_seconds') or 3))
+        estimated = initial.get('estimated_seconds')
+
+        self.logger.info(
+            f"[QCLAIMS] Server queued async preview-layers job "
+            f"(session={session_id}, est={estimated}s); polling every "
+            f"{poll_interval}s"
+        )
+
+        deadline = time.time() + self.PREVIEW_LAYERS_MAX_WAIT_SECONDS
+        last_log_at = 0.0
+        while time.time() < deadline:
+            time.sleep(poll_interval)
+            # Errors propagate as APIException — that's the right behaviour
+            # (e.g. the server returns 410 for an expired session, 500 for a
+            # background-thread failure).
+            result = self.api._make_request('GET', status_url)
+            if isinstance(result, dict) and result.get('status') == 'pending':
+                # Throttle progress logging so we don't spam at e.g. 100 polls
+                # for a 5-minute job.
+                if time.time() - last_log_at >= 30:
+                    last_log_at = time.time()
+                    self.logger.info(
+                        f"[QCLAIMS] Job still pending: session={session_id} "
+                        f"elapsed={result.get('elapsed_seconds')}s"
+                    )
+                continue
+            return result
+
+        raise APIException(
+            f"Preview-layers job timed out client-side after "
+            f"{self.PREVIEW_LAYERS_MAX_WAIT_SECONDS}s "
+            f"(session={session_id}). The server may still be processing — "
+            f"try again or split the request into smaller batches."
+        )
+
     def get_preview_layers(
         self,
         claims: List[Dict[str, Any]],
@@ -1166,7 +1252,7 @@ class ClaimsManager:
             if state:
                 data['state'] = state
 
-            result = self.api._make_request('POST', url, data=data)
+            result = self._post_preview_layers_async(url, data)
 
             self.logger.info(
                 f"[QCLAIMS] Got preview layers: "
@@ -1207,7 +1293,7 @@ class ClaimsManager:
                 'monument_inset_ft': monument_inset_ft
             }
 
-            result = self.api._make_request('POST', url, data=data)
+            result = self._post_preview_layers_async(url, data)
 
             self.logger.info(
                 f"[QCLAIMS] Updated LM corners and got new layers for "
