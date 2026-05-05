@@ -10,6 +10,7 @@ which can cause reentrancy issues when combined with QApplication.processEvents(
 calls elsewhere in the codebase.
 """
 import json
+import time
 from typing import Dict, Any, Optional, Callable, List
 from urllib.parse import urlparse, urlencode
 from qgis.PyQt.QtNetwork import QNetworkRequest, QNetworkReply
@@ -50,6 +51,144 @@ class APIClient:
     def set_token(self, token: str):
         """Set authentication token."""
         self.token = token
+
+    # Long-running async claims endpoints reuse this constant. Kept on the
+    # client so any caller (manager OR processor) can opt into the 202+poll
+    # path without duplicating the header.
+    ASYNC_CAPABLE_HEADER = {'X-Async-Capable': '1'}
+    ASYNC_MAX_WAIT_SECONDS = 14 * 60
+
+    def post_async_capable(
+        self,
+        url: str,
+        data: Dict[str, Any],
+        progress_title: Optional[str] = None,
+        progress_parent=None,
+    ) -> Dict[str, Any]:
+        """
+        POST a long-running claims job and, when the server replies 202, poll
+        the shared status endpoint until the final payload is available.
+
+        Used by every plugin-side caller of the long claims endpoints
+        (preview-layers, update-lm-corner-layers, process, align-corners,
+        validate-grid, generate-witnesses, etc.). The server distinguishes by
+        view label; the status URL is always at
+        `claims/preview-layers/status/<session_id>/` regardless of which
+        endpoint kicked off the job.
+
+        If `progress_title` is provided, a modal `ClaimsProgressDialog` is
+        shown for the duration of the polling loop, fed by per-poll progress
+        fields the server reports (stage, progress_pct, current_claim_name,
+        elapsed_seconds). The user can cancel via the dialog, which raises
+        `PreviewLayersCanceled` — the server thread continues to completion
+        and its result simply expires from cache.
+        """
+        initial = self._make_request(
+            'POST', url, data=data,
+            headers=self.ASYNC_CAPABLE_HEADER,
+        )
+
+        if not (
+            isinstance(initial, dict)
+            and initial.get('status') == 'pending'
+            and initial.get('session_id')
+        ):
+            return initial
+
+        session_id = initial['session_id']
+        # Status URL is stable across all async claims endpoints; build it
+        # locally rather than trusting the absolute path the server returns,
+        # so we always go through `get_claims_url` (handles base-URL
+        # canonicalisation, local-vs-prod, https enforcement).
+        from ..utils.config import Config  # noqa: F401  (Config used implicitly via self.config)
+        status_url = self.config.get_claims_url(
+            f'preview-layers/status/{session_id}/'
+        )
+        poll_interval = max(1, int(initial.get('poll_interval_seconds') or 3))
+        estimated = initial.get('estimated_seconds')
+        claim_count = initial.get('claim_count') or len(data.get('claims', []) or [])
+
+        self.logger.info(
+            f"[API] Async claims job queued (session={session_id}, "
+            f"est={estimated}s); polling every {poll_interval}s"
+        )
+
+        # Lazy-import the dialog so this module stays importable in headless
+        # contexts (tests, packaging scripts) where Qt isn't initialised.
+        progress_dialog = None
+        PreviewLayersCanceled = Exception  # fallback type
+        if progress_title:
+            try:
+                from ..ui.claims_progress_dialog import (
+                    ClaimsProgressDialog, PreviewLayersCanceled as _Cancel,
+                )
+                PreviewLayersCanceled = _Cancel
+                progress_dialog = ClaimsProgressDialog(progress_title, parent=progress_parent)
+                progress_dialog.set_status(
+                    stage='queued',
+                    progress_pct=0,
+                    total_claims=claim_count,
+                    elapsed_seconds=0,
+                )
+                progress_dialog.show()
+            except Exception:
+                self.logger.exception(
+                    "[API] Failed to open progress dialog; polling silently"
+                )
+                progress_dialog = None
+
+        deadline = time.time() + self.ASYNC_MAX_WAIT_SECONDS
+        last_log_at = 0.0
+        try:
+            while time.time() < deadline:
+                if progress_dialog is not None and progress_dialog.was_canceled():
+                    raise PreviewLayersCanceled(
+                        f"User cancelled async claims job (session={session_id})"
+                    )
+
+                time.sleep(poll_interval)
+                result = self._make_request('GET', status_url)
+
+                if isinstance(result, dict) and result.get('status') == 'pending':
+                    if progress_dialog is not None:
+                        progress_dialog.set_status(
+                            stage=result.get('stage', 'processing'),
+                            progress_pct=result.get('progress_pct', 0),
+                            current_claim_name=result.get('current_claim_name', ''),
+                            current_claim_index=result.get('current_claim_index', 0),
+                            total_claims=result.get('claim_count', claim_count),
+                            elapsed_seconds=result.get('elapsed_seconds', 0),
+                        )
+                    if time.time() - last_log_at >= 30:
+                        last_log_at = time.time()
+                        self.logger.info(
+                            f"[API] Async claims job still pending: "
+                            f"session={session_id} stage={result.get('stage')} "
+                            f"pct={result.get('progress_pct')} "
+                            f"elapsed={result.get('elapsed_seconds')}s"
+                        )
+                    continue
+
+                if progress_dialog is not None:
+                    progress_dialog.set_status(
+                        stage='finalizing',
+                        progress_pct=100,
+                        total_claims=claim_count,
+                    )
+                return result
+
+            raise APIException(
+                f"Async claims job timed out client-side after "
+                f"{self.ASYNC_MAX_WAIT_SECONDS}s (session={session_id}). "
+                f"The server may still be processing — try again or split "
+                f"the request into smaller batches."
+            )
+        finally:
+            if progress_dialog is not None:
+                try:
+                    progress_dialog.close()
+                except Exception:
+                    pass
 
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """

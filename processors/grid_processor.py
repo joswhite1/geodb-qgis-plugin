@@ -314,11 +314,14 @@ class GridProcessor:
                 ]
             })
 
-        # Call server API
-        response = self.api_client._make_request('POST', endpoint, data={
-            'claims': api_claims,
-            'expected_corners': expected_corners
-        })
+        # Route through async-capable helper so 700+ claim blocks survive
+        # the proxy timeout window. Server validates synchronously when
+        # X-Async-Capable is unset; we set it via post_async_capable.
+        response = self.api_client.post_async_capable(
+            endpoint,
+            {'claims': api_claims, 'expected_corners': expected_corners},
+            progress_title="Validating claim grid",
+        )
 
         if 'error' in response:
             raise ValueError(response['error'])

@@ -262,7 +262,8 @@ class ClaimsManager:
         self,
         claims: List[Dict[str, Any]],
         project_id: int,
-        epsg: int = None
+        epsg: int = None,
+        progress_parent=None,
     ) -> Dict[str, Any]:
         """
         Send claims to server for processing (Enterprise/Staff only).
@@ -270,22 +271,14 @@ class ClaimsManager:
         Pay-per-claim users will receive 403 with redirect to submit_order.
 
         Args:
-            claims: List of claim dicts with:
-                - name: str
-                - geometry: GeoJSON dict or WKT string
-                - claim_type: 'lode' or 'placer' (optional)
-                - epsg: int (optional, per-claim EPSG)
-                - notes: str (optional, per-claim notes for location notices)
-            project_id: Target project ID
-            epsg: EPSG code for claim geometries (e.g., 26911 for UTM Zone 11N)
+            claims: List of claim dicts (see existing docstring).
+            project_id: Target project ID.
+            epsg: EPSG code for claim geometries (e.g., 26911 for UTM Zone 11N).
+            progress_parent: Optional parent widget for the progress dialog.
 
         Returns:
-            Dict with:
-                - session_id: str
-                - processed_at: str (ISO timestamp)
-                - claims: list of processed claim data (PLSS, corners, monuments)
-                - waypoints: list of deduplicated waypoints
-                - usage: dict with claims_processed count
+            Same as before. Routes through the shared async-capable helper so
+            blocks of 200+ claims don't trip Cloudflare's origin timeout.
 
         Raises:
             PermissionError: If user is pay-per-claim (must use submit_order)
@@ -298,12 +291,16 @@ class ClaimsManager:
             url = self.config.get_claims_url('process/')
             data = {
                 'claims': claims,
-                'project_id': project_id
+                'project_id': project_id,
             }
             if epsg:
                 data['epsg'] = epsg
 
-            result = self.api._make_request('POST', url, data=data)
+            result = self.api.post_async_capable(
+                url, data,
+                progress_title="Processing claims",
+                progress_parent=progress_parent,
+            )
 
             self.logger.info(
                 f"[QCLAIMS] Processed {len(result.get('claims', []))} claims "
@@ -1129,20 +1126,9 @@ class ClaimsManager:
     # Preview Layers (Server-side Layer Generation)
     # =========================================================================
 
-    # Long-running preview-layer endpoints regularly need 1-3 minutes server-side
-    # for blocks of 200+ claims. Cloudflare in front of api.geodb.io caps origin
-    # reads at ~100s and returns 502 well before the server is done. The async
-    # path opts into a 202+poll handshake that side-steps the proxy timeout: POST
-    # with `X-Async-Capable: 1`, server kicks the work onto a background thread
-    # and returns 202 + a session id, plugin then polls a status endpoint until
-    # the result is ready. Old servers that don't recognise the header still
-    # return the legacy synchronous body, which the polling helper passes through
-    # unchanged — so no upgrade lockstep is required.
-    PREVIEW_LAYERS_ASYNC_HEADER = {'X-Async-Capable': '1'}
-    # Server worker is killed after ~15 min if a pod rolls; cap our wait below
-    # that so we surface a clean error instead of polling indefinitely.
-    PREVIEW_LAYERS_MAX_WAIT_SECONDS = 14 * 60
-
+    # Async claims job plumbing now lives on `APIClient.post_async_capable`
+    # so processors and managers share one helper. This wrapper stays for
+    # callers that pre-existed the refactor.
     def _post_preview_layers_async(
         self,
         url: str,
@@ -1151,143 +1137,15 @@ class ClaimsManager:
         progress_parent=None,
     ) -> Dict[str, Any]:
         """
-        POST a preview-layers job and, when the server replies 202, poll the
-        status endpoint until the final payload is available.
-
-        The 202 body shape is `{"status": "pending", "session_id", "status_url",
-        "poll_interval_seconds"}`. A legacy sync server returns the full payload
-        directly (with `summary`/`layers` keys and no `status: pending` marker),
-        in which case we just pass it through.
-
-        If `progress_title` is provided, a modal `ClaimsProgressDialog` is shown
-        for the duration of the polling loop, fed by per-poll progress fields
-        the server reports (stage, progress_pct, current_claim_name,
-        elapsed_seconds). The user can cancel via the dialog, which raises
-        `PreviewLayersCanceled` — the server thread continues to completion
-        and its result simply expires from cache.
+        Thin wrapper around the shared `APIClient.post_async_capable` so
+        existing manager call sites keep working. New callers should use
+        `self.api.post_async_capable(...)` directly.
         """
-        initial = self.api._make_request(
-            'POST', url, data=data,
-            headers=self.PREVIEW_LAYERS_ASYNC_HEADER,
+        return self.api.post_async_capable(
+            url, data,
+            progress_title=progress_title,
+            progress_parent=progress_parent,
         )
-
-        # Sync path (legacy server, or future "small block" fast-path): the body
-        # is already the full result. Detect via the explicit pending marker so
-        # that an async server can never be mistaken for sync regardless of
-        # which keys end up in the eventual final payload.
-        if not (
-            isinstance(initial, dict)
-            and initial.get('status') == 'pending'
-            and initial.get('session_id')
-        ):
-            return initial
-
-        session_id = initial['session_id']
-        # Server returns a path like `/api/v2/claims/preview-layers/status/<id>/`,
-        # but our `base_url` already includes `/api/v2`. Build the URL via
-        # `get_claims_url` to stay consistent with every other claims endpoint
-        # and avoid double-prefixing.
-        status_url = self.config.get_claims_url(f'preview-layers/status/{session_id}/')
-        poll_interval = max(1, int(initial.get('poll_interval_seconds') or 3))
-        estimated = initial.get('estimated_seconds')
-        claim_count = initial.get('claim_count') or len(data.get('claims', []))
-
-        self.logger.info(
-            f"[QCLAIMS] Server queued async preview-layers job "
-            f"(session={session_id}, est={estimated}s); polling every "
-            f"{poll_interval}s"
-        )
-
-        # Lazy-import the dialog so this module stays importable in headless
-        # contexts (tests, packaging scripts) where Qt isn't initialised.
-        progress_dialog = None
-        if progress_title:
-            try:
-                from ..ui.claims_progress_dialog import (
-                    ClaimsProgressDialog, PreviewLayersCanceled,
-                )
-                progress_dialog = ClaimsProgressDialog(progress_title, parent=progress_parent)
-                # Seed initial state so the user immediately sees the dialog
-                # rather than a fraction of a second of blank window.
-                progress_dialog.set_status(
-                    stage='queued',
-                    progress_pct=0,
-                    total_claims=claim_count,
-                    elapsed_seconds=0,
-                )
-                progress_dialog.show()
-            except Exception:
-                # If the dialog can't be created (e.g. running in a context
-                # with no QApplication) we fall back to silent polling rather
-                # than blocking the whole flow.
-                self.logger.exception(
-                    "[QCLAIMS] Failed to open progress dialog; polling silently"
-                )
-                progress_dialog = None
-
-        deadline = time.time() + self.PREVIEW_LAYERS_MAX_WAIT_SECONDS
-        last_log_at = 0.0
-        try:
-            while time.time() < deadline:
-                # User pressed Cancel — stop polling. The server worker will
-                # finish on its own and its cache entry simply expires; nothing
-                # to undo.
-                if progress_dialog is not None and progress_dialog.was_canceled():
-                    raise PreviewLayersCanceled(
-                        f"User cancelled preview-layers job (session={session_id})"
-                    )
-
-                time.sleep(poll_interval)
-                # Errors propagate as APIException — that's the right behaviour
-                # (e.g. the server returns 410 for an expired session, 500 for a
-                # background-thread failure).
-                result = self.api._make_request('GET', status_url)
-
-                if isinstance(result, dict) and result.get('status') == 'pending':
-                    if progress_dialog is not None:
-                        progress_dialog.set_status(
-                            stage=result.get('stage', 'processing'),
-                            progress_pct=result.get('progress_pct', 0),
-                            current_claim_name=result.get('current_claim_name', ''),
-                            current_claim_index=result.get('current_claim_index', 0),
-                            total_claims=result.get('claim_count', claim_count),
-                            elapsed_seconds=result.get('elapsed_seconds', 0),
-                        )
-                    # Throttle progress logging so we don't spam at e.g. 100
-                    # polls for a 5-minute job.
-                    if time.time() - last_log_at >= 30:
-                        last_log_at = time.time()
-                        self.logger.info(
-                            f"[QCLAIMS] Job still pending: session={session_id} "
-                            f"stage={result.get('stage')} "
-                            f"pct={result.get('progress_pct')} "
-                            f"elapsed={result.get('elapsed_seconds')}s"
-                        )
-                    continue
-                # Done — present 100% briefly so the user sees completion
-                # before the dialog closes (otherwise it can flash from 90%
-                # straight to gone).
-                if progress_dialog is not None:
-                    progress_dialog.set_status(
-                        stage='finalizing',
-                        progress_pct=100,
-                        total_claims=claim_count,
-                        elapsed_seconds=int(time.time() - (initial.get('started_at') or time.time())),
-                    )
-                return result
-
-            raise APIException(
-                f"Preview-layers job timed out client-side after "
-                f"{self.PREVIEW_LAYERS_MAX_WAIT_SECONDS}s "
-                f"(session={session_id}). The server may still be processing — "
-                f"try again or split the request into smaller batches."
-            )
-        finally:
-            if progress_dialog is not None:
-                try:
-                    progress_dialog.close()
-                except Exception:
-                    pass
 
     def get_preview_layers(
         self,
@@ -1733,7 +1591,8 @@ class ClaimsManager:
         self,
         waypoints: List[Dict[str, Any]],
         claims: List[Dict[str, Any]],
-        epsg: int = None
+        epsg: int = None,
+        progress_parent=None,
     ) -> Dict[str, Any]:
         """
         Generate witness waypoints for stakes on private land.
@@ -1742,16 +1601,8 @@ class ClaimsManager:
         against federal land boundaries and generates witness waypoints
         on nearby public land for any stakes on private land.
 
-        Args:
-            waypoints: List of waypoint dicts from processed claims
-            claims: List of processed claim dicts
-            epsg: EPSG code for claim geometries
-
-        Returns:
-            Dict with:
-                - witnesses: list of witness waypoint dicts
-                - witness_count: int
-                - private_stake_count: int
+        Routes through the shared async-capable helper so blocks of 200+
+        claims don't trip the proxy timeout.
 
         Raises:
             APIException: On request failure
@@ -1768,7 +1619,11 @@ class ClaimsManager:
         if epsg:
             data['epsg'] = epsg
 
-        result = self.api._make_request('POST', url, data=data)
+        result = self.api.post_async_capable(
+            url, data,
+            progress_title="Generating witness points",
+            progress_parent=progress_parent,
+        )
 
         self.logger.info(
             f"[QCLAIMS] Generated {result.get('witness_count', 0)} witness points "

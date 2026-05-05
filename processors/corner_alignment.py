@@ -201,18 +201,19 @@ class CornerAlignmentProcessor:
         corners: List[Dict[str, Any]],
         tolerance_m: float
     ) -> Dict[str, Any]:
-        """Align corners using server API."""
+        """Align corners using server API. Routes through the async-capable
+        helper so 700+ claim blocks don't trip Cloudflare's origin timeout."""
         # Build claims data for API
         claims_data = self._corners_to_claims_data(corners)
 
         # Build API endpoint URL
         endpoint = self.api_client.config.get_claims_url('align-corners/')
 
-        # Call server API
-        response = self.api_client._make_request('POST', endpoint, data={
-            'claims': claims_data,
-            'tolerance_m': tolerance_m
-        })
+        response = self.api_client.post_async_capable(
+            endpoint,
+            {'claims': claims_data, 'tolerance_m': tolerance_m},
+            progress_title="Aligning corners",
+        )
 
         if 'error' in response:
             raise ValueError(response['error'])

@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.16.1
+version=2.17.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,20 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.17.0 - Async + progress for the rest of the long claim-flow endpoints
+        - Async polling helper (X-Async-Capable: 1 + 202 + poll + progress dialog) is
+          now shared across the plugin: APIClient.post_async_capable handles the full
+          handshake so any caller — manager method or processor — can opt into async
+          with one line
+        - Applied to: Process Claims (Step 6), Align Corners (Step 6 finalize), Validate
+          Claim Grid (Step 6), and Generate Witness Points (Step 7). All now show the
+          progress dialog (stage / current claim / % bar / elapsed / Cancel) and survive
+          1000-claim blocks comfortably
+        - Pairs with server-side ~3x speed-up of the underlying processor so the typical
+          1000-claim run finishes in ~110s server-side
+        - Deferred (next release): Generate Documents, Generate Package Maps, and bulk
+          ClaimStake/LandHolding push — these need a different shape (chunking with
+          cleanup_orphans semantics)
     2.16.1 - Live progress dialog for async claim operations
         - Progress dialog (stage, current claim name, % complete, elapsed time, Cancel button)
           now appears for the duration of Generate Preview Layers (Step 5) and Update LM
