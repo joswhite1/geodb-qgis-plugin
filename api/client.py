@@ -113,12 +113,22 @@ class APIClient:
             json_data = json.dumps(data)
             request_data = QByteArray(json_data.encode('utf-8'))
 
+        # Long-running endpoints (e.g. claims/preview-layers/ for 700+ claims) can
+        # take several minutes on the server. The ingress allows up to 300s; mirror
+        # that on the client so QGIS doesn't abort the read mid-response and leave
+        # the plugin with a partial body that fails to JSON-decode.
+        transfer_timeout_ms = self.config.get('api.transfer_timeout_ms', 300000)
+
         # Helper to create fresh request (QNetworkRequest may be modified by QgsBlockingNetworkRequest)
         def create_request():
             qurl = QUrl(url)
             req = QNetworkRequest(qurl)
             for key, value in request_headers.items():
                 req.setRawHeader(QByteArray(key.encode()), QByteArray(value.encode()))
+            try:
+                req.setTransferTimeout(transfer_timeout_ms)
+            except (AttributeError, TypeError):
+                pass  # Older Qt builds lack setTransferTimeout; QGIS network manager default applies.
             return req
 
         # Execute request with retry logic
@@ -240,14 +250,34 @@ class APIClient:
             APIException: On error response
         """
         status_code = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
-        response_data = bytes(reply.content()).decode('utf-8')
+        response_data = bytes(reply.content()).decode('utf-8', errors='replace')
 
-        # Parse JSON response first (even for errors, to get validation messages)
+        # Parse JSON response first (even for errors, to get validation messages).
+        # On decode failure, surface a real error instead of returning {} silently —
+        # otherwise upstream callers see "empty response" with no diagnostic context.
+        # Truncated bodies (e.g. ingress timeout mid-response) and non-JSON error
+        # pages (HTML 502/504 from upstream proxies) both end up here.
         parsed_data = {}
-        try:
-            parsed_data = json.loads(response_data) if response_data else {}
-        except json.JSONDecodeError:
-            pass  # Will handle below
+        if response_data:
+            try:
+                parsed_data = json.loads(response_data)
+            except json.JSONDecodeError as exc:
+                snippet = response_data[:500].replace('\n', ' ')
+                self.logger.error(
+                    f"JSON decode failed: status={status_code} "
+                    f"len={len(response_data)} err={exc} body[:500]={snippet!r}"
+                )
+                # If the server reported success but the body is unparseable, the
+                # response was almost certainly truncated by an upstream timeout.
+                if not status_code or status_code < 400:
+                    raise NetworkError(
+                        f"Server response was unparseable "
+                        f"(status={status_code}, {len(response_data)} bytes received). "
+                        f"Likely truncated by a network timeout — try again or "
+                        f"reduce the request size."
+                    )
+                # For error status codes, fall through to the HTTP error branch
+                # below using parsed_data={} (the body wasn't JSON anyway).
 
         # Check for HTTP errors
         if status_code and status_code >= 400:
