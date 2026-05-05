@@ -464,6 +464,14 @@ class ClaimsWizardState:
         gpkg_path, _ = project.readEntry('geodb', 'claims/geopackage_path', '')
         if gpkg_path and Path(gpkg_path).exists():
             self.load_from_geopackage(gpkg_path)
+            # Re-attach claims layers from the GeoPackage. Plugin reload (and
+            # some QGIS-project save/restore paths) can leave the metadata
+            # intact while the layers themselves are gone from the project,
+            # which strands the wizard at Step 2's empty layer combo.
+            try:
+                self.restore_layers_from_geopackage()
+            except Exception as e:
+                logger.warning(f"Could not auto-restore claims layers: {e}")
 
         layer_id, _ = project.readEntry('geodb', 'claims/claims_layer_id', '')
         if layer_id:
