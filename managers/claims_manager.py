@@ -1147,6 +1147,8 @@ class ClaimsManager:
         self,
         url: str,
         data: Dict[str, Any],
+        progress_title: Optional[str] = None,
+        progress_parent=None,
     ) -> Dict[str, Any]:
         """
         POST a preview-layers job and, when the server replies 202, poll the
@@ -1156,6 +1158,13 @@ class ClaimsManager:
         "poll_interval_seconds"}`. A legacy sync server returns the full payload
         directly (with `summary`/`layers` keys and no `status: pending` marker),
         in which case we just pass it through.
+
+        If `progress_title` is provided, a modal `ClaimsProgressDialog` is shown
+        for the duration of the polling loop, fed by per-poll progress fields
+        the server reports (stage, progress_pct, current_claim_name,
+        elapsed_seconds). The user can cancel via the dialog, which raises
+        `PreviewLayersCanceled` — the server thread continues to completion
+        and its result simply expires from cache.
         """
         initial = self.api._make_request(
             'POST', url, data=data,
@@ -1181,6 +1190,7 @@ class ClaimsManager:
         status_url = self.config.get_claims_url(f'preview-layers/status/{session_id}/')
         poll_interval = max(1, int(initial.get('poll_interval_seconds') or 3))
         estimated = initial.get('estimated_seconds')
+        claim_count = initial.get('claim_count') or len(data.get('claims', []))
 
         self.logger.info(
             f"[QCLAIMS] Server queued async preview-layers job "
@@ -1188,39 +1198,104 @@ class ClaimsManager:
             f"{poll_interval}s"
         )
 
+        # Lazy-import the dialog so this module stays importable in headless
+        # contexts (tests, packaging scripts) where Qt isn't initialised.
+        progress_dialog = None
+        if progress_title:
+            try:
+                from ..ui.claims_progress_dialog import (
+                    ClaimsProgressDialog, PreviewLayersCanceled,
+                )
+                progress_dialog = ClaimsProgressDialog(progress_title, parent=progress_parent)
+                # Seed initial state so the user immediately sees the dialog
+                # rather than a fraction of a second of blank window.
+                progress_dialog.set_status(
+                    stage='queued',
+                    progress_pct=0,
+                    total_claims=claim_count,
+                    elapsed_seconds=0,
+                )
+                progress_dialog.show()
+            except Exception:
+                # If the dialog can't be created (e.g. running in a context
+                # with no QApplication) we fall back to silent polling rather
+                # than blocking the whole flow.
+                self.logger.exception(
+                    "[QCLAIMS] Failed to open progress dialog; polling silently"
+                )
+                progress_dialog = None
+
         deadline = time.time() + self.PREVIEW_LAYERS_MAX_WAIT_SECONDS
         last_log_at = 0.0
-        while time.time() < deadline:
-            time.sleep(poll_interval)
-            # Errors propagate as APIException — that's the right behaviour
-            # (e.g. the server returns 410 for an expired session, 500 for a
-            # background-thread failure).
-            result = self.api._make_request('GET', status_url)
-            if isinstance(result, dict) and result.get('status') == 'pending':
-                # Throttle progress logging so we don't spam at e.g. 100 polls
-                # for a 5-minute job.
-                if time.time() - last_log_at >= 30:
-                    last_log_at = time.time()
-                    self.logger.info(
-                        f"[QCLAIMS] Job still pending: session={session_id} "
-                        f"elapsed={result.get('elapsed_seconds')}s"
+        try:
+            while time.time() < deadline:
+                # User pressed Cancel — stop polling. The server worker will
+                # finish on its own and its cache entry simply expires; nothing
+                # to undo.
+                if progress_dialog is not None and progress_dialog.was_canceled():
+                    raise PreviewLayersCanceled(
+                        f"User cancelled preview-layers job (session={session_id})"
                     )
-                continue
-            return result
 
-        raise APIException(
-            f"Preview-layers job timed out client-side after "
-            f"{self.PREVIEW_LAYERS_MAX_WAIT_SECONDS}s "
-            f"(session={session_id}). The server may still be processing — "
-            f"try again or split the request into smaller batches."
-        )
+                time.sleep(poll_interval)
+                # Errors propagate as APIException — that's the right behaviour
+                # (e.g. the server returns 410 for an expired session, 500 for a
+                # background-thread failure).
+                result = self.api._make_request('GET', status_url)
+
+                if isinstance(result, dict) and result.get('status') == 'pending':
+                    if progress_dialog is not None:
+                        progress_dialog.set_status(
+                            stage=result.get('stage', 'processing'),
+                            progress_pct=result.get('progress_pct', 0),
+                            current_claim_name=result.get('current_claim_name', ''),
+                            current_claim_index=result.get('current_claim_index', 0),
+                            total_claims=result.get('claim_count', claim_count),
+                            elapsed_seconds=result.get('elapsed_seconds', 0),
+                        )
+                    # Throttle progress logging so we don't spam at e.g. 100
+                    # polls for a 5-minute job.
+                    if time.time() - last_log_at >= 30:
+                        last_log_at = time.time()
+                        self.logger.info(
+                            f"[QCLAIMS] Job still pending: session={session_id} "
+                            f"stage={result.get('stage')} "
+                            f"pct={result.get('progress_pct')} "
+                            f"elapsed={result.get('elapsed_seconds')}s"
+                        )
+                    continue
+                # Done — present 100% briefly so the user sees completion
+                # before the dialog closes (otherwise it can flash from 90%
+                # straight to gone).
+                if progress_dialog is not None:
+                    progress_dialog.set_status(
+                        stage='finalizing',
+                        progress_pct=100,
+                        total_claims=claim_count,
+                        elapsed_seconds=int(time.time() - (initial.get('started_at') or time.time())),
+                    )
+                return result
+
+            raise APIException(
+                f"Preview-layers job timed out client-side after "
+                f"{self.PREVIEW_LAYERS_MAX_WAIT_SECONDS}s "
+                f"(session={session_id}). The server may still be processing — "
+                f"try again or split the request into smaller batches."
+            )
+        finally:
+            if progress_dialog is not None:
+                try:
+                    progress_dialog.close()
+                except Exception:
+                    pass
 
     def get_preview_layers(
         self,
         claims: List[Dict[str, Any]],
         epsg: int,
         monument_inset_ft: float = 25.0,
-        state: Optional[str] = None
+        state: Optional[str] = None,
+        progress_parent=None,
     ) -> Dict[str, Any]:
         """
         Get preview layers from server for QGIS visualization.
@@ -1233,6 +1308,8 @@ class ClaimsManager:
             epsg: EPSG code of input coordinates
             monument_inset_ft: Monument inset distance in feet
             state: Optional state override for monument type
+            progress_parent: Parent widget for the progress dialog (e.g. the
+                wizard). When omitted the dialog stays parentless.
 
         Returns:
             Dict with:
@@ -1252,7 +1329,11 @@ class ClaimsManager:
             if state:
                 data['state'] = state
 
-            result = self._post_preview_layers_async(url, data)
+            result = self._post_preview_layers_async(
+                url, data,
+                progress_title="Generating preview layers",
+                progress_parent=progress_parent,
+            )
 
             self.logger.info(
                 f"[QCLAIMS] Got preview layers: "
@@ -1269,7 +1350,8 @@ class ClaimsManager:
         self,
         claims: List[Dict[str, Any]],
         epsg: int,
-        monument_inset_ft: float = 25.0
+        monument_inset_ft: float = 25.0,
+        progress_parent=None,
     ) -> Dict[str, Any]:
         """
         Update LM corners and get refreshed preview layers.
@@ -1281,6 +1363,7 @@ class ClaimsManager:
             claims: List of claim dicts with name, geometry, lm_corner (updated value)
             epsg: EPSG code of input coordinates
             monument_inset_ft: Monument inset distance in feet
+            progress_parent: Parent widget for the progress dialog.
 
         Returns:
             Same as get_preview_layers, with rotated geometries
@@ -1293,7 +1376,11 @@ class ClaimsManager:
                 'monument_inset_ft': monument_inset_ft
             }
 
-            result = self._post_preview_layers_async(url, data)
+            result = self._post_preview_layers_async(
+                url, data,
+                progress_title="Updating LM corner",
+                progress_parent=progress_parent,
+            )
 
             self.logger.info(
                 f"[QCLAIMS] Updated LM corners and got new layers for "

@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.16.0
+version=2.16.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,16 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.16.1 - Live progress dialog for async claim operations
+        - Progress dialog (stage, current claim name, % complete, elapsed time, Cancel button)
+          now appears for the duration of Generate Preview Layers (Step 5) and Update LM
+          Corner — fed by per-claim progress fields the server reports in each poll response,
+          so the user sees real progress instead of a frozen wizard
+        - Cancel button cleanly abandons polling on the client; the server worker finishes
+          on its own and the result simply expires from cache (nothing to roll back)
+        - Pairs with a server-side ~3x speed-up of the underlying processor (federal-lands
+          union pre-fetch always runs now), so a 714-claim block typically completes in
+          ~70-80s instead of ~190s — comfortably within the proxy timeout window
     2.16.0 - Async preview-layer generation for large claim blocks (700+ claims)
         - Plugin now opts into the server's async path on POST .../preview-layers/ and
           .../update-lm-corner-layers/ via X-Async-Capable header — the server kicks the
