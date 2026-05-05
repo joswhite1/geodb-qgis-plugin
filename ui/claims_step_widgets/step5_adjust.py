@@ -25,6 +25,7 @@ from qgis.core import QgsProject, QgsVectorLayer
 
 from .step_base import ClaimsStepBase
 from ...processors.claims_layer_generator import ClaimsLayerGenerator
+from ...processors.monument_overrides import read_monument_overrides_from_state
 from ...utils.logger import PluginLogger
 from ...utils.layer_utils import is_layer_valid
 from ...utils.compat import (
@@ -671,11 +672,17 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
         # The UI will update after the blocking network request completes
 
+        # Capture user-moved monument positions from existing layers (if any)
+        # so the server's regen doesn't clobber them. First-time generation
+        # has no monument layer yet → empty dict, no-op on the server.
+        monument_overrides = read_monument_overrides_from_state(self.state, self.logger)
+
         # Generate layers via server API (server-only - no local fallback)
         try:
             self.generated_layers = self.layer_generator.generate_layers_from_server(
                 claims_layer,
-                state=state
+                state=state,
+                monument_overrides=monument_overrides,
             )
         except Exception as e:
             self.status_label.setText("Failed to generate layers!")
@@ -830,9 +837,14 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         changes_applied = False
         try:
             self.logger.info(f"[CLAIMS DEBUG] Batch updating {len(changes)} LM corners: {changes}")
+            # Preserve user-moved monument positions across the rotation.
+            monument_overrides = read_monument_overrides_from_state(
+                self.state, self.logger
+            )
             new_layers = self.layer_generator.update_lm_corners_batch(
                 claims_layer,
-                changes  # Dict[claim_name, new_corner]
+                changes,  # Dict[claim_name, new_corner]
+                monument_overrides=monument_overrides,
             )
             if new_layers:
                 self.logger.info(f"[CLAIMS DEBUG] Got {len(new_layers)} layers from batch update")

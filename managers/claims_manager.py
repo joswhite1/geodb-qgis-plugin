@@ -1154,6 +1154,7 @@ class ClaimsManager:
         monument_inset_ft: float = 25.0,
         state: Optional[str] = None,
         progress_parent=None,
+        monument_overrides: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Dict[str, Any]:
         """
         Get preview layers from server for QGIS visualization.
@@ -1168,6 +1169,10 @@ class ClaimsManager:
             state: Optional state override for monument type
             progress_parent: Parent widget for the progress dialog (e.g. the
                 wizard). When omitted the dialog stays parentless.
+            monument_overrides: Optional dict keyed by claim name with
+                {lat, lon, easting, northing} for user-positioned LMs.
+                Server replaces the algorithm's placement with these.
+                Use to preserve user moves across re-runs.
 
         Returns:
             Dict with:
@@ -1186,6 +1191,8 @@ class ClaimsManager:
             }
             if state:
                 data['state'] = state
+            if monument_overrides:
+                data['monument_overrides'] = monument_overrides
 
             result = self._post_preview_layers_async(
                 url, data,
@@ -1210,6 +1217,7 @@ class ClaimsManager:
         epsg: int,
         monument_inset_ft: float = 25.0,
         progress_parent=None,
+        monument_overrides: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Dict[str, Any]:
         """
         Update LM corners and get refreshed preview layers.
@@ -1222,6 +1230,10 @@ class ClaimsManager:
             epsg: EPSG code of input coordinates
             monument_inset_ft: Monument inset distance in feet
             progress_parent: Parent widget for the progress dialog.
+            monument_overrides: Optional dict keyed by claim name with
+                {lat, lon, easting, northing} for user-positioned LMs.
+                Sent as-is to the server so user-moved monuments survive
+                the rotation re-run.
 
         Returns:
             Same as get_preview_layers, with rotated geometries
@@ -1233,6 +1245,8 @@ class ClaimsManager:
                 'epsg': epsg,
                 'monument_inset_ft': monument_inset_ft
             }
+            if monument_overrides:
+                data['monument_overrides'] = monument_overrides
 
             result = self._post_preview_layers_async(
                 url, data,

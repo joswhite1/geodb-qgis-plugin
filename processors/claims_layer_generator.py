@@ -131,7 +131,8 @@ class ClaimsLayerGenerator:
     def generate_layers_from_server(
         self,
         claims_layer: QgsVectorLayer,
-        state: Optional[str] = None
+        state: Optional[str] = None,
+        monument_overrides: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Dict[str, QgsVectorLayer]:
         """
         Generate preview layers using server-side calculations.
@@ -192,7 +193,8 @@ class ClaimsLayerGenerator:
             claims=server_claims,
             epsg=epsg,
             monument_inset_ft=self.monument_inset_ft,
-            state=state
+            state=state,
+            monument_overrides=monument_overrides,
         )
 
         if not response or 'layers' not in response:
@@ -564,7 +566,8 @@ class ClaimsLayerGenerator:
         self,
         claims_layer: QgsVectorLayer,
         claim_name: str,
-        new_lm_corner: int
+        new_lm_corner: int,
+        monument_overrides: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Dict[str, QgsVectorLayer]:
         """
         Update LM corner via server and return refreshed layers.
@@ -630,7 +633,8 @@ class ClaimsLayerGenerator:
             response = self.claims_manager.update_lm_corner_with_layers(
                 claims=server_claims,
                 epsg=epsg,
-                monument_inset_ft=self.monument_inset_ft
+                monument_inset_ft=self.monument_inset_ft,
+                monument_overrides=monument_overrides,
             )
 
             # Debug: Log response structure
@@ -691,7 +695,8 @@ class ClaimsLayerGenerator:
     def update_lm_corners_batch(
         self,
         claims_layer: QgsVectorLayer,
-        lm_corner_changes: Dict[str, int]
+        lm_corner_changes: Dict[str, int],
+        monument_overrides: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Dict[str, QgsVectorLayer]:
         """
         Update multiple LM corners in a single server call.
@@ -751,7 +756,8 @@ class ClaimsLayerGenerator:
             response = self.claims_manager.update_lm_corner_with_layers(
                 claims=server_claims,
                 epsg=epsg,
-                monument_inset_ft=self.monument_inset_ft
+                monument_inset_ft=self.monument_inset_ft,
+                monument_overrides=monument_overrides,
             )
 
             if not response or 'layers' not in response:

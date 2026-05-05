@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.17.1
+version=2.18.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,24 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.18.0 - Sticky monument overrides preserve user-moved LM positions
+        - When the user drags a discovery monument in Step 5 (Adjust) and then
+          triggers a server-side regen — full preview rebuild OR LM-corner
+          rotation — the moved positions are now read from the live monument
+          layer and sent up as monument_overrides in the request body. Server
+          honors the override (lm-placement-improvements server-side change,
+          2026-05-05) and the user's move survives the rerun
+        - Without this hand-off the algorithm recomputed a fresh LM and the
+          user's positioning was silently clobbered when the new layers were
+          written back; this was the standing complaint that motivated the
+          server-side override-passthrough work
+        - New shared helper processors/monument_overrides.py reads the
+          monuments layer, transforms UTM → WGS84 via the claims-layer CRS,
+          and emits the {claim_name: {lat, lon, easting, northing}} dict
+          shape the server's processing_options['monument_overrides']
+          contract expects
+        - First-time generation (no monuments layer yet) sends an empty dict
+          → no-op on the server, identical to pre-2.18 behavior
     2.17.0 - Async + progress for the rest of the long claim-flow endpoints
         - Async polling helper (X-Async-Capable: 1 + 202 + poll + progress dialog) is
           now shared across the plugin: APIClient.post_async_capable handles the full
