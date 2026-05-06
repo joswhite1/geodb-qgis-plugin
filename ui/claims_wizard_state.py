@@ -532,13 +532,17 @@ class ClaimsWizardState:
         project = QgsProject.instance()
 
         # --- Find the Lode Claims polygon layer ----------------------------
-        # Match on display name. There may be multiple "Lode Claims" layers
-        # in multi-block projects; prefer the one matching the active
-        # grid_name_prefix when set.
+        # The canonical layer name is "Lode Claims [<prefix> Lode Claims]".
+        # IMPORTANT: match on startswith('Lode Claims'), NOT substring — an
+        # earlier substring match also picked up "Initial Layout [<prefix>
+        # Lode Claims]" because the suffix repeats "Lode Claims" in the
+        # group name. That layer has different attributes, so all features
+        # got skipped and rebuilt counts came back as zero.
         candidates = []
         for lyr in project.mapLayers().values():
             try:
-                if 'Lode Claims' in lyr.name() and lyr.geometryType() == QgsWkbTypes.PolygonGeometry:
+                if (lyr.name().startswith('Lode Claims')
+                        and lyr.geometryType() == QgsWkbTypes.PolygonGeometry):
                     candidates.append(lyr)
             except Exception:
                 continue

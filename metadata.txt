@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.1
+version=2.19.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.2 - Fix v2.19.1 rehydrate matching the wrong polygon layer
+        - rehydrate_from_layers used substring "Lode Claims" matching, which
+          also matched the Initial Layout layer because its display name
+          ("Initial Layout [<prefix> Lode Claims]") repeats the same suffix.
+          On RC-style multi-block projects the matcher picked Initial Layout
+          first, then skipped every feature for missing fields, leaving
+          processed_claims at zero and the buttons greyed.
+        - Switched to startswith("Lode Claims") so only the actual lode
+          claims layer matches.
     2.19.1 - Auto-rehydrate processed claims/waypoints after plugin reload
         - Plugin reloads (from upgrades) and QGIS restarts wiped the
           in-memory processed_claims and processed_waypoints lists, leaving
