@@ -493,6 +493,190 @@ class ClaimsWizardState:
         # NOTE: claim_package_id is loaded from the GeoPackage (load_from_geopackage),
         # not from QGIS project settings. See save_to_qgis_project for rationale.
 
+        # Rehydrate processed_claims + processed_waypoints from QGIS layers if
+        # the GeoPackage metadata says we're past Step 6 but the in-memory
+        # lists are empty (typical after plugin reload / QGIS restart). The
+        # actual claim/waypoint data lives in the project's layers, not in
+        # state — this lets buttons gated on processed_claims (Step 7 push,
+        # Generate Maps) re-enable without forcing a re-process.
+        if 6 in self.completed_steps and not self.processed_claims:
+            try:
+                self.rehydrate_from_layers()
+            except Exception as e:
+                logger.warning(f"rehydrate_from_layers failed: {e}", exc_info=True)
+
+    def rehydrate_from_layers(self) -> int:
+        """
+        Reconstruct processed_claims and processed_waypoints from QGIS layers.
+
+        Used when the in-memory state has been wiped (plugin reload, QGIS
+        restart) but the GeoPackage + project layers still hold the post-
+        processing data. Mirrors the structure ClaimsProcessor returns from
+        process_claims so downstream consumers (Step 7 push, Generate Maps,
+        document generation) work without a server round-trip.
+
+        Drops:
+            - PLSS data (server has it in qclaims_data; upsert preserves
+              fields the client doesn't send, so omitting is safe).
+            - Internal session_id / processed_at (regenerated on next push).
+
+        Returns:
+            Number of claims rehydrated; 0 if no Lode Claims polygon layer
+            was found in the project.
+        """
+        try:
+            from qgis.core import QgsWkbTypes
+        except Exception:
+            return 0
+
+        project = QgsProject.instance()
+
+        # --- Find the Lode Claims polygon layer ----------------------------
+        # Match on display name. There may be multiple "Lode Claims" layers
+        # in multi-block projects; prefer the one matching the active
+        # grid_name_prefix when set.
+        candidates = []
+        for lyr in project.mapLayers().values():
+            try:
+                if 'Lode Claims' in lyr.name() and lyr.geometryType() == QgsWkbTypes.PolygonGeometry:
+                    candidates.append(lyr)
+            except Exception:
+                continue
+        if not candidates:
+            logger.info("[REHYDRATE] No Lode Claims polygon layer found")
+            return 0
+
+        lode_layer = candidates[0]
+        if self.grid_name_prefix:
+            for c in candidates:
+                if self.grid_name_prefix in c.name():
+                    lode_layer = c
+                    break
+
+        # --- Index point layers by claim name -----------------------------
+        def _index_points(name_substr, geom_type=None):
+            out = {}
+            for lyr in project.mapLayers().values():
+                try:
+                    if name_substr not in lyr.name():
+                        continue
+                    if geom_type is not None and lyr.geometryType() != geom_type:
+                        continue
+                    fnames = [fld.name() for fld in lyr.fields()]
+                    for f in lyr.getFeatures():
+                        claim = f['Claim'] if 'Claim' in fnames else None
+                        if not claim:
+                            continue
+                        try:
+                            pt = f.geometry().asPoint()
+                        except Exception:
+                            continue
+                        rec = {
+                            'name': f['Name'] if 'Name' in fnames else '',
+                            'easting': pt.x(),
+                            'northing': pt.y(),
+                        }
+                        out.setdefault(claim, []).append(rec)
+                except Exception:
+                    continue
+            return out
+
+        discoveries = _index_points('Monuments', QgsWkbTypes.PointGeometry)
+        endlines = _index_points('Endline')
+        sidelines = _index_points('Sideline')
+
+        # --- Build processed_claims ---------------------------------------
+        fnames = [fld.name() for fld in lode_layer.fields()]
+
+        def _attr(feat, name, default=None):
+            return feat[name] if name in fnames else default
+
+        rebuilt_claims = []
+        skipped = 0
+        for feat in lode_layer.getFeatures():
+            try:
+                geom = feat.geometry()
+                if not geom or geom.isEmpty() or geom.type() != QgsWkbTypes.PolygonGeometry:
+                    skipped += 1
+                    continue
+                poly = geom.asPolygon()
+                if not poly:
+                    skipped += 1
+                    continue
+            except Exception:
+                skipped += 1
+                continue
+
+            name = _attr(feat, 'Name', '')
+            if not name:
+                skipped += 1
+                continue
+
+            # First exterior ring, drop the closing-vertex duplicate.
+            ring = poly[0][:-1]
+            corners = [
+                {'corner_number': i + 1, 'easting': pt.x(), 'northing': pt.y()}
+                for i, pt in enumerate(ring)
+            ]
+
+            rebuilt_claims.append({
+                'name': name,
+                'state': _attr(feat, 'State', '') or '',
+                'county': _attr(feat, 'County', '') or '',
+                'lm_corner': int(_attr(feat, 'LM Corner', 1) or 1),
+                'lode_azimuth': float(_attr(feat, 'Lode_Azimuth', 0.0) or 0.0),
+                'corners': corners,
+                'discovery_monument': (discoveries.get(name) or [None])[0],
+                'sideline_monuments': sidelines.get(name, []),
+                'endline_monuments': endlines.get(name, []),
+                'plss': {},  # Server preserves existing qclaims_data.plss on upsert.
+                'notes': _attr(feat, 'Notes', '') or '',
+            })
+
+        # --- Build processed_waypoints from the Waypoints layer if present
+        # (canonical deduplicated/numbered set Step 6 already produced) -----
+        rebuilt_waypoints = []
+        wp_layer = None
+        for lyr in project.mapLayers().values():
+            try:
+                if ('Waypoints' in lyr.name()
+                        and 'Reference' not in lyr.name()
+                        and lyr.geometryType() == QgsWkbTypes.PointGeometry):
+                    wp_layer = lyr
+                    break
+            except Exception:
+                continue
+
+        if wp_layer:
+            wp_fnames = [fld.name() for fld in wp_layer.fields()]
+            for f in wp_layer.getFeatures():
+                try:
+                    pt = f.geometry().asPoint()
+                except Exception:
+                    continue
+                rebuilt_waypoints.append({
+                    'sequence_number': f['Name'] if 'Name' in wp_fnames else '',
+                    'name': f['Name'] if 'Name' in wp_fnames else '',
+                    'lat': f['Latitude'] if 'Latitude' in wp_fnames else None,
+                    'lon': f['Longitude'] if 'Longitude' in wp_fnames else None,
+                    'easting': pt.x(),
+                    'northing': pt.y(),
+                    'symbol': f['Symbol'] if 'Symbol' in wp_fnames else 'City (Medium)',
+                    'type': f['waypoint_type'] if 'waypoint_type' in wp_fnames else 'corner',
+                    'claim': f['Claim'] if 'Claim' in wp_fnames else '',
+                })
+
+        self.processed_claims = rebuilt_claims
+        if rebuilt_waypoints:
+            self.processed_waypoints = rebuilt_waypoints
+
+        logger.info(
+            f"[REHYDRATE] Rebuilt {len(rebuilt_claims)} processed_claims "
+            f"and {len(rebuilt_waypoints)} processed_waypoints "
+            f"(skipped {skipped} non-polygon features) from QGIS layers"
+        )
+        return len(rebuilt_claims)
+
     def reset(self):
         """Reset state to defaults (for starting a new claims project)."""
         self.geopackage_path = None

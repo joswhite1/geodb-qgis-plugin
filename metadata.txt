@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.0
+version=2.19.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,26 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.1 - Auto-rehydrate processed claims/waypoints after plugin reload
+        - Plugin reloads (from upgrades) and QGIS restarts wiped the
+          in-memory processed_claims and processed_waypoints lists, leaving
+          the wizard auto-resumed at Step 7 but with greyed-out Push and
+          Generate Maps buttons. The data was always available in the
+          project's QGIS layers (Lode Claims, Waypoints, Monuments,
+          Endline/Sideline) — there was just no path to read it back into
+          state without forcing a server re-process
+        - New ClaimsWizardState.rehydrate_from_layers() reconstructs both
+          lists by walking the existing layers. Called automatically:
+          (a) at the end of load_from_qgis_project when completed_steps
+              indicates Step 6 has been finished, and
+          (b) defensively on Step 6 and Step 7 on_enter when the in-memory
+              list is empty
+        - Server-side data is authoritative for any field the rehydrate
+          path can't reconstruct (PLSS, deadlines, calculated_acreage,
+          state_requirements_snapshot). The bulk-upsert merges qclaims_data,
+          so re-pushing rehydrated claims preserves those server-side values
+        - Same idempotent push semantics: re-pushing rehydrated claims is
+          a no-op against natural-key matched rows
     2.19.0 - Async push, "Cluster LMs" option, ID/NM placement fixes
         - Step 7 "Push & Upload to Server" now uses the async/poll pattern
           shipped in v2.16-v2.17 for the rest of the long claim-flow calls.

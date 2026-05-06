@@ -1413,6 +1413,20 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
     def on_enter(self):
         """Called when step becomes active."""
+        # Auto-rehydrate from QGIS layers if memory is empty but Step 6 was
+        # already completed (e.g. plugin reload / QGIS restart). Lets
+        # downstream consumers like Generate Documents work without forcing
+        # a re-process round-trip.
+        if (not self.state.processed_claims
+                and 6 in getattr(self.state, 'completed_steps', [])):
+            try:
+                self.state.rehydrate_from_layers()
+            except Exception as e:
+                from ...utils.logger import PluginLogger
+                PluginLogger.get_logger().warning(
+                    f"[STEP6] rehydrate_from_layers failed: {e}", exc_info=True,
+                )
+
         self.load_state()
 
         # Update pricing label if pay-per-claim
