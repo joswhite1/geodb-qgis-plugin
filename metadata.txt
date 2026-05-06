@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.2
+version=2.19.3
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,20 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.3 - Fix v2.19.2 rehydrate building invalid LandHolding geometry
+        - Rebuilt corners only carried easting/northing (UTM), no lat/lon.
+          claims_manager._format_landholding falls back to building GeoJSON
+          from `[c.get('lon'), c.get('lat')]` when no `geometry` field is
+          set on the claim — but those keys were missing, so it shipped
+          [[None, None], ...] to the server. OGR rejected all 711 LandHolding
+          rows with "Invalid geometry pointer returned from
+          OGR_G_CreateGeometryFromJson".
+        - Fix: rehydrate now transforms each polygon ring vertex through a
+          QgsCoordinateTransform from the layer's source CRS to EPSG:4326,
+          stores both UTM (easting/northing) and WGS84 (lat/lon) on every
+          corner, and constructs `rotated_geometry` (WGS84 GeoJSON) and
+          `rotated_geometry_utm` (UTM GeoJSON) directly so the format
+          function doesn't take the fallback path at all.
     2.19.2 - Fix v2.19.1 rehydrate matching the wrong polygon layer
         - rehydrate_from_layers used substring "Lode Claims" matching, which
           also matched the Initial Layout layer because its display name

@@ -525,11 +525,15 @@ class ClaimsWizardState:
             was found in the project.
         """
         try:
-            from qgis.core import QgsWkbTypes
+            from qgis.core import (
+                QgsWkbTypes, QgsCoordinateTransform,
+                QgsCoordinateReferenceSystem,
+            )
         except Exception:
             return 0
 
         project = QgsProject.instance()
+        wgs84_crs = QgsCoordinateReferenceSystem('EPSG:4326')
 
         # --- Find the Lode Claims polygon layer ----------------------------
         # The canonical layer name is "Lode Claims [<prefix> Lode Claims]".
@@ -595,6 +599,17 @@ class ClaimsWizardState:
         def _attr(feat, name, default=None):
             return feat[name] if name in fnames else default
 
+        # Transform polygon ring vertices from the layer's CRS (typically UTM)
+        # to WGS84 so we can populate corner lat/lon AND construct a valid
+        # GeoJSON geometry. Without these, the server's OGR_G_CreateGeometry
+        # FromJson rejects the LandHolding row because lon/lat fall back to
+        # None and produce malformed coordinates.
+        layer_crs = lode_layer.sourceCrs()
+        try:
+            to_wgs84 = QgsCoordinateTransform(layer_crs, wgs84_crs, project)
+        except Exception:
+            to_wgs84 = None
+
         rebuilt_claims = []
         skipped = 0
         for feat in lode_layer.getFeatures():
@@ -618,10 +633,42 @@ class ClaimsWizardState:
 
             # First exterior ring, drop the closing-vertex duplicate.
             ring = poly[0][:-1]
-            corners = [
-                {'corner_number': i + 1, 'easting': pt.x(), 'northing': pt.y()}
-                for i, pt in enumerate(ring)
-            ]
+            corners = []
+            wgs84_ring = []
+            utm_ring = []
+            for i, pt in enumerate(ring):
+                e, n = pt.x(), pt.y()
+                lat = lon = None
+                if to_wgs84 is not None:
+                    try:
+                        wgs_pt = to_wgs84.transform(pt)
+                        lon, lat = wgs_pt.x(), wgs_pt.y()
+                    except Exception:
+                        lat = lon = None
+                corners.append({
+                    'corner_number': i + 1,
+                    'easting': e,
+                    'northing': n,
+                    'lat': lat,
+                    'lon': lon,
+                })
+                if lat is not None and lon is not None:
+                    wgs84_ring.append([lon, lat])
+                utm_ring.append([e, n])
+
+            # Closed-ring GeoJSON polygons. Server reads `geometry` (WGS84) for
+            # the LandHolding.geometry field and `rotated_geometry_utm` for the
+            # manual_geometry field — populate both directly so _format_landholding
+            # doesn't fall back to building from corners (which it does using
+            # lon/lat keys; the fallback path was the v2.19.2 bug).
+            rotated_geometry = None
+            if wgs84_ring:
+                closed = wgs84_ring + [wgs84_ring[0]]
+                rotated_geometry = {'type': 'Polygon', 'coordinates': [closed]}
+            rotated_geometry_utm = None
+            if utm_ring:
+                closed_utm = utm_ring + [utm_ring[0]]
+                rotated_geometry_utm = {'type': 'Polygon', 'coordinates': [closed_utm]}
 
             rebuilt_claims.append({
                 'name': name,
@@ -630,6 +677,8 @@ class ClaimsWizardState:
                 'lm_corner': int(_attr(feat, 'LM Corner', 1) or 1),
                 'lode_azimuth': float(_attr(feat, 'Lode_Azimuth', 0.0) or 0.0),
                 'corners': corners,
+                'rotated_geometry': rotated_geometry,
+                'rotated_geometry_utm': rotated_geometry_utm,
                 'discovery_monument': (discoveries.get(name) or [None])[0],
                 'sideline_monuments': sidelines.get(name, []),
                 'endline_monuments': endlines.get(name, []),
