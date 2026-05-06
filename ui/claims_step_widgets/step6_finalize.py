@@ -482,7 +482,10 @@ class ClaimsStep6Widget(ClaimsStepBase):
             self.emit_status("Sending claims to server for processing...", "info")
             # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
-            result = self.claims_manager.process_claims(claims, self.state.project_id)
+            result = self.claims_manager.process_claims(
+                claims, self.state.project_id,
+                auto_lm_cluster=self.state.auto_lm_cluster,
+            )
 
             self.progress_bar.setValue(50)
             self.emit_status("Creating QGIS layers...", "info")

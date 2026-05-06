@@ -130,13 +130,20 @@ class ClaimsStep4Widget(ClaimsStepBase):
         info_label = QLabel(
             "In Idaho and New Mexico, you designate which corner of each claim is the "
             "Location Monument (LM) corner. The discovery monument is placed relative to "
-            "this corner. Default is Corner 1 (typically southwest)."
+            "this corner. Default is Corner 1 (typically southwest).\n\n"
+            "Choose \"Cluster LMs\" to let the server pick a shared interior corner "
+            "where adjacent claims meet — so a 4-claim intersection gets one survey "
+            "point instead of four scattered LMs. Cluster mode prefers shared corners "
+            "on public land; if no corner is on public land it slides along an edge "
+            "to the nearest public-land position."
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet(self._get_info_label_style())
         layout.addWidget(info_label)
 
-        # Corner selector
+        # Corner selector. The 'Cluster LMs' entry uses sentinel data=0 — the
+        # widget translates that into state.auto_lm_cluster=True + lm_corner=1
+        # (the rotation default; the server ignores it in cluster mode).
         form = QFormLayout()
         form.setSpacing(8)
 
@@ -146,6 +153,7 @@ class ClaimsStep4Widget(ClaimsStepBase):
         self.lm_corner_combo.addItem("Corner 2", 2)
         self.lm_corner_combo.addItem("Corner 3", 3)
         self.lm_corner_combo.addItem("Corner 4", 4)
+        self.lm_corner_combo.addItem("Cluster LMs (smart, ID/NM)", 0)
         self.lm_corner_combo.currentIndexChanged.connect(self._on_lm_corner_changed)
         form.addRow("LM Corner:", self.lm_corner_combo)
 
@@ -202,11 +210,22 @@ class ClaimsStep4Widget(ClaimsStepBase):
         self.emit_validation_changed()
 
     def _on_lm_corner_changed(self, index: int):
-        """Handle LM corner selection change."""
+        """Handle LM corner selection change.
+
+        Sentinel data=0 means "Cluster LMs": flip auto_lm_cluster on and
+        leave lm_corner at 1. Data 1-4 is a literal corner pick — turn
+        auto_lm_cluster off so the server uses the corner verbatim.
+        """
         corner = self.lm_corner_combo.currentData()
-        if corner:
+        if corner is None:
+            return
+        if corner == 0:
+            self.state.auto_lm_cluster = True
+            self.state.lm_corner = 1
+        else:
+            self.state.auto_lm_cluster = False
             self.state.lm_corner = corner
-            self.emit_validation_changed()
+        self.emit_validation_changed()
 
     # =========================================================================
     # ClaimsStepBase Implementation
@@ -232,14 +251,18 @@ class ClaimsStep4Widget(ClaimsStepBase):
     def save_state(self):
         """Save widget state to shared state."""
         self.state.monument_inset_ft = self.inset_spin.value()
-        self.state.lm_corner = self.lm_corner_combo.currentData() or 1
+        # Already updated synchronously by _on_lm_corner_changed; nothing else
+        # to do here. (Direct read of currentData would clobber auto_lm_cluster
+        # after it was set, since the cluster sentinel is also 0.)
 
     def load_state(self):
         """Load widget state from shared state."""
         self.inset_spin.setValue(self.state.monument_inset_ft)
 
-        # Set LM corner combo
+        # Set LM corner combo. Cluster mode = data sentinel 0; literal pick =
+        # data matches state.lm_corner.
+        target_data = 0 if self.state.auto_lm_cluster else self.state.lm_corner
         for i in range(self.lm_corner_combo.count()):
-            if self.lm_corner_combo.itemData(i) == self.state.lm_corner:
+            if self.lm_corner_combo.itemData(i) == target_data:
                 self.lm_corner_combo.setCurrentIndex(i)
                 break

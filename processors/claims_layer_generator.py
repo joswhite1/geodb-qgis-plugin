@@ -85,6 +85,10 @@ class ClaimsLayerGenerator:
         # Configuration
         self.monument_inset_ft = 25.0  # Default 25 feet
         self.buffer_distance = -40  # For inset corner labels (meters)
+        # When True, the server runs the shared-corner clustering algorithm
+        # for ID/NM claims and ignores per-claim lm_corner. Surfaced via
+        # `set_auto_lm_cluster`; threaded into every layer-rebuild call.
+        self.auto_lm_cluster = False
 
     def set_claims_manager(self, claims_manager: 'ClaimsManager'):
         """Set the claims manager for server API calls."""
@@ -127,6 +131,17 @@ class ClaimsLayerGenerator:
             inset_ft: Monument inset distance from centerline endpoint in feet
         """
         self.monument_inset_ft = inset_ft
+
+    def set_auto_lm_cluster(self, enabled: bool):
+        """
+        Toggle the server-side shared-corner clustering algorithm for ID/NM.
+
+        When enabled, the server picks the LM corner per claim (preferring
+        shared corners on public land) instead of honoring the per-claim
+        lm_corner attribute. Wired from the Step 4 "Cluster LMs" dropdown
+        entry; safe to call repeatedly.
+        """
+        self.auto_lm_cluster = bool(enabled)
 
     def generate_layers_from_server(
         self,
@@ -195,6 +210,7 @@ class ClaimsLayerGenerator:
             monument_inset_ft=self.monument_inset_ft,
             state=state,
             monument_overrides=monument_overrides,
+            auto_lm_cluster=self.auto_lm_cluster,
         )
 
         if not response or 'layers' not in response:
@@ -635,6 +651,7 @@ class ClaimsLayerGenerator:
                 epsg=epsg,
                 monument_inset_ft=self.monument_inset_ft,
                 monument_overrides=monument_overrides,
+                auto_lm_cluster=self.auto_lm_cluster,
             )
 
             # Debug: Log response structure
@@ -758,6 +775,7 @@ class ClaimsLayerGenerator:
                 epsg=epsg,
                 monument_inset_ft=self.monument_inset_ft,
                 monument_overrides=monument_overrides,
+                auto_lm_cluster=self.auto_lm_cluster,
             )
 
             if not response or 'layers' not in response:

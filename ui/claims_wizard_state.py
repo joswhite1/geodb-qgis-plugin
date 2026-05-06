@@ -64,6 +64,11 @@ class ClaimsWizardState:
     # Step 4: Monument Settings
     monument_inset_ft: float = 25.0  # Default 25 feet from centerline
     lm_corner: int = 1  # Default Corner 1 for LM designation (ID/NM)
+    # When True, server runs the shared-corner clustering algorithm to pick
+    # the LM corner per claim (ID/NM only). When False (default), the server
+    # uses `lm_corner` literally for every claim. Surfaced as the "Cluster
+    # LMs (smart)" entry in the Step 4 dropdown.
+    auto_lm_cluster: bool = False
 
     # Step 7: Map output options
     # Controls page orientation for field and generic filing maps.
@@ -276,6 +281,7 @@ class ClaimsWizardState:
                 'grid_azimuth': str(self.grid_azimuth),
                 'monument_inset_ft': str(self.monument_inset_ft),
                 'lm_corner': str(self.lm_corner),
+                'auto_lm_cluster': '1' if self.auto_lm_cluster else '0',
                 'reference_points': json.dumps(self.reference_points),
                 'map_orientation': self.map_orientation,
                 'completed_steps': json.dumps(self.completed_steps),
@@ -418,6 +424,7 @@ class ClaimsWizardState:
             self.grid_azimuth = float(metadata.get('grid_azimuth', '0.0'))
             self.monument_inset_ft = float(metadata.get('monument_inset_ft', '25.0'))
             self.lm_corner = int(metadata.get('lm_corner', '1'))
+            self.auto_lm_cluster = metadata.get('auto_lm_cluster', '0') in ('1', 'true', 'True', 'yes')
 
             ref_points_json = metadata.get('reference_points', '[]')
             self.reference_points = json.loads(ref_points_json)

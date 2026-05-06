@@ -264,6 +264,7 @@ class ClaimsManager:
         project_id: int,
         epsg: int = None,
         progress_parent=None,
+        auto_lm_cluster: bool = False,
     ) -> Dict[str, Any]:
         """
         Send claims to server for processing (Enterprise/Staff only).
@@ -286,6 +287,13 @@ class ClaimsManager:
         # If no top-level EPSG provided, try to get it from the first claim
         if epsg is None and claims:
             epsg = claims[0].get('epsg')
+
+        # Server reads `auto_lm_cluster` per-claim. Stamp it on each claim dict
+        # so a future per-claim UI (different cluster choice for some claims)
+        # can override per-row without changing the wire shape.
+        if auto_lm_cluster:
+            for c in claims:
+                c['auto_lm_cluster'] = True
 
         try:
             url = self.config.get_claims_url('process/')
@@ -667,37 +675,48 @@ class ClaimsManager:
         stakes: List[Dict[str, Any]],
         project_id: int,
         epsg: int = None,
-        claim_package_id: int = None
+        claim_package_id: int = None,
+        document_ids: Optional[List[int]] = None,
+        progress_parent=None,
     ) -> Dict[str, Any]:
         """
         Push processed claims to server as LandHoldings + ClaimStakes.
 
-        Uses existing bulk upsert endpoints.
+        Uses the consolidated `/api/v2/claims/push-to-server/` endpoint, which
+        runs ClaimStake bulk-upsert (with `cleanup_orphans=True`) → LandHolding
+        bulk-upsert → optional document linking in a single async-capable call.
+        For 700+ claim blocks this avoids the Cloudflare 100s origin-read
+        timeout that the per-model `/api/v1/.../bulk/` pair tripped.
+
+        Falls back to the legacy two-call path against an old server if the
+        push-to-server endpoint returns 404 — older deploys may still be
+        catching up while the plugin is updated independently.
 
         Args:
-            claims: List of processed claim data
-            stakes: List of waypoint/stake data
-            project_id: Target project ID
-            epsg: EPSG code for UTM coordinates (e.g., 26911 for UTM Zone 11N)
+            claims: List of processed claim data (LandHolding records).
+            stakes: List of waypoint/stake data (ClaimStake records).
+            project_id: Target project ID.
+            epsg: EPSG code for UTM coordinates (e.g., 26911 for UTM Zone 11N).
             claim_package_id: Optional ClaimPackage ID to link claims to.
-                When provided, the server links LandHoldings to this existing
-                package instead of creating a new one. This prevents duplicate
-                packages when documents are generated before claims are pushed.
+            document_ids: Optional list of Document IDs to link to LandHoldings
+                in the same async job (saves a follow-up round-trip).
+            progress_parent: Optional Qt parent for the ClaimsProgressDialog.
 
         Returns:
             Dict with:
                 - landholdings: bulk upsert result
                 - stakes: bulk upsert result
+                - documents_linked: int (when document_ids was provided)
         """
         # Validate project_id is a positive integer
         if not isinstance(project_id, int) or project_id <= 0:
             raise ValueError(f"Invalid project_id: {project_id}")
 
         try:
-            self.logger.debug(f"[QCLAIMS] push_to_server: {len(claims)} claims, {len(stakes)} stakes, project_id={project_id}")
             self.logger.info(
                 f"[QCLAIMS] push_to_server: {len(claims)} claims, {len(stakes)} stakes, "
-                f"project_id={project_id}, epsg={epsg}, claim_package_id={claim_package_id}"
+                f"project_id={project_id}, epsg={epsg}, claim_package_id={claim_package_id}, "
+                f"document_ids={len(document_ids or [])}"
             )
 
             # Format claims as LandHolding records
@@ -712,75 +731,97 @@ class ClaimsManager:
                 for stake in stakes
             ]
 
-            self.logger.debug(f"[QCLAIMS] Formatted {len(landholding_records)} LandHoldings, {len(stake_records)} ClaimStakes")
             self.logger.info(
                 f"[QCLAIMS] Formatted {len(landholding_records)} LandHoldings, "
                 f"{len(stake_records)} ClaimStakes"
             )
 
-            # Use existing bulk upsert endpoints
-            # IMPORTANT: Push ClaimStakes FIRST, then LandHoldings
-            # The LandHolding serializer's _auto_link_stakes() needs the stakes
-            # to already exist so it can link them by coordinate matching
-            landholdings_result = {}
-            stakes_result = {}
-
-            if stake_records:
-                # Push stakes FIRST so they exist when LandHoldings are created.
-                # cleanup_orphans=True opts into the server's post-upsert cleanup:
-                # when claims are re-processed, sequence numbers may change due to
-                # nearest-neighbor sorting. The server hard-deletes any Planned
-                # stakes in this project+package whose sequence_number isn't in
-                # this push. ONLY safe here because the QGIS plugin pushes the
-                # full authoritative set after re-processing — a partial push
-                # (e.g. a mobile field-worker sync) would catastrophically wipe
-                # every other PL stake. The server defaults the flag to False.
-
-                # Debug: Log first stake record to verify format
-                if stake_records:
-                    first_stake = stake_records[0]
-                    self.logger.debug(f"[QCLAIMS] First stake record: {first_stake}")
-                    self.logger.info(f"[QCLAIMS] First stake: seq={first_stake.get('sequence_number')}, "
-                                     f"project={first_stake.get('project')}, "
-                                     f"claim_package={first_stake.get('claim_package')}")
-
-                stakes_result = self.api.bulk_upsert_records(
-                    'ClaimStake',
-                    stake_records,
-                    cleanup_orphans=True
-                )
-                self.logger.info(
-                    f"[QCLAIMS] Pushed {len(stake_records)} ClaimStakes via bulk upsert"
-                )
-
-                # Debug: Log upsert result summary
-                summary = stakes_result.get('summary', {})
-                self.logger.debug(
-                    f"[QCLAIMS] Stakes result: created={summary.get('created')}, "
-                    f"updated={summary.get('updated')}, errors={summary.get('errors')}, "
-                    f"orphans_deleted={stakes_result.get('orphan_stakes_deleted', 0)}"
-                )
-            else:
-                self.logger.warning("[QCLAIMS] No stake_records to push")
-
-            if landholding_records:
-                # Push LandHoldings AFTER stakes - auto-linking will find the stakes
-                landholdings_result = self.api.bulk_upsert_records(
-                    'LandHolding',
-                    landholding_records
-                )
-                self.logger.info(
-                    f"[QCLAIMS] Pushed {len(landholding_records)} LandHoldings"
-                )
-
-            return {
-                'landholdings': landholdings_result,
-                'stakes': stakes_result
+            # Send everything to the consolidated push endpoint as one async job.
+            # cleanup_orphans=True: see ClaimStakeViewSet._bulk_upsert docstring —
+            # the QGIS plugin is the only path authorised to use this flag because
+            # it pushes the full authoritative set after re-processing. A mobile
+            # field-worker partial sync would catastrophically wipe other PL stakes.
+            payload = {
+                'claims': landholding_records,
+                'stakes': stake_records,
+                'project_id': project_id,
+                'epsg': epsg,
+                'claim_package_id': claim_package_id,
+                'cleanup_orphans': True,
+                'document_ids': document_ids or [],
             }
+
+            url = self.config.get_claims_url('push-to-server/')
+            try:
+                result = self.api.post_async_capable(
+                    url, payload,
+                    progress_title="Pushing claims to server",
+                    progress_parent=progress_parent,
+                )
+            except APIException as e:
+                # Fall back to the legacy two-call path against older servers
+                # that don't have /push-to-server/ yet. Detected by 404 on the
+                # consolidated endpoint.
+                if '404' in str(e) or 'Not Found' in str(e):
+                    self.logger.warning(
+                        f"[QCLAIMS] /push-to-server/ returned 404; falling back to "
+                        f"legacy bulk-upsert pair. Server may not have v2.19+ deployed."
+                    )
+                    return self._legacy_push_to_server(
+                        landholding_records, stake_records,
+                    )
+                raise
+
+            self.logger.info(
+                f"[QCLAIMS] Push complete: lh={result.get('landholdings', {}).get('summary')} "
+                f"stakes={result.get('stakes', {}).get('summary')} "
+                f"orphans={result.get('stakes', {}).get('orphan_stakes_deleted', 0)} "
+                f"docs_linked={result.get('documents_linked', 0)}"
+            )
+            return result
 
         except APIException as e:
             self.logger.error(f"[QCLAIMS] Push to server failed: {e}")
             raise
+
+    def _legacy_push_to_server(
+        self,
+        landholding_records: List[Dict[str, Any]],
+        stake_records: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Backwards-compatible push path against servers that don't have the
+        consolidated `/push-to-server/` endpoint deployed yet.
+
+        Same call sequence the plugin used in v2.18.x and earlier — ClaimStake
+        bulk-upsert (with cleanup_orphans) → LandHolding bulk-upsert. Vulnerable
+        to the Cloudflare 100s timeout for big blocks; only triggered when the
+        consolidated endpoint returns 404.
+        """
+        landholdings_result = {}
+        stakes_result = {}
+
+        if stake_records:
+            stakes_result = self.api.bulk_upsert_records(
+                'ClaimStake', stake_records, cleanup_orphans=True,
+            )
+            self.logger.info(
+                f"[QCLAIMS] Legacy: pushed {len(stake_records)} ClaimStakes"
+            )
+
+        if landholding_records:
+            landholdings_result = self.api.bulk_upsert_records(
+                'LandHolding', landholding_records,
+            )
+            self.logger.info(
+                f"[QCLAIMS] Legacy: pushed {len(landholding_records)} LandHoldings"
+            )
+
+        return {
+            'landholdings': landholdings_result,
+            'stakes': stakes_result,
+            'documents_linked': 0,
+        }
 
     def link_geopackage(
         self,
@@ -1155,6 +1196,7 @@ class ClaimsManager:
         state: Optional[str] = None,
         progress_parent=None,
         monument_overrides: Optional[Dict[str, Dict[str, float]]] = None,
+        auto_lm_cluster: bool = False,
     ) -> Dict[str, Any]:
         """
         Get preview layers from server for QGIS visualization.
@@ -1182,6 +1224,10 @@ class ClaimsManager:
                 - claims: list with rotated geometries
                 - summary: dict with counts
         """
+        if auto_lm_cluster:
+            for c in claims:
+                c['auto_lm_cluster'] = True
+
         try:
             url = self.config.get_claims_url('preview-layers/')
             data = {
@@ -1218,6 +1264,7 @@ class ClaimsManager:
         monument_inset_ft: float = 25.0,
         progress_parent=None,
         monument_overrides: Optional[Dict[str, Dict[str, float]]] = None,
+        auto_lm_cluster: bool = False,
     ) -> Dict[str, Any]:
         """
         Update LM corners and get refreshed preview layers.
@@ -1238,6 +1285,10 @@ class ClaimsManager:
         Returns:
             Same as get_preview_layers, with rotated geometries
         """
+        if auto_lm_cluster:
+            for c in claims:
+                c['auto_lm_cluster'] = True
+
         try:
             url = self.config.get_claims_url('update-lm-corner-layers/')
             data = {

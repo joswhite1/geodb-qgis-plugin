@@ -647,6 +647,7 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
         # Configure generator
         self.layer_generator.set_monument_inset(self.state.monument_inset_ft)
+        self.layer_generator.set_auto_lm_cluster(self.state.auto_lm_cluster)
         self.layer_generator.set_claims_manager(self.claims_manager)
 
         if self.state.geopackage_path:

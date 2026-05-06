@@ -260,6 +260,9 @@ class Config:
             'claims_orders': f"{base}/claims/orders/",
             'claims_documents': f"{base}/claims/documents/",
             'claims_generate_witnesses': f"{base}/claims/generate-witnesses/",
+            # Step 7: combined push-and-link endpoint (async-capable; replaces
+            # the v1 ClaimStake/LandHolding bulk-upsert pair from v2.18.x).
+            'claims_push_to_server': f"{base}/claims/push-to-server/",
 
             # BLM Claims (services API - different base, uses geodb.io not api.geodb.io)
             'blm_claims_sections': f"{self.services_base_url}/blm-claims/sections/",

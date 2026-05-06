@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.18.0
+version=2.19.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,37 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.0 - Async push, "Cluster LMs" option, ID/NM placement fixes
+        - Step 7 "Push & Upload to Server" now uses the async/poll pattern
+          shipped in v2.16-v2.17 for the rest of the long claim-flow calls.
+          For 700+ claim blocks the previous synchronous bulk-upsert pair
+          (ClaimStake bulk + LandHolding bulk) tripped Cloudflare's ~100s
+          origin-read timeout and the request died at the proxy even though
+          the server was happily processing it
+        - New consolidated server endpoint `/api/v2/claims/push-to-server/`
+          combines ClaimStake bulk + LandHolding bulk + document linking
+          into a single async job; progress dialog reports stage
+          (pushing_stakes → pushing_landholdings → linking_documents →
+          finalizing) with live percentage fed by per-record progress from
+          the server's bulk-upsert mixin
+        - Document linking (previously a follow-up call after the push)
+          is now folded into the same job — saves a round-trip and means
+          the success path is one HTTP request from the plugin's POV
+        - Step 4 "LM Corner" dropdown gains a "Cluster LMs (smart, ID/NM)"
+          option. When chosen, the server runs the shared-corner clustering
+          algorithm: 4-claim interior intersections cluster all 4 LMs at one
+          shared corner so the crew surveys one point instead of four
+          scattered ones. Prefers shared corners on public land; if no
+          corner is on public land, slides along an edge to the nearest
+          public-land position
+        - Behavior change for ID/NM: explicit corner picks (1-4) are now
+          honored literally — the server no longer silently overrides the
+          user's choice with the algorithm. Cluster behavior is opt-in via
+          the new dropdown entry. (This was the 2026-05-05 phase-2 work
+          that wasn't actually firing the way users could see; it now does)
+        - Backwards compatible: against an older server without the
+          consolidated push endpoint, the plugin transparently falls back
+          to the legacy two-call path
     2.18.0 - Sticky monument overrides preserve user-moved LM positions
         - When the user drags a discovery monument in Step 5 (Adjust) and then
           triggers a server-side regen — full preview rebuild OR LM-corner

@@ -1321,12 +1321,18 @@ class ClaimsStep7Widget(ClaimsStepBase):
                     "ClaimPackage on the server. Was 'Generate Documents' run in Step 6?"
                 )
 
+            # Generated documents (from Step 6) get linked in the same async
+            # job so we don't pay another round-trip after the push.
+            doc_ids = list(getattr(self.state, 'generated_document_ids', []) or [])
+
             result = self.claims_manager.push_to_server(
                 self.state.processed_claims,
                 self.state.processed_waypoints,
                 self.state.project_id,
                 self.state.project_epsg,  # Pass EPSG for UTM coordinate preservation
-                self.state.claim_package_id  # Link claims to existing package from document generation
+                self.state.claim_package_id,  # Link claims to existing package from document generation
+                document_ids=doc_ids,
+                progress_parent=self,
             )
 
             self.progress_bar.setValue(50)
@@ -1334,24 +1340,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
             # Show result
             lh_summary = result.get('landholdings', {}).get('summary', {})
             st_summary = result.get('stakes', {}).get('summary', {})
-
-            # Link documents to landholdings if we have generated document IDs
-            doc_ids = getattr(self.state, 'generated_document_ids', [])
-            docs_linked = 0
-            if doc_ids and lh_summary.get('created', 0) > 0:
-                try:
-                    # Get claim names for linking
-                    claim_names = [c.get('name') for c in self.state.processed_claims if c.get('name')]
-                    if claim_names:
-                        link_result = self.claims_manager.link_documents_to_landholdings(
-                            document_ids=doc_ids,
-                            landholding_names=claim_names,
-                            project_id=self.state.project_id
-                        )
-                        docs_linked = link_result.get('documents_linked', 0)
-                except Exception as link_err:
-                    # Don't fail the whole push if document linking fails
-                    self.emit_status(f"Warning: Could not link documents: {link_err}", "warning")
+            docs_linked = result.get('documents_linked', 0)
 
             self.progress_bar.setValue(65)
 
