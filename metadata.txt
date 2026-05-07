@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.6
+version=2.19.7
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,29 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.7 - Drop ID/NM LM-typed stakes from Step-7 push (CP-2026-0059 final)
+        - Idaho Code 47-602 and NMSA 69-3-1 require the Location Monument
+          to be at a CORNER. Those states have no separate Location
+          Monument stake — the LM is one of the four WP-typed corner
+          stakes, identified via LandHolding.lm_corner. Pushing a
+          stake_type='LM' for an ID/NM claim creates a stake at a
+          regulatorily-invalid (non-corner) position; the resulting
+          location notice cannot be filed.
+        - Server stopped emitting these for ID/NM in production
+          2026-05-07 (offset_lm waypoint removed, monument-overrides at
+          non-corner positions rejected). API serializer now rejects
+          inbound LM stakes linked to ID/NM LandHoldings as a backstop.
+        - This release adds the matching client-side filter: claims
+          manager's push_to_server drops 'discovery'-typed waypoints
+          whose claim is in ID/NM before they're formatted as stakes.
+          Stops the per-stake 400 chatter when an old QGIS project still
+          has a stale Monuments layer from a pre-2026-05-07 run; user
+          sees a clean push instead. Filter only triggers when EVERY
+          linked claim is ID/NM — shared waypoints with at least one
+          non-ID/NM claim still go through (server validates per-link).
+        - No behavior change for non-ID/NM states: NV/CA/AZ/WY/MT/CO/OR/
+          WA/UT/AK/SD continue to push their discovery monuments
+          normally. Auto-LM placement for those states is unchanged.
     2.19.6 - Fix v2.19.5 reading State attribute from the wrong layer
         - v2.19.5's per-claim state lookup used `state.claims_layer` to read
           the State attribute. That property resolves to the Initial Layout

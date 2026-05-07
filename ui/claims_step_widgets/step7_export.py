@@ -717,6 +717,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 self.generate_maps_btn.setText("Rendering on server...")
                 server_summary = self.claims_manager.generate_package_maps(
                     claim_package_id=self.state.claim_package_id,
+                    progress_parent=self,
                 )
                 self.maps_progress.setValue(95)
                 self.logger.info(

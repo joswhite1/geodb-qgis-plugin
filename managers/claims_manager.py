@@ -725,6 +725,26 @@ class ClaimsManager:
                 for claim in claims
             ]
 
+            # Filter out 'discovery'-typed waypoints that belong to ID/NM
+            # claims before they become stake_type='LM' rows.
+            #
+            # Why: Idaho Code 47-602 and NMSA 69-3-1 require the Location
+            # Monument to be at a CORNER of the claim. Those states have NO
+            # separate Location Monument stake — the LM is one of the four
+            # WP-typed corner stakes, identified via LandHolding.lm_corner.
+            # Pushing stake_type='LM' for an ID/NM claim creates a stake at
+            # a regulatorily-invalid (non-corner) position, which produces
+            # unfileable location notices (CP-2026-0059, Rock Creek ID —
+            # 155 phantom LM stakes 2026-05-04..06).
+            #
+            # Server processor stopped emitting these in production
+            # 2026-05-07 and the API serializer rejects them as a backstop,
+            # but a stale Monuments layer in the user's QGIS project (left
+            # over from a prior bad run) can still be the source. Drop them
+            # client-side as the first defense; the user just sees a clean
+            # push instead of a per-stake 400 from the server.
+            stakes = self._filter_id_nm_lm_waypoints(stakes, claims)
+
             # Format waypoints as ClaimStake records
             stake_records = [
                 self._format_stake(stake, project_id, claim_package_id)
@@ -916,6 +936,7 @@ class ClaimsManager:
         self,
         claim_package_id: int,
         regenerate: bool = False,
+        progress_parent=None,
     ) -> Dict[str, Any]:
         """Trigger server-side claim-map rendering for a package.
 
@@ -925,11 +946,16 @@ class ClaimsManager:
         filing + field + location maps with Vision QC where enabled) as
         ClaimPackageDocument(document_type='field_map') rows.
 
+        Uses post_async_capable so a progress dialog is shown while the server
+        renders (typically 60–120s for large blocks); avoids the Cloudflare
+        100s origin-read timeout that caused silent "0 rendered" failures.
+
         Args:
             claim_package_id: Server-side ClaimPackage ID
             regenerate: If True, soft-delete prior auto-generated maps and
                 render fresh. If False (default), server short-circuits with
                 already-generated documents when present.
+            progress_parent: Optional Qt parent widget for the progress dialog.
 
         Returns:
             Dict with 'generated' (list of {document_id, title, download_url, ...}),
@@ -942,9 +968,105 @@ class ClaimsManager:
             f"[QCLAIMS] Triggering server-side map generation for "
             f"ClaimPackage {claim_package_id} (regenerate={regenerate})"
         )
-        return self.api._make_request(
-            'POST', url, data={'regenerate': bool(regenerate)},
+        return self.api.post_async_capable(
+            url,
+            data={'regenerate': bool(regenerate)},
+            progress_title="Rendering server-side maps...",
+            progress_parent=progress_parent,
         )
+
+    # States where statute requires the LM at a corner (no separate
+    # discovery monument). Idaho Code 47-602; NMSA 69-3-1.
+    _LM_AT_CORNER_STATES = frozenset({'ID', 'NM'})
+
+    def _filter_id_nm_lm_waypoints(
+        self,
+        stakes: List[Dict[str, Any]],
+        claims: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Drop 'discovery'-typed waypoints whose claim is in ID/NM.
+
+        Background: see the call-site comment in `push_to_server`. The
+        server processor stopped emitting these for ID/NM in 2026-05-07,
+        but a stale Monuments QGIS layer (left over from a prior bad run
+        before the user upgraded the plugin) can still feed them in via
+        Step-6's `_merge_adjusted_monuments_into_waypoints`. Filtering
+        here is the cheapest fix — no server round-trip, no per-stake
+        400 error, and the user just sees a clean push.
+
+        Args:
+            stakes: List of waypoint dicts (the same shape produced by
+                _deduplicate_waypoints — has 'type' and either 'claim'
+                or 'claims').
+            claims: List of processed-claim dicts (used to build a
+                name→state map). Each must have 'name' and 'state' keys
+                (set by the server processor's _process_single_claim).
+
+        Returns:
+            Filtered list. Order preserved relative to inputs.
+        """
+        if not stakes:
+            return stakes
+
+        state_by_name: Dict[str, str] = {}
+        for c in (claims or []):
+            try:
+                name = c.get('name')
+                st = (c.get('state') or '').strip().upper()
+                if name and st:
+                    state_by_name[name] = st
+            except AttributeError:
+                continue
+
+        if not state_by_name:
+            # No state metadata to filter against — pass through. The
+            # server-side serializer rejection is the backstop.
+            return stakes
+
+        kept: List[Dict[str, Any]] = []
+        dropped = 0
+        dropped_by_state: Dict[str, int] = {}
+        for stake in stakes:
+            wp_type = stake.get('type', 'corner')
+            if wp_type != 'discovery':
+                kept.append(stake)
+                continue
+            # Each waypoint may belong to multiple claims (shared corners
+            # use 'claims' list; non-shared uses 'claim' singleton). For
+            # discovery waypoints these are typically per-claim — but
+            # treat 'claims' as authoritative when present.
+            claim_names = stake.get('claims') or (
+                [stake['claim']] if stake.get('claim') else []
+            )
+            # Drop only when EVERY linked claim is ID/NM. If a discovery
+            # waypoint is shared with at least one non-ID/NM claim, keep
+            # it (the server will still validate per-link).
+            id_nm_states = [
+                state_by_name.get(n) for n in claim_names
+                if state_by_name.get(n) in self._LM_AT_CORNER_STATES
+            ]
+            non_id_nm_present = any(
+                state_by_name.get(n) and state_by_name.get(n) not in self._LM_AT_CORNER_STATES
+                for n in claim_names
+            )
+            if id_nm_states and not non_id_nm_present:
+                dropped += 1
+                for st in id_nm_states:
+                    dropped_by_state[st] = dropped_by_state.get(st, 0) + 1
+                continue
+            kept.append(stake)
+
+        if dropped:
+            self.logger.info(
+                f"[QCLAIMS] Dropped {dropped} 'discovery' waypoint(s) for "
+                f"ID/NM claims (by state: {dropped_by_state}). Those "
+                f"states require the LM at a CORNER by statute (Idaho "
+                f"Code 47-602; NMSA 69-3-1) and have no separate Location "
+                f"Monument stake. Server would have rejected these with "
+                f"400 anyway; dropping client-side keeps the push clean."
+            )
+
+        return kept
 
     def _format_landholding(
         self,
