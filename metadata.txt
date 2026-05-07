@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.5
+version=2.19.6
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,23 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.6 - Fix v2.19.5 reading State attribute from the wrong layer
+        - v2.19.5's per-claim state lookup used `state.claims_layer` to read
+          the State attribute. That property resolves to the Initial Layout
+          polygon layer (from Step 2), NOT the Lode Claims layer — Initial
+          Layout has no State attribute, so the lookup always returned None,
+          and `None in {ID, NM}` was False. Filter never fired. Every claim
+          in the Monuments layer was sent through as an override regardless
+          of state, and the server obediently re-stamped manual_override=True
+          on the same 155 RC claims (visible in pod logs as "Manual LM
+          override applied — using ...")
+        - Fix: build a per-claim {name: state} lookup from the best
+          available source. Prefer state.processed_claims (in-memory dicts
+          from the most recent server response — has 'state' per claim);
+          fall back to scanning the project for a layer whose name starts
+          with "Lode Claims" and reading its State attribute. State has no
+          tracked layer id for the Lode Claims layer, so this name-based
+          search is the only reliable path
     2.19.5 - Skip ID/NM claims in monument_overrides capture
         - The plugin's read_monument_overrides_from_state reads ALL features
           from the QGIS Monuments layer and sends them to the server as

@@ -55,27 +55,74 @@ def _build_transform_fn(source_crs) -> Optional[Callable[[float, float], tuple]]
 LM_AT_CORNER_STATES = {'ID', 'NM'}
 
 
-def _state_for_claim(claims_layer, claim_name: str) -> Optional[str]:
-    """Look up a claim's state from the Lode Claims layer's `State` attr.
+def _build_claim_state_lookup(state: Any) -> Dict[str, str]:
+    """Build a dict of {claim_name: state_abbr} from the best available source.
 
-    Returns the postal abbreviation (e.g. 'ID', 'NM', 'NV') or None if the
-    layer is missing, the feature isn't found, or the State attribute is
-    blank. Used by `read_monument_overrides_from_state` to filter out
-    LM-at-corner-state claims that should never carry an override.
+    Tries in order:
+    1. `state.processed_claims` (in-memory dicts from the most recent server
+       response — populated by Step 6 process_claims; each item has a
+       'state' key). Authoritative when present.
+    2. The actual Lode Claims polygon layer in the QGIS project, found by
+       name prefix "Lode Claims". Reads each feature's `State` attribute.
+
+    NOTE: `state.claims_layer` resolves to the Initial Layout polygon layer
+    (the user-drawn polygon from Step 2), NOT the Lode Claims layer. Initial
+    Layout has no `State` attribute, so checking it always returns None and
+    breaks the filter — that was the v2.19.5 regression that let monument
+    overrides leak through for ID/NM claims.
+
+    Returns an empty dict when nothing is available, in which case the
+    caller falls back to "send all overrides" (same behavior as pre-v2.19.5).
     """
-    if not is_layer_valid(claims_layer):
-        return None
-    fields = claims_layer.fields()
-    if 'State' not in fields.names() or 'Name' not in fields.names():
-        return None
-    for feat in claims_layer.getFeatures():
+    lookup: Dict[str, str] = {}
+
+    # Source 1: in-memory processed_claims from the most recent server run.
+    processed = getattr(state, 'processed_claims', None) or []
+    for claim in processed:
         try:
-            if feat['Name'] == claim_name:
-                state = feat['State']
-                return (state or '').strip().upper() or None
-        except (KeyError, IndexError):
+            name = claim.get('name')
+            st = (claim.get('state') or '').strip().upper()
+            if name and st:
+                lookup[name] = st
+        except AttributeError:
             continue
-    return None
+    if lookup:
+        return lookup
+
+    # Source 2: the Lode Claims polygon layer in the project. We have to
+    # search by name because state doesn't track its layer id (only Initial
+    # Layout / Processed Claims / Claims Waypoints have id slots).
+    if QgsProject is None:
+        return lookup
+    try:
+        from qgis.core import QgsWkbTypes
+    except Exception:
+        return lookup
+
+    for lyr in QgsProject.instance().mapLayers().values():
+        try:
+            if not lyr.name().startswith('Lode Claims'):
+                continue
+            if lyr.geometryType() != QgsWkbTypes.PolygonGeometry:
+                continue
+        except Exception:
+            continue
+        fields = lyr.fields()
+        if 'State' not in fields.names() or 'Name' not in fields.names():
+            continue
+        for feat in lyr.getFeatures():
+            try:
+                name = feat['Name']
+                st = (feat['State'] or '').strip().upper()
+                if name and st:
+                    lookup[name] = st
+            except (KeyError, IndexError):
+                continue
+        # First matching Lode Claims layer wins — multi-block projects use
+        # one layer per block, but we only need a name→state map.
+        if lookup:
+            break
+    return lookup
 
 
 def read_monument_overrides_from_state(
@@ -122,6 +169,12 @@ def read_monument_overrides_from_state(
             )
         return overrides
 
+    # Build the per-claim state lookup once, not per-feature. Sources:
+    # state.processed_claims (preferred) → Lode Claims polygon layer (fallback).
+    # state.claims_layer is INTENTIONALLY NOT used here — it resolves to the
+    # Initial Layout polygon layer which has no State attribute.
+    claim_state_by_name = _build_claim_state_lookup(state)
+
     skipped_id_nm = 0
     for feature in monuments_layer.getFeatures():
         try:
@@ -133,7 +186,7 @@ def read_monument_overrides_from_state(
         # ID/NM claims never carry a valid LM override (LM at corner per
         # statute). Stale features for these claims must not be replayed
         # to the server as user moves.
-        claim_state = _state_for_claim(claims_layer, claim_name)
+        claim_state = claim_state_by_name.get(claim_name)
         if claim_state in LM_AT_CORNER_STATES:
             skipped_id_nm += 1
             continue
