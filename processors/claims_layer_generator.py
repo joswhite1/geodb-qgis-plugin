@@ -1528,6 +1528,16 @@ class ClaimsLayerGenerator:
         This prevents duplicate layers when regenerating. Layers are matched by
         their display name (which may include a project suffix like "[Project Name]").
 
+        IMPORTANT: optional layers (Monuments / Sideline Monuments / Endline
+        Monuments) are ALWAYS in the removal set even when the regenerated
+        response has 0 features for them — otherwise stale features from a
+        previous run with a different state's regs (or the now-removed Phase
+        3 slide-from-corner code) persist in the project, get picked up by
+        Step 6's _read_monument_positions_from_layers, and pollute the
+        outgoing push payload. Triggered the 2026-05-06 RC re-push that
+        kept stamping `discovery_monument` into qclaims_data for ID claims
+        even after the server stopped emitting them.
+
         Args:
             project: The QgsProject instance
             new_layers: Dict of layer names to new QgsVectorLayer objects
@@ -1537,9 +1547,19 @@ class ClaimsLayerGenerator:
         """
         removed_count = 0
 
-        # Get the display names of layers we're about to add
+        # Layers that may not be in the new response (state-dependent) but
+        # MUST be cleared regardless so a missing entry in the new response
+        # is reflected as an empty/absent layer in the project.
+        ALWAYS_REPLACE = (
+            self.MONUMENTS_LAYER,
+            self.SIDELINE_MONUMENTS_LAYER,
+            self.ENDLINE_MONUMENTS_LAYER,
+        )
+
+        # Get the display names of layers we're about to add (or always
+        # replace, whether they're in the new response or not).
         new_layer_names = set()
-        for base_name in new_layers.keys():
+        for base_name in list(new_layers.keys()) + list(ALWAYS_REPLACE):
             # Add both the base name and the display name (with project suffix)
             new_layer_names.add(base_name)
             new_layer_names.add(self._get_display_name(base_name))

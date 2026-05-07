@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.3
+version=2.19.4
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,31 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.4 - Always clear stale Monuments / Sideline / Endline layers on regen
+        - The plugin's claims_layer_generator only created the Monuments,
+          Sideline Monuments, and Endline Monuments layers when the server
+          response had non-empty data for them. After 2026-05-06's removal
+          of the regulatorily-invalid Phase 3 slide-from-corner code, the
+          server correctly stopped emitting discovery monuments for ID/NM
+          claims. But the plugin's "remove existing layers before regen"
+          pass only matched layer names that were ALSO in the new response,
+          so the old Monuments layer's 155 stale features (from yesterday's
+          Phase-3 run) persisted in QGIS memory across re-walks
+        - Step 6's _read_monument_positions_from_layers then read the stale
+          features and stamped them into state.processed_claims; the Step 7
+          push wrote `discovery_monument` back into qclaims_data on 155
+          LandHolding rows (Rock Creek CP-2026-0059) even though the new
+          server algorithm had decided not to place any. The pod-side
+          [CLAIM_STAKE_LINKING] log lines reading "discovery=yes" for ID
+          claims were the visible signal
+        - Fix: _remove_existing_layers now always includes the optional
+          state-dependent layers (Monuments / Sideline / Endline) in its
+          removal set, regardless of whether the new response contains
+          entries for them. Missing entry in the new response now correctly
+          translates to "layer absent in project," not "layer left as it
+          was last time." Side-effect cleanup of the Step 6 read path is
+          implicit: no layer means no features means no monument data
+          merged into the push.
     2.19.3 - Fix v2.19.2 rehydrate building invalid LandHolding geometry
         - Rebuilt corners only carried easting/northing (UTM), no lat/lon.
           claims_manager._format_landholding falls back to building GeoJSON
