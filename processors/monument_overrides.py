@@ -46,6 +46,38 @@ def _build_transform_fn(source_crs) -> Optional[Callable[[float, float], tuple]]
     return _to_wgs84
 
 
+# States where the LM must be at a claim corner by statute. Discovery-
+# monument overrides have no legal use in these states — any "moved
+# monument" position would be a non-corner location, which is exactly
+# what Idaho and New Mexico regs forbid. Sending an override for an
+# ID/NM claim resurrects the regulatorily-invalid Phase-3 placement
+# the server-side rip-out (2026-05-06) was designed to prevent.
+LM_AT_CORNER_STATES = {'ID', 'NM'}
+
+
+def _state_for_claim(claims_layer, claim_name: str) -> Optional[str]:
+    """Look up a claim's state from the Lode Claims layer's `State` attr.
+
+    Returns the postal abbreviation (e.g. 'ID', 'NM', 'NV') or None if the
+    layer is missing, the feature isn't found, or the State attribute is
+    blank. Used by `read_monument_overrides_from_state` to filter out
+    LM-at-corner-state claims that should never carry an override.
+    """
+    if not is_layer_valid(claims_layer):
+        return None
+    fields = claims_layer.fields()
+    if 'State' not in fields.names() or 'Name' not in fields.names():
+        return None
+    for feat in claims_layer.getFeatures():
+        try:
+            if feat['Name'] == claim_name:
+                state = feat['State']
+                return (state or '').strip().upper() or None
+        except (KeyError, IndexError):
+            continue
+    return None
+
+
 def read_monument_overrides_from_state(
     state: Any,
     logger=None,
@@ -58,6 +90,14 @@ def read_monument_overrides_from_state(
     Empty dict (not None) when no monuments are present or the layer
     references are stale — server treats absent claims as "use the
     algorithm's placement," so this is the correct no-op shape.
+
+    Skips claims whose state is in LM_AT_CORNER_STATES (ID, NM) —
+    overrides have no legal use there because the LM must always be at
+    a corner. The skip protects against a feedback loop where stale
+    Monuments layer features (e.g. from a previous Phase-3 emission) get
+    replayed to the server as "overrides," server applies them, and the
+    plugin then renders them as fresh "user-moved" monuments next time
+    around.
 
     Currently captures discovery_monument positions only. Sideline/endline
     overrides for AZ/WY/SD aren't part of the server's monument_overrides
@@ -82,12 +122,20 @@ def read_monument_overrides_from_state(
             )
         return overrides
 
+    skipped_id_nm = 0
     for feature in monuments_layer.getFeatures():
         try:
             claim_name = feature['Claim']
         except (KeyError, IndexError):
             continue
         if not claim_name:
+            continue
+        # ID/NM claims never carry a valid LM override (LM at corner per
+        # statute). Stale features for these claims must not be replayed
+        # to the server as user moves.
+        claim_state = _state_for_claim(claims_layer, claim_name)
+        if claim_state in LM_AT_CORNER_STATES:
+            skipped_id_nm += 1
             continue
         geom = feature.geometry()
         if geom.isEmpty():
@@ -101,11 +149,18 @@ def read_monument_overrides_from_state(
             'northing': round(point.y(), 8),
         }
 
-    if logger is not None and overrides:
-        logger.info(
-            f"[CLAIMS] Captured {len(overrides)} monument override(s) from "
-            f"existing layer geometry — sending as monument_overrides to "
-            f"preserve user-moved positions across regeneration."
-        )
+    if logger is not None:
+        if overrides:
+            logger.info(
+                f"[CLAIMS] Captured {len(overrides)} monument override(s) from "
+                f"existing layer geometry — sending as monument_overrides to "
+                f"preserve user-moved positions across regeneration."
+            )
+        if skipped_id_nm:
+            logger.info(
+                f"[CLAIMS] Skipped {skipped_id_nm} monument feature(s) for ID/NM "
+                f"claims — those states require the LM at a corner, so overrides "
+                f"have no legal use and stale features must not be replayed."
+            )
 
     return overrides

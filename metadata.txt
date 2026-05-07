@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.4
+version=2.19.5
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,22 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.19.5 - Skip ID/NM claims in monument_overrides capture
+        - The plugin's read_monument_overrides_from_state reads ALL features
+          from the QGIS Monuments layer and sends them to the server as
+          user-moved overrides ("preserve these positions across regen").
+          For ID and NM that flow has no legal use — those states require
+          the LM at a corner. Sending an override for an ID/NM claim made
+          the server stamp manual_override=True and re-emit the off-corner
+          LM the v2.19.4 layer-clear was supposed to make impossible
+        - Created a feedback loop on Joshua's Rock Creek RC re-walk:
+          stale Monuments features → "overrides" pushed → server replays →
+          fresh-but-identical Monuments rendered → still 155 LMs
+        - Fix: skip claims whose state is ID/NM in the override capture.
+          State is read from the Lode Claims layer's `State` attribute
+          (already populated by claims_layer_generator). Non-ID/NM states
+          (NV/CA/AZ/WY/etc.) keep the override-preservation behavior
+          unchanged
     2.19.4 - Always clear stale Monuments / Sideline / Endline layers on regen
         - The plugin's claims_layer_generator only created the Monuments,
           Sideline Monuments, and Endline Monuments layers when the server
