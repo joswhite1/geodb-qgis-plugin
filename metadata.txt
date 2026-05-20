@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.19.7
+version=2.20.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,21 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.20.0 - Stream Alaska state-land polygons from geodb.io
+        - New "Show AK State Lands (Streaming)" toggle under Basemaps,
+          alongside the existing Federal Lands toggle. Reuses the same
+          /services/api/federal-lands/ endpoint with
+          ownership=state&state=AK, sourced from AK DNR's
+          Ownership_StateLandAll FeatureServer (~22k polygons
+          statewide). Same QClaims access gate as federal lands.
+        - Important for MTRSC siting: AK DNR's Sept-2022 fact sheet
+          requires witness posts on adjacent state land when a section
+          corner falls on private overlap. Surfacing the overlay live
+          in QGIS lets the operator see those alternative monument
+          sites at planning time.
+        - Style: pale gold (#F5E6A1) single-category fill — matches
+          the staff PLSS preview map's state-land overlay and the
+          MTRSC filing-map renderer's `state` category.
     2.19.7 - Drop ID/NM LM-typed stakes from Step-7 push (CP-2026-0059 final)
         - Idaho Code 47-602 and NMSA 69-3-1 require the Location Monument
           to be at a CORNER. Those states have no separate Location

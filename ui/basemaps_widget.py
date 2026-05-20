@@ -511,6 +511,56 @@ class BasemapsWidget(QWidget):
         self._federal_lands_manager = None
         self._federal_lands_has_access = False
 
+        # --- AK State Lands streaming sub-section ---
+        # Paired with the Federal Lands toggle above. Same endpoint
+        # (`/services/api/federal-lands/`), `ownership=state&state=AK`
+        # filter. Sourced from the AK DNR `Ownership_StateLandAll`
+        # FeatureServer.
+        ak_state_label = QLabel("Streaming - AK State Lands (auto-refreshes on pan/zoom)")
+        ak_state_label.setStyleSheet(
+            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 8px;"
+        )
+        public_lands_layout.addWidget(ak_state_label)
+
+        ak_state_desc = QLabel(
+            "Stream Alaska state-owned land boundaries from geodb.io. "
+            "Requires QClaims subscription. Important for MTRSC siting — "
+            "AK DNR requires witness posts on state land when a section "
+            "corner lands on private overlap."
+        )
+        ak_state_desc.setWordWrap(True)
+        ak_state_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        public_lands_layout.addWidget(ak_state_desc)
+
+        self.state_lands_toggle = QCheckBox("Show AK State Lands (Streaming)")
+        self.state_lands_toggle.setEnabled(False)
+        self.state_lands_toggle.stateChanged.connect(self._on_state_lands_toggle_changed)
+        public_lands_layout.addWidget(self.state_lands_toggle)
+
+        # Single-category legend
+        ak_legend_layout = QHBoxLayout()
+        ak_legend_layout.setSpacing(12)
+        ak_swatch = QLabel()
+        ak_swatch.setFixedSize(14, 14)
+        ak_swatch.setStyleSheet(
+            "background-color: #F5E6A1; border: 1px solid #A88A00; border-radius: 2px;"
+        )
+        ak_legend_layout.addWidget(ak_swatch)
+        ak_legend_layout.addWidget(QLabel("AK State Land"))
+        ak_legend_layout.addStretch()
+        public_lands_layout.addLayout(ak_legend_layout)
+
+        self.state_lands_status_label = QLabel("")
+        self.state_lands_status_label.setWordWrap(True)
+        self.state_lands_status_label.setStyleSheet(
+            "color: #6b7280; font-size: 11px; font-style: italic;"
+        )
+        public_lands_layout.addWidget(self.state_lands_status_label)
+
+        # Store AK State Lands streaming manager reference
+        self._state_lands_manager = None
+        self._state_lands_has_access = False
+
         # Separator
         pub_sep = QFrame()
         pub_sep.setFrameShape(QFrame.HLine)
@@ -1736,6 +1786,60 @@ class BasemapsWidget(QWidget):
         )
         self.federal_lands_toggle.setChecked(False)
         self.federal_lands_toggle.setEnabled(False)
+
+    # ==================== AK State Lands Streaming Methods ====================
+    #
+    # Paired with the Federal Lands methods above — same lifecycle,
+    # same QClaims gate, different ownership filter. Edit both when
+    # changing access semantics.
+
+    def set_state_lands_manager(self, manager, has_access: bool):
+        """Wire up the AK State Lands streaming manager and set access state."""
+        self._state_lands_manager = manager
+        self._state_lands_has_access = has_access
+
+        if manager is None:
+            self.state_lands_toggle.setChecked(False)
+            self.state_lands_toggle.setEnabled(False)
+            self.state_lands_status_label.setText("Login required to stream AK State Lands")
+            return
+
+        if not has_access:
+            self.state_lands_toggle.setChecked(False)
+            self.state_lands_toggle.setEnabled(False)
+            self.state_lands_status_label.setText(
+                "AK State Lands streaming requires a QClaims subscription. Visit geodb.io for details."
+            )
+            return
+
+        self.state_lands_toggle.setEnabled(True)
+        self.state_lands_status_label.setText("")
+
+        manager.status_changed.connect(self._on_state_lands_status_changed)
+        manager.loading_changed.connect(self._on_state_lands_loading_changed)
+        manager.access_denied.connect(self._on_state_lands_access_denied)
+
+    def _on_state_lands_toggle_changed(self, state):
+        if not self._state_lands_manager:
+            return
+        if state == Qt_Checked:
+            self._state_lands_manager.enable()
+        else:
+            self._state_lands_manager.disable()
+            self.state_lands_status_label.setText("")
+
+    def _on_state_lands_status_changed(self, status: str):
+        self.state_lands_status_label.setText(status)
+
+    def _on_state_lands_loading_changed(self, loading: bool):
+        pass
+
+    def _on_state_lands_access_denied(self, message: str):
+        self.state_lands_status_label.setText(
+            "AK State Lands streaming requires a QClaims subscription. Visit geodb.io for details."
+        )
+        self.state_lands_toggle.setChecked(False)
+        self.state_lands_toggle.setEnabled(False)
 
     # ==================== Styling Helpers ====================
 

@@ -9,6 +9,11 @@ Follows the same pattern as PLSSStreamingManager.
 Colors match the Esri USA Federal Lands standard and geodb.io web map:
   - BLM: Yellow (#FFEB3B) with gold border (#F9A825)
   - Forest Service: Green (#4CAF50) with dark green border (#2E7D32)
+
+Pairs with :mod:`managers.state_lands_manager` (AK state lands —
+same endpoint, ``ownership=state&state=AK``). The state-lands manager
+reuses :class:`FederalLandsFetchWorker` from this module; keep the
+worker's contract stable when editing.
 """
 import json
 from typing import Optional, Dict

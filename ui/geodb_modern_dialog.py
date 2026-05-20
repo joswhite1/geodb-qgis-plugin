@@ -42,6 +42,7 @@ from ..managers.claims_manager import ClaimsManager
 from ..managers.blm_claims_manager import BLMClaimsManager, BLM_STREAMING_ACCESS_TYPES
 from ..managers.plss_streaming_manager import PLSSStreamingManager, PLSS_STREAMING_ACCESS_TYPES
 from ..managers.federal_lands_manager import FederalLandsStreamingManager, FEDERAL_LANDS_ACCESS_TYPES
+from ..managers.state_lands_manager import StateLandsStreamingManager, STATE_LANDS_ACCESS_TYPES
 from ..models.auth import AuthSession, UserContext
 from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
@@ -151,6 +152,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.blm_claims_manager = BLMClaimsManager(self.config, self.api_client)
         self.plss_streaming_manager = PLSSStreamingManager(self.config, self.api_client)
         self.federal_lands_manager = FederalLandsStreamingManager(self.config, self.api_client)
+        self.state_lands_manager = StateLandsStreamingManager(self.config, self.api_client)
 
         # Claims wizard widget
         self.claims_wizard: Optional[ClaimsWizardWidget] = None
@@ -390,6 +392,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 # Set up Federal Lands streaming access for restored session
                 self._setup_federal_lands_access()
 
+                # Set up AK State Lands streaming access for restored session
+                self._setup_state_lands_access()
+
         except Exception as e:
             self.logger.error(f"Failed to restore session: {e}")
 
@@ -447,6 +452,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
             # Set up Federal Lands streaming layer access
             self._setup_federal_lands_access()
+
+            # Set up AK State Lands streaming layer access
+            self._setup_state_lands_access()
 
             # Update context header
             self._update_context_header()
@@ -547,6 +555,34 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if self.basemaps_widget:
                 self.basemaps_widget.set_federal_lands_manager(None, False)
 
+    def _setup_state_lands_access(self):
+        """Check QClaims access and wire up the AK State Lands streaming manager.
+
+        Paired with :meth:`_setup_federal_lands_access` — same gate,
+        same endpoint, different ``ownership=`` filter. See
+        ``managers/state_lands_manager.py``.
+        """
+        try:
+            access_info = self.claims_manager.check_access()
+            access_type = access_info.get('access_type')
+            has_access = access_type in STATE_LANDS_ACCESS_TYPES
+
+            self.state_lands_manager = StateLandsStreamingManager(self.config, self.api_client)
+            self.state_lands_manager.log_message.connect(self._log_message)
+
+            if self.basemaps_widget:
+                self.basemaps_widget.set_state_lands_manager(self.state_lands_manager, has_access)
+
+            if has_access:
+                self._log_message(f"AK State Lands streaming: enabled ({access_type})", "info")
+            else:
+                self._log_message("AK State Lands streaming: requires QClaims subscription", "info")
+
+        except Exception as e:
+            self.logger.warning(f"Could not check AK State Lands streaming access: {e}")
+            if self.basemaps_widget:
+                self.basemaps_widget.set_state_lands_manager(None, False)
+
     def _on_logout_clicked(self):
         """Handle logout button click."""
         try:
@@ -571,6 +607,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.federal_lands_manager.cleanup()
             if self.basemaps_widget:
                 self.basemaps_widget.set_federal_lands_manager(None, False)
+
+            # Cleanup AK State Lands streaming manager
+            self.state_lands_manager.cleanup()
+            if self.basemaps_widget:
+                self.basemaps_widget.set_state_lands_manager(None, False)
 
             # Update UI
             self._update_auth_status(False)
@@ -607,6 +648,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.blm_claims_manager.cleanup()
             self.plss_streaming_manager.cleanup()
             self.federal_lands_manager.cleanup()
+            self.state_lands_manager.cleanup()
 
             # Log the change
             mode = "LOCAL DEVELOPMENT" if is_enabled else "PRODUCTION"
