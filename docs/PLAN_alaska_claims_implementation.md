@@ -1,5 +1,17 @@
 # Alaska Mining Claims Support - Implementation Plan
 
+> **⚠️ SUPERSEDED 2026-05-13.** This plan used an elif-branch-into-lode-pipeline architecture. After review, the architecture was reworked into a **parallel pipeline** (`services/claims/plss/`) shared by AK MTRSC, federal placer, and ID state mineral leases. The lode pipeline stays byte-identical. Reasoning: better isolation (no shared code paths to regress), and the subdivision/legal-description math is reused across three future claim types.
+>
+> **Canonical plan:** [geodb/geodb/progress_docs/ToDo/plss_claims_pipeline.md](../../geodb/geodb/progress_docs/ToDo/plss_claims_pipeline.md)
+>
+> This document is kept for historical reference. Two sections remain load-bearing for the new plan:
+> - **Task 10 detail** — MTRSC Certificate of Location (DNR Form 10-162V rev 9/23) field map
+> - **Task 11a detail** — Filing map requirements (11 AAC 86.215)
+>
+> Everything else (the task tables, isolation rules, regression protocol) is reframed in the canonical plan.
+
+---
+
 ## Context
 
 A client wants Alaska state mining claims support. Currently the system only handles federal lode claims (600x1500 ft), which *partially* work in Alaska already. The major gap is **MTRSC (Meridian, Township, Range, Section, Corner) state claims** — Alaska's unique 40/160-acre claims that snap to the PLSS section grid. This is a fundamentally different claim type from federal lode.

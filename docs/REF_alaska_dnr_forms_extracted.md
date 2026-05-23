@@ -4,11 +4,15 @@
 
 **Extracted:** 2026-03-21
 
+**On-disk source PDFs (added 2026-05-16):** every PDF referenced below is now mirrored at [`geodb/services/claims/plss/tests/fixtures/dnr_refs/`](../../geodb/geodb/services/claims/plss/tests/fixtures/dnr_refs/) — the inventory README there is authoritative for filename → purpose mapping. Use those local files as the visual + textual comparator for `document_generator.py` and `filing_map.py` output. The web URLs in each section below remain canonical for re-download if a form is revised.
+
+**Filing-map visual ground truth:** the state's own worked-example claim sketch ("Sam McGee 1") is in [`Miners-Guide-to-Alaska-Mapper.pdf`](../../geodb/geodb/services/claims/plss/tests/fixtures/dnr_refs/Miners-Guide-to-Alaska-Mapper.pdf) page 8. That single page is the visual comparator for the entire filing-map pipeline — match it.
+
 ---
 
 ## 1. MTRSC Certificate of Location (DNR 10-162V, Revised 9/23)
 
-**Source:** `State-MTRSC-Location-Cert.pdf` from dnr.alaska.gov/mlw/forms/
+**Source:** `State-MTRSC-Location-Cert-Print-Friendly.pdf` — [on-disk fixture](../../geodb/geodb/services/claims/plss/tests/fixtures/dnr_refs/State-MTRSC-Location-Cert-Print-Friendly.pdf) · canonical URL `https://dnr.alaska.gov/mlw/cdn/pdf/forms/State-MTRSC-Location-Cert-Print-Friendly.pdf`
 
 ### Page 1 (Front — Recordable Side)
 
@@ -161,7 +165,7 @@ AS 38.05.265.
 
 ## 2. Traditional Certificate of Location (DNR 10-162V, Revised 8/23)
 
-**Source:** `State-Mining-Location-Notice-Certificate-Traditional-Location-Only.pdf`
+**Source:** `State-Mining-Location-Notice-Certificate-Traditional-Location-Only.pdf` — [on-disk fixture](../../geodb/geodb/services/claims/plss/tests/fixtures/dnr_refs/State-Mining-Location-Notice-Certificate-Traditional-Location-Only.pdf) · canonical URL `https://dnr.alaska.gov/mlw/cdn/pdf/forms/State-Mining-Location-Notice-Certificate-Traditional-Location-Only.pdf`
 
 ### Page 1 (Front — Recordable Side)
 
@@ -240,7 +244,7 @@ $40.00.
 
 ## 3. Staking Requirements Fact Sheet (September 2022, 3 pages)
 
-**Source:** `staking-requirements-for-mineral-locations-on-state-land.pdf`
+**Source:** `staking-requirements-for-mineral-locations-on-state-land.pdf` — [on-disk fixture](../../geodb/geodb/services/claims/plss/tests/fixtures/dnr_refs/staking-requirements-for-mineral-locations-on-state-land.pdf) · canonical URL `https://dnr.alaska.gov/mlw/cdn/pdf/factsheets/staking-requirements-for-mineral-locations-on-state-land.pdf`
 
 ### Page 1
 
@@ -356,7 +360,7 @@ interest may not relocate the location until one year after the abandonment.
 
 ## 4. Key Dates for Miners on State Land (July 2021, 2 pages)
 
-**Source:** `keydates-for-miners-on-state-land.pdf`
+**Source:** `keydates-for-miners-on-state-land.pdf` — not currently on disk (factsheet superseded by 2022 staking-requirements PDF); re-download from `https://dnr.alaska.gov/mlw/cdn/pdf/factsheets/keydates-for-miners-on-state-land.pdf` if/when needed
 
 ### Page 1 — Recording Requirements
 
