@@ -610,10 +610,10 @@ class ClaimsMapGenerator:
         # Add a coordinate grid to the NV map (template lacks one)
         self._add_nv_map_grid(map_item)
 
-        county = self._get_county()
+        county = self._get_county_label()
         state_name = 'Nevada'
 
-        # Title line: "PREFIX Lode Claims, Claimant, County, Nevada"
+        # Title line: "PREFIX Lode Claims, Claimant, County County, Nevada"
         title_text = (
             f"{prefix} Lode Claims\n{self.state.claimant_name or 'Claimant'}\n"
             f"{county}, {state_name}"
@@ -1892,9 +1892,23 @@ class ClaimsMapGenerator:
             return ''
         return self.state.processed_claims[0].get('county', '') or ''
 
+    def _get_county_label(self) -> str:
+        """Get county name with a 'County' suffix, e.g. 'Owyhee County'.
+
+        Stored county values are the bare name ('Owyhee'); map labels must
+        read 'Owyhee County'. Idempotent if the value already ends in
+        'County' (case-insensitive) to avoid 'Owyhee County County'.
+        """
+        county = self._get_county().strip()
+        if not county:
+            return ''
+        if county.lower().endswith('county'):
+            return county
+        return f"{county} County"
+
     def _get_county_state(self) -> str:
-        """Get 'County, ST' string from first processed claim."""
-        county = self._get_county()
+        """Get 'County County, ST' string from first processed claim."""
+        county = self._get_county_label()
         state = self._get_claims_state()
         if county and state:
             return f"{county}, {state}"
