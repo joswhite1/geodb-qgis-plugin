@@ -35,6 +35,9 @@ def safe_urlopen(request, *, context=None, timeout=30):
         )
     if context is None:
         context = ssl.create_default_context()
-    return urllib.request.urlopen(  # noqa: S310
+    # Scheme is validated against ALLOWED_SCHEMES above, so file:/ and
+    # custom-scheme opens are already blocked. Suppress for both Ruff
+    # (S310) and standalone Bandit (B310).
+    return urllib.request.urlopen(  # noqa: S310  # nosec B310
         request, context=context, timeout=timeout
     )

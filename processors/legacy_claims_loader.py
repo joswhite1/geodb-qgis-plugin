@@ -50,6 +50,7 @@ from qgis.core import (
     QgsWkbTypes,
 )
 from qgis.PyQt.QtGui import QColor, QFont
+from ..utils.compat import QFont_Bold
 
 logger = logging.getLogger('geodb')
 
@@ -563,7 +564,7 @@ class ClaimsLoader:
         label_settings.fieldName = 'Name'
         label_settings.enabled = True
         text_format = QgsTextFormat()
-        text_format.setFont(QFont("Arial", 9, QFont.Bold))
+        text_format.setFont(QFont("Arial", 9, QFont_Bold))
         text_format.setColor(QColor(25, 25, 112))
         text_format.setSize(9)
         buf = QgsTextBufferSettings()
@@ -592,7 +593,7 @@ class ClaimsLoader:
         label_settings.fieldName = 'Corner #'
         label_settings.enabled = True
         text_format = QgsTextFormat()
-        text_format.setFont(QFont("Arial", 7, QFont.Bold))
+        text_format.setFont(QFont("Arial", 7, QFont_Bold))
         text_format.setColor(QColor(0, 0, 0))
         buf = QgsTextBufferSettings()
         buf.setEnabled(True)
@@ -770,7 +771,7 @@ class ClaimsLoader:
         label_settings.enabled = True
         label_settings.placement = QgsPalLayerSettings.OverPoint
         text_format = QgsTextFormat()
-        text_format.setFont(QFont("Arial", 7, QFont.Bold))
+        text_format.setFont(QFont("Arial", 7, QFont_Bold))
         text_format.setColor(QColor(0, 0, 0))
         buf = QgsTextBufferSettings()
         buf.setEnabled(True)

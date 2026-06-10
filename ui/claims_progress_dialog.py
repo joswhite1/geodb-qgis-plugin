@@ -22,10 +22,11 @@ main thread for the synchronous `_post_preview_layers_async` callers).
 """
 from qgis.PyQt.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar,
-    QPushButton, QSizePolicy,
+    QPushButton,
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QFont
+from ..utils.compat import QSizePolicy_Expanding, QSizePolicy_Preferred
 
 
 class ClaimsProgressDialog(QDialog):
@@ -100,7 +101,7 @@ class ClaimsProgressDialog(QDialog):
 
         # Per-claim detail line (varies by stage; hidden when irrelevant).
         self._detail_label = QLabel("")
-        self._detail_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._detail_label.setSizePolicy(QSizePolicy_Expanding, QSizePolicy_Preferred)
         layout.addWidget(self._detail_label)
 
         # Progress bar.

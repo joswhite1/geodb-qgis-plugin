@@ -26,7 +26,7 @@ from ..utils.crs_utils import extent_to_wgs84
 from ..utils.logger import PluginLogger
 from ..utils.compat import (
     Qt_ScrollBarAlwaysOff, Qt_ScrollBarAsNeeded, Qt_Horizontal,
-    Qt_DashLine, Qt_Checked, QFrame_NoFrame,
+    Qt_DashLine, Qt_Checked, QFrame_NoFrame, QFrame_HLine,
     QSizePolicy_Preferred, QSizePolicy_Expanding,
 )
 
@@ -378,7 +378,7 @@ class BasemapsWidget(QWidget):
 
         # Separator
         plss_sep = QFrame()
-        plss_sep.setFrameShape(QFrame.HLine)
+        plss_sep.setFrameShape(QFrame_HLine)
         plss_sep.setStyleSheet("color: #e5e7eb;")
         plss_layout.addWidget(plss_sep)
 
@@ -563,7 +563,7 @@ class BasemapsWidget(QWidget):
 
         # Separator
         pub_sep = QFrame()
-        pub_sep.setFrameShape(QFrame.HLine)
+        pub_sep.setFrameShape(QFrame_HLine)
         pub_sep.setStyleSheet("color: #e5e7eb;")
         public_lands_layout.addWidget(pub_sep)
 
