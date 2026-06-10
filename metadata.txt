@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.20.0
+version=2.21.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,24 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.21.0 - Map Capture: resolution control + fix CRS-dependent distortion
+        - New "Resolution" selector in the Project Files > Map Capture tab
+          (Screen / High 2048 / Very high 4096 / Maximum 8192 px) with a
+          live estimated output size (W x H px and approx MB) that updates
+          with the current view and selection. Higher resolutions give
+          crisper web tiles; the longest edge is the target and the other
+          edge is derived from the Web-Mercator extent so aspect is exact.
+        - Fix: captured rasters were distorted when the project CRS was
+          WGS84 (or a Web-Mercator alias) and undistorted only in UTM. The
+          re-render into Web Mercator reused the native canvas pixel
+          dimensions, whose aspect ratio differs from the Web-Mercator
+          extent (Mercator stretches latitude by sec(phi)), so QGIS
+          re-fit the extent and the reported bounds no longer matched the
+          image. The server's affine georeferencing then stretched it.
+          Every capture now renders through one path: reproject to
+          EPSG:3857, size the image to the 3857 extent's aspect ratio, and
+          report the actual rendered extent as bounds. Correct at any
+          project CRS and latitude.
     2.20.0 - Stream Alaska state-land polygons from geodb.io
         - New "Show AK State Lands (Streaming)" toggle under Basemaps,
           alongside the existing Federal Lands toggle. Reuses the same

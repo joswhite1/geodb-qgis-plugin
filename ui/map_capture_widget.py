@@ -42,6 +42,22 @@ PROJECTFILE_CATEGORIES = [
 ]
 
 
+# Output-resolution presets for the captured raster.  The value is the target
+# length (in pixels) of the image's *longest* edge; the other edge is derived
+# from the Web-Mercator extent's aspect ratio so the image is never distorted.
+# A value of 0 means "use the current on-screen canvas size".
+RESOLUTION_PRESETS = [
+    ("Screen (current view)", 0),
+    ("High – 2048 px", 2048),
+    ("Very high – 4096 px", 4096),
+    ("Maximum – 8192 px", 8192),
+]
+
+# Rough compressed-PNG size estimate for map content (imagery + vectors).
+# Real output varies a lot with content; this is only for a ballpark hint.
+_EST_BYTES_PER_PIXEL = 1.0
+
+
 class MapCaptureWidget(QWidget):
     """Widget for capturing the QGIS map canvas and uploading to geodb.io."""
 
@@ -94,6 +110,31 @@ class MapCaptureWidget(QWidget):
         # --- Capture Section ---
         capture_group = QGroupBox("1. Capture Map View")
         capture_layout = QVBoxLayout()
+
+        # Resolution selector
+        res_row = QFormLayout()
+        self.resolution_combo = QComboBox()
+        for label, value in RESOLUTION_PRESETS:
+            self.resolution_combo.addItem(label, value)
+        # Default to "Very high – 4096 px" for crisp web tiles.
+        vh_index = next(
+            (i for i, (_, v) in enumerate(RESOLUTION_PRESETS) if v == 4096),
+            0
+        )
+        self.resolution_combo.setCurrentIndex(vh_index)
+        self.resolution_combo.currentIndexChanged.connect(
+            self._update_size_estimate
+        )
+        res_row.addRow("Resolution:", self.resolution_combo)
+        capture_layout.addLayout(res_row)
+
+        # Estimated output size hint (updates live with the canvas + selector)
+        self.size_estimate_label = QLabel("")
+        self.size_estimate_label.setWordWrap(True)
+        self.size_estimate_label.setStyleSheet(
+            "color: #64748b; font-size: 11px; padding: 2px 4px 6px 4px;"
+        )
+        capture_layout.addWidget(self.size_estimate_label)
 
         self.capture_button = QPushButton("Capture Current View")
         self.capture_button.setStyleSheet("""
@@ -202,6 +243,9 @@ class MapCaptureWidget(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(scroll)
 
+        # Populate the initial size estimate
+        self._update_size_estimate()
+
     def _on_capture_clicked(self):
         """Capture the current QGIS map canvas."""
         try:
@@ -220,70 +264,34 @@ class MapCaptureWidget(QWidget):
         extent = map_settings.extent()
         crs = map_settings.destinationCrs()
 
-        # Extract EPSG code
-        auth_id = crs.authid()  # e.g. "EPSG:26911"
-        try:
-            epsg = int(auth_id.split(':')[1])
-        except (IndexError, ValueError):
+        if not crs.isValid():
             self._show_status(
-                f"Could not determine EPSG code from CRS: {auth_id}. "
-                "Please set a valid CRS for the project.",
+                "The project has no valid CRS. Please set a project CRS first.",
                 "error"
             )
             return
 
-        # Compute bounds
-        bounds = [
-            extent.xMinimum(),
-            extent.yMinimum(),
-            extent.xMaximum(),
-            extent.yMaximum()
-        ]
-
-        # Save canvas to temp PNG
-        temp_dir = tempfile.gettempdir()
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        file_name = f"geodb_map_capture_{timestamp}.png"
-        file_path = os.path.join(temp_dir, file_name)
-
-        # Use QgsMapCanvas.saveAsImage() to render
-        canvas.saveAsImage(file_path)
-
-        if not os.path.exists(file_path):
-            self._show_status("Failed to save map canvas image.", "error")
+        # Every capture is rendered in EPSG:3857 (Web Mercator), regardless of
+        # the project CRS, with an output size whose aspect ratio matches the
+        # *Web-Mercator* extent.  This is the single correct path: it keeps the
+        # reported bounds, the pixel grid, and the rendered content all in the
+        # same projection and the same aspect ratio, so the server's affine
+        # georeferencing (from_bounds) places it without distortion at any
+        # project CRS / latitude.  Mismatched aspect ratios were the source of
+        # the latitude-dependent stretch on WGS84 / Web-Mercator projects.
+        try:
+            target_long_edge = self._target_long_edge(canvas)
+            result_3857 = self._render_in_3857(extent, crs, target_long_edge)
+        except Exception as exc:
+            self.logger.error(f"Map capture render failed: {exc}")
+            self._show_status(f"Could not render the map view: {exc}", "error")
             return
 
-        # Read actual image dimensions from the saved file
-        # This accounts for HiDPI/Retina displays where saveAsImage() produces
-        # an image larger than the logical canvas.width()/height()
-        saved_image = QImage(file_path)
-        if saved_image.isNull():
-            self._show_status("Failed to read saved image.", "error")
+        if not result_3857:
+            self._show_status("Failed to render the map view.", "error")
             return
 
-        width_px = saved_image.width()
-        height_px = saved_image.height()
-
-        # Compute resolution using actual image dimensions
-        resolution = (extent.xMaximum() - extent.xMinimum()) / width_px
-
-        # Re-render in EPSG:3857 (Web Mercator) for better alignment on
-        # Google/Apple Maps.  The mobile basemap uses Web Mercator tiles, so
-        # an image rendered in the same projection minimises overlay offset.
-        native_crs = crs
-        if native_crs.authid() != 'EPSG:3857':
-            try:
-                result_3857 = self._render_in_3857(
-                    extent, native_crs, width_px, height_px
-                )
-                if result_3857:
-                    os.remove(file_path)  # clean up native-CRS capture
-                    (file_path, epsg, bounds, resolution,
-                     width_px, height_px) = result_3857
-            except Exception as exc:
-                self.logger.warning(
-                    f"3857 re-render failed, using native CRS: {exc}"
-                )
+        file_path, epsg, bounds, resolution, width_px, height_px = result_3857
 
         # Store capture state
         self._captured_file_path = file_path
@@ -413,8 +421,60 @@ class MapCaptureWidget(QWidget):
         """Handle upload progress updates."""
         self._show_status(f"{message} ({percent}%)", "info")
 
-    def _render_in_3857(self, native_extent, native_crs, width_px, height_px):
-        """Re-render the current map layers in EPSG:3857 (Web Mercator).
+    def _extent_3857(self, native_extent, native_crs):
+        """Transform a native-CRS extent (a QgsRectangle) to EPSG:3857.
+
+        Returns the transformed QgsRectangle, or None if the transform fails.
+        """
+        from qgis.core import (
+            QgsCoordinateReferenceSystem,
+            QgsCoordinateTransform,
+            QgsProject,
+        )
+        crs_3857 = QgsCoordinateReferenceSystem('EPSG:3857')
+        if not crs_3857.isValid():
+            return None
+        xform = QgsCoordinateTransform(
+            native_crs, crs_3857, QgsProject.instance()
+        )
+        return xform.transformBoundingBox(native_extent)
+
+    @staticmethod
+    def _output_size_for(extent_3857, long_edge):
+        """Pick an (width, height) for `long_edge` that matches the aspect
+        ratio of the Web-Mercator extent.  Keeping the image aspect ratio equal
+        to the bounds aspect ratio is what prevents distortion.
+        """
+        ext_w = extent_3857.xMaximum() - extent_3857.xMinimum()
+        ext_h = extent_3857.yMaximum() - extent_3857.yMinimum()
+        if ext_w <= 0 or ext_h <= 0:
+            return None
+        aspect = ext_w / ext_h  # >1 = wider than tall
+        if aspect >= 1.0:
+            width_px = int(round(long_edge))
+            height_px = max(1, int(round(long_edge / aspect)))
+        else:
+            height_px = int(round(long_edge))
+            width_px = max(1, int(round(long_edge * aspect)))
+        return width_px, height_px
+
+    def _target_long_edge(self, canvas):
+        """Resolve the selected resolution preset to a longest-edge pixel
+        count.  A preset value of 0 means "use the current on-screen size".
+        """
+        value = self.resolution_combo.currentData()
+        if value and value > 0:
+            return int(value)
+        # "Screen" preset: longest edge of the canvas, scaled for HiDPI.
+        try:
+            dpr = canvas.devicePixelRatioF()
+        except Exception:
+            dpr = 1.0
+        return max(1, int(round(max(canvas.width(), canvas.height()) * dpr)))
+
+    def _render_in_3857(self, native_extent, native_crs, target_long_edge):
+        """Render the current map layers in EPSG:3857 (Web Mercator) at a size
+        whose aspect ratio matches the Web-Mercator extent.
 
         Returns (file_path, epsg, bounds, resolution, width, height) on
         success, or None if the render fails.
@@ -423,8 +483,6 @@ class MapCaptureWidget(QWidget):
             QgsMapSettings,
             QgsMapRendererCustomPainterJob,
             QgsCoordinateReferenceSystem,
-            QgsCoordinateTransform,
-            QgsProject,
         )
         from qgis.PyQt.QtGui import QImage, QPainter
         from qgis.PyQt.QtCore import QSize
@@ -432,13 +490,19 @@ class MapCaptureWidget(QWidget):
 
         crs_3857 = QgsCoordinateReferenceSystem('EPSG:3857')
 
-        # Transform the native extent to EPSG:3857
-        xform = QgsCoordinateTransform(
-            native_crs, crs_3857, QgsProject.instance()
-        )
-        extent_3857 = xform.transformBoundingBox(native_extent)
+        extent_3857 = self._extent_3857(native_extent, native_crs)
+        if extent_3857 is None:
+            return None
 
-        # Configure map settings for 3857 render
+        size = self._output_size_for(extent_3857, target_long_edge)
+        if size is None:
+            return None
+        width_px, height_px = size
+
+        # Configure map settings for the 3857 render.  Because the output-size
+        # aspect ratio matches the extent aspect ratio, QgsMapSettings does NOT
+        # expand the extent, so visibleExtent() == extent_3857 and the reported
+        # bounds describe the rendered pixels exactly.
         settings = QgsMapSettings()
         settings.setDestinationCrs(crs_3857)
         settings.setExtent(extent_3857)
@@ -468,21 +532,58 @@ class MapCaptureWidget(QWidget):
             self.logger.warning("Failed to save 3857 re-rendered image")
             return None
 
+        # Report the *actual* rendered extent.  With matched aspect ratios this
+        # equals extent_3857, but reading it back is robust if QGIS adjusts it.
+        rendered = settings.visibleExtent()
         bounds_3857 = [
-            extent_3857.xMinimum(),
-            extent_3857.yMinimum(),
-            extent_3857.xMaximum(),
-            extent_3857.yMaximum(),
+            rendered.xMinimum(),
+            rendered.yMinimum(),
+            rendered.xMaximum(),
+            rendered.yMaximum(),
         ]
         resolution_3857 = (
-            (extent_3857.xMaximum() - extent_3857.xMinimum()) / width_px
+            (rendered.xMaximum() - rendered.xMinimum()) / width_px
         )
 
         self.logger.info(
-            f"Re-rendered capture in EPSG:3857 "
+            f"Rendered capture in EPSG:3857 "
             f"({width_px}x{height_px}, res={resolution_3857:.4f})"
         )
         return file_path, 3857, bounds_3857, resolution_3857, width_px, height_px
+
+    def _update_size_estimate(self):
+        """Update the live 'estimated output size' hint from the current canvas
+        extent and the selected resolution preset."""
+        if not hasattr(self, 'size_estimate_label'):
+            return
+        try:
+            from qgis.utils import iface
+            canvas = iface.mapCanvas()
+            if canvas is None:
+                raise RuntimeError("no canvas")
+            map_settings = canvas.mapSettings()
+            extent = map_settings.extent()
+            crs = map_settings.destinationCrs()
+            extent_3857 = self._extent_3857(extent, crs)
+            long_edge = self._target_long_edge(canvas)
+            size = self._output_size_for(extent_3857, long_edge) \
+                if extent_3857 is not None else None
+            if not size:
+                raise RuntimeError("no size")
+            width_px, height_px = size
+            est_bytes = width_px * height_px * _EST_BYTES_PER_PIXEL
+            if est_bytes > 1024 * 1024:
+                est_str = f"~{est_bytes / (1024 * 1024):.0f} MB"
+            else:
+                est_str = f"~{est_bytes / 1024:.0f} KB"
+            self.size_estimate_label.setText(
+                f"Output: {width_px} × {height_px} px "
+                f"({est_str} estimated)"
+            )
+        except Exception:
+            self.size_estimate_label.setText(
+                "Output size shown after a project/map is open."
+            )
 
     def _show_status(self, message: str, level: str = "info"):
         """Show a status message below the upload button."""
@@ -505,3 +606,5 @@ class MapCaptureWidget(QWidget):
         self.capture_button.setEnabled(enabled)
         if not enabled:
             self.upload_button.setEnabled(False)
+        if enabled:
+            self._update_size_estimate()
