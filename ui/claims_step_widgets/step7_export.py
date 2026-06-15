@@ -25,6 +25,7 @@ from .step_base import ClaimsStepBase
 from ...utils.logger import PluginLogger
 from ...utils.layer_utils import is_layer_valid
 from ...utils.compat import QFrame_NoFrame, QHeaderView_Stretch, QHeaderView_ResizeToContents
+from ...utils.theme import T
 
 
 class ClaimsStep7Widget(ClaimsStepBase):
@@ -106,21 +107,22 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.waypoints_table.horizontalHeader().setSectionResizeMode(QHeaderView_Stretch)
         self.waypoints_table.verticalHeader().setVisible(False)
         self.waypoints_table.setMaximumHeight(250)
-        self.waypoints_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e5e7eb;
+        self.waypoints_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 4px;
-                background-color: white;
-                gridline-color: #e5e7eb;
-            }
-            QHeaderView::section {
-                background-color: #f9fafb;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                gridline-color: {T.BORDER_SUBTLE};
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUBTLE};
                 padding: 8px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: bold;
-                color: #374151;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         layout.addWidget(self.waypoints_table)
 
@@ -177,17 +179,17 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         # Progress bar
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #059669;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.SUCCESS};
                 border-radius: 3px;
-            }
+            }}
         """)
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
@@ -271,17 +273,17 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         # Progress bar (hidden until generating)
         self.maps_progress = QProgressBar()
-        self.maps_progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
+        self.maps_progress.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #059669;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.SUCCESS};
                 border-radius: 3px;
-            }
+            }}
         """)
         self.maps_progress.hide()
         layout.addWidget(self.maps_progress)
@@ -349,26 +351,28 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.upload_file_path = QLineEdit()
         self.upload_file_path.setPlaceholderText("Select a file to upload...")
         self.upload_file_path.setReadOnly(True)
-        self.upload_file_path.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d1d5db;
+        self.upload_file_path.setStyleSheet(f"""
+            QLineEdit {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 padding: 6px 10px;
-                background-color: #f9fafb;
-            }
+                background-color: {T.SURFACE_SUBTLE};
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         file_row.addWidget(self.upload_file_path, stretch=1)
 
         browse_btn = QPushButton("Browse...")
-        browse_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f3f4f6;
-                border: 1px solid #d1d5db;
+        browse_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 padding: 6px 16px;
                 font-weight: 500;
-            }
-            QPushButton:hover { background-color: #e5e7eb; }
+            }}
+            QPushButton:hover {{ background-color: {T.BORDER_SUBTLE}; }}
         """)
         browse_btn.clicked.connect(self._browse_upload_file)
         file_row.addWidget(browse_btn)
@@ -382,19 +386,21 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Document type combo
         type_layout = QVBoxLayout()
         type_label = QLabel("Document Type")
-        type_label.setStyleSheet("font-size: 11px; color: #6b7280; margin-bottom: 2px;")
+        type_label.setStyleSheet(f"font-size: 11px; color: {T.TEXT_MUTED}; margin-bottom: 2px;")
         type_layout.addWidget(type_label)
 
         self.upload_doc_type = QComboBox()
         for code, display in self.DOCUMENT_TYPES:
             self.upload_doc_type.addItem(display, code)
-        self.upload_doc_type.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #d1d5db;
+        self.upload_doc_type.setStyleSheet(f"""
+            QComboBox {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 padding: 6px 10px;
                 min-width: 160px;
-            }
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         type_layout.addWidget(self.upload_doc_type)
         fields_row.addLayout(type_layout)
@@ -402,17 +408,19 @@ class ClaimsStep7Widget(ClaimsStepBase):
         # Title
         title_layout = QVBoxLayout()
         title_label = QLabel("Title (optional)")
-        title_label.setStyleSheet("font-size: 11px; color: #6b7280; margin-bottom: 2px;")
+        title_label.setStyleSheet(f"font-size: 11px; color: {T.TEXT_MUTED}; margin-bottom: 2px;")
         title_layout.addWidget(title_label)
 
         self.upload_title = QLineEdit()
         self.upload_title.setPlaceholderText("Auto-filled from filename")
-        self.upload_title.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d1d5db;
+        self.upload_title.setStyleSheet(f"""
+            QLineEdit {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 padding: 6px 10px;
-            }
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         title_layout.addWidget(self.upload_title)
         fields_row.addLayout(title_layout, stretch=1)
@@ -421,34 +429,36 @@ class ClaimsStep7Widget(ClaimsStepBase):
 
         # --- Description row ---
         desc_label = QLabel("Description (optional)")
-        desc_label.setStyleSheet("font-size: 11px; color: #6b7280; margin-bottom: 2px;")
+        desc_label.setStyleSheet(f"font-size: 11px; color: {T.TEXT_MUTED}; margin-bottom: 2px;")
         layout.addWidget(desc_label)
 
         self.upload_description = QTextEdit()
         self.upload_description.setPlaceholderText("Optional description...")
         self.upload_description.setMaximumHeight(60)
-        self.upload_description.setStyleSheet("""
-            QTextEdit {
-                border: 1px solid #d1d5db;
+        self.upload_description.setStyleSheet(f"""
+            QTextEdit {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 padding: 4px 8px;
-            }
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         layout.addWidget(self.upload_description)
 
         # --- Upload button + progress ---
         self.upload_progress = QProgressBar()
-        self.upload_progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
+        self.upload_progress.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #059669;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.SUCCESS};
                 border-radius: 3px;
-            }
+            }}
         """)
         self.upload_progress.hide()
         layout.addWidget(self.upload_progress)
@@ -461,15 +471,16 @@ class ClaimsStep7Widget(ClaimsStepBase):
         upload_btn_row.addWidget(self.upload_btn)
 
         self.refresh_docs_btn = QPushButton("Refresh List")
-        self.refresh_docs_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f3f4f6;
-                border: 1px solid #d1d5db;
+        self.refresh_docs_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 padding: 8px 16px;
                 font-weight: 500;
-            }
-            QPushButton:hover { background-color: #e5e7eb; }
+            }}
+            QPushButton:hover {{ background-color: {T.BORDER_SUBTLE}; }}
         """)
         self.refresh_docs_btn.clicked.connect(self._refresh_documents_list)
         upload_btn_row.addWidget(self.refresh_docs_btn)
@@ -491,21 +502,23 @@ class ClaimsStep7Widget(ClaimsStepBase):
         self.docs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView_ResizeToContents)
         self.docs_table.verticalHeader().setVisible(False)
         self.docs_table.setMaximumHeight(150)
-        self.docs_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e5e7eb;
+        self.docs_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 4px;
-                background-color: white;
-                gridline-color: #e5e7eb;
-            }
-            QHeaderView::section {
-                background-color: #f9fafb;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                gridline-color: {T.BORDER_SUBTLE};
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUBTLE};
+                color: {T.TEXT_PRIMARY};
                 padding: 6px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: 600;
                 font-size: 11px;
-            }
+            }}
         """)
         layout.addWidget(self.docs_table)
 

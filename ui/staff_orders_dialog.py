@@ -23,6 +23,7 @@ from ..utils.compat import (
     QAbstractItemView_SingleSelection, QAbstractItemView_ExtendedSelection,
     QHeaderView_Stretch, QHeaderView_ResizeToContents,
 )
+from ..utils.theme import T
 
 
 class StaffOrdersDialog(QDialog):
@@ -42,13 +43,15 @@ class StaffOrdersDialog(QDialog):
     # Emits: (claims_data: dict) with project info and claim features
     proposed_claims_selected = pyqtSignal(dict)
 
-    # Status display colors
-    STATUS_COLORS = {
-        'pending': '#f59e0b',      # amber
-        'processing': '#2563eb',   # blue
-        'paid': '#059669',         # green
-        'approved': '#059669',     # green
-    }
+    # Status display colors (resolved per-theme at access time via _status_colors)
+    @property
+    def STATUS_COLORS(self) -> Dict[str, str]:
+        return {
+            'pending': T.WARNING,     # amber
+            'processing': T.ACCENT,   # blue
+            'paid': T.SUCCESS,        # green
+            'approved': T.SUCCESS,    # green
+        }
 
     def __init__(
         self,
@@ -85,6 +88,11 @@ class StaffOrdersDialog(QDialog):
         self.setMinimumWidth(900)
         self.setMinimumHeight(600)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode.
+        self.setStyleSheet(
+            f"StaffOrdersDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
@@ -127,7 +135,7 @@ class StaffOrdersDialog(QDialog):
 
         # Status label
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        self.status_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         layout.addWidget(self.status_label)
 
         # Buttons
@@ -164,7 +172,7 @@ class StaffOrdersDialog(QDialog):
             "The order context will be tracked through the workflow."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #6b7280; font-size: 13px;")
+        info_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 13px;")
         layout.addWidget(info_label)
 
         # Orders table
@@ -202,16 +210,16 @@ class StaffOrdersDialog(QDialog):
         details_layout.setSpacing(8)
 
         self.order_details_label = QLabel("Select an order to view details")
-        self.order_details_label.setStyleSheet("color: #6b7280;")
+        self.order_details_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         details_layout.addWidget(self.order_details_label)
 
         self.claimant_label = QLabel("")
         self.claimant_label.setWordWrap(True)
-        self.claimant_label.setStyleSheet("color: #374151; font-size: 13px;")
+        self.claimant_label.setStyleSheet(f"color: {T.TEXT_PRIMARY}; font-size: 13px;")
         details_layout.addWidget(self.claimant_label)
 
         self.extras_label = QLabel("")
-        self.extras_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        self.extras_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         details_layout.addWidget(self.extras_label)
 
         layout.addWidget(self.order_details_frame)
@@ -228,13 +236,13 @@ class StaffOrdersDialog(QDialog):
             "Pull approved claims into QGIS for processing through the claims workflow."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #6b7280; font-size: 13px;")
+        info_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 13px;")
         layout.addWidget(info_label)
 
         # Project selector
         project_layout = QHBoxLayout()
         project_label = QLabel("Project:")
-        project_label.setStyleSheet("font-weight: bold;")
+        project_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
         project_layout.addWidget(project_label)
 
         self.project_combo = QComboBox()
@@ -278,7 +286,7 @@ class StaffOrdersDialog(QDialog):
 
         # Selection hint
         selection_hint = QLabel("Tip: Shift+click to select a range, Ctrl+click to toggle")
-        selection_hint.setStyleSheet("color: #9ca3af; font-size: 11px; font-style: italic;")
+        selection_hint.setStyleSheet(f"color: {T.TEXT_FAINT}; font-size: 11px; font-style: italic;")
         selection_layout.addWidget(selection_hint)
 
         layout.addLayout(selection_layout)
@@ -316,11 +324,11 @@ class StaffOrdersDialog(QDialog):
         details_layout.setSpacing(8)
 
         self.proposed_details_label = QLabel("Select claims to pull into QGIS")
-        self.proposed_details_label.setStyleSheet("color: #6b7280;")
+        self.proposed_details_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         details_layout.addWidget(self.proposed_details_label)
 
         self.proposed_counts_label = QLabel("")
-        self.proposed_counts_label.setStyleSheet("color: #374151; font-size: 13px;")
+        self.proposed_counts_label.setStyleSheet(f"color: {T.TEXT_PRIMARY}; font-size: 13px;")
         details_layout.addWidget(self.proposed_counts_label)
 
         layout.addWidget(self.proposed_details_frame)
@@ -381,7 +389,7 @@ class StaffOrdersDialog(QDialog):
             status = order.get('status', 'unknown')
             status_display = order.get('status_display', status.replace('_', ' ').title())
             status_item = QTableWidgetItem(status_display)
-            status_color = self.STATUS_COLORS.get(status, '#6b7280')
+            status_color = self.STATUS_COLORS.get(status, T.TEXT_MUTED)
             status_item.setForeground(QBrush(QColor(status_color)))
             self.orders_table.setItem(row, 2, status_item)
 
@@ -509,7 +517,7 @@ class StaffOrdersDialog(QDialog):
             # Approved status
             approved = props.get('approved', False)
             approved_item = QTableWidgetItem("Yes" if approved else "No")
-            approved_item.setForeground(QBrush(QColor('#059669' if approved else '#f59e0b')))
+            approved_item.setForeground(QBrush(QColor(T.SUCCESS if approved else T.WARNING)))
             self.proposed_table.setItem(row, 4, approved_item)
 
         self.proposed_table.clearSelection()
@@ -757,148 +765,150 @@ class StaffOrdersDialog(QDialog):
 
     def _get_tab_style(self) -> str:
         """Get tab widget style matching main UI."""
-        return """
-            QTabWidget::pane {
-                border: 1px solid #d1d5db;
+        return f"""
+            QTabWidget::pane {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
-                background-color: white;
-            }
-            QTabBar::tab {
+                background-color: {T.SURFACE};
+            }}
+            QTabBar::tab {{
                 padding: 10px 25px;
                 font-weight: bold;
                 min-width: 90px;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 margin-right: 4px;
-            }
-            QTabBar::tab:selected {
+            }}
+            QTabBar::tab:selected {{
                 background-color: #5bbad5;
-                color: white;
-            }
-            QTabBar::tab:!selected {
-                background-color: #e5e7eb;
-                color: #374151;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #d1d5db;
-            }
+                color: {T.TEXT_ON_ACCENT};
+            }}
+            QTabBar::tab:!selected {{
+                background-color: {T.BORDER_SUBTLE};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {T.BORDER};
+            }}
         """
 
     def _get_table_style(self) -> str:
         """Get table style."""
-        return """
-            QTableWidget {
-                border: 1px solid #e5e7eb;
+        return f"""
+            QTableWidget {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
-                background-color: white;
-                gridline-color: #e5e7eb;
+                background-color: {T.SURFACE};
+                gridline-color: {T.BORDER_SUBTLE};
                 selection-background-color: #5bbad5;
-                selection-color: white;
-            }
-            QTableWidget::item {
+                selection-color: {T.TEXT_ON_ACCENT};
+            }}
+            QTableWidget::item {{
                 padding: 8px;
-                color: #374151;
-            }
-            QTableWidget::item:selected {
+                color: {T.TEXT_PRIMARY};
+            }}
+            QTableWidget::item:selected {{
                 background-color: #5bbad5;
-                color: white;
-            }
-            QHeaderView::section {
-                background-color: #f9fafb;
+                color: {T.TEXT_ON_ACCENT};
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUBTLE};
                 padding: 10px 8px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: bold;
-                color: #374151;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
         """
 
     def _get_details_frame_style(self) -> str:
         """Get details frame style."""
-        return """
-            QFrame {
-                background-color: #f9fafb;
-                border: 1px solid #e5e7eb;
+        return f"""
+            QFrame {{
+                background-color: {T.SURFACE_SUBTLE};
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 padding: 12px;
-            }
+            }}
         """
 
     def _get_combo_style(self) -> str:
         """Get combo box style."""
-        return """
-            QComboBox {
+        return f"""
+            QComboBox {{
                 padding: 8px 12px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
-                background-color: white;
-            }
-            QComboBox:hover {
-                border-color: #9ca3af;
-            }
-            QComboBox::drop-down {
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QComboBox:hover {{
+                border-color: {T.TEXT_FAINT};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 padding-right: 8px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                selection-background-color: #2563eb;
-                selection-color: white;
-            }
-            QComboBox QAbstractItemView::item {
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
+                selection-background-color: {T.ACCENT};
+                selection-color: {T.TEXT_ON_ACCENT};
+            }}
+            QComboBox QAbstractItemView::item {{
                 padding: 6px 12px;
-                color: #374151;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #dbeafe;
-                color: #1d4ed8;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {T.INFO_BG};
+                color: {T.ACCENT_HOVER};
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get primary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 12px 24px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get secondary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
-            QPushButton:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_FAINT};
+            }}
         """

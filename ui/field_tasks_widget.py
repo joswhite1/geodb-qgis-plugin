@@ -15,6 +15,7 @@ from qgis.PyQt.QtCore import pyqtSignal
 from .field_work_dialog import FieldWorkDialog
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_HLine, QFrame_Sunken
+from ..utils.theme import T
 
 
 class FieldTasksWidget(QWidget):
@@ -42,7 +43,7 @@ class FieldTasksWidget(QWidget):
         # Header
         header = QLabel("Field Tasks")
         header.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #0e7490;"
+            f"font-size: 18px; font-weight: bold; color: {T.INFO_TEXT};"
         )
         main_layout.addWidget(header)
 
@@ -52,7 +53,7 @@ class FieldTasksWidget(QWidget):
             "or create new planned samples from any QGIS point layer."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #6b7280; margin-bottom: 4px;")
+        desc.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 4px;")
         main_layout.addWidget(desc)
 
         # Separator
@@ -74,7 +75,7 @@ class FieldTasksWidget(QWidget):
             "Planned (gray), Assigned (yellow), Collected (green), Skipped (red)."
         )
         pull_desc.setWordWrap(True)
-        pull_desc.setStyleSheet("font-weight: normal; color: #374151;")
+        pull_desc.setStyleSheet(f"font-weight: normal; color: {T.TEXT_PRIMARY};")
         pull_layout.addWidget(pull_desc)
 
         btn_row = QHBoxLayout()
@@ -84,17 +85,17 @@ class FieldTasksWidget(QWidget):
             "Pull planned and assigned samples as a field tasks layer\n"
             "(separate from assay-colored layers)"
         )
-        self.pull_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2563eb;
-                color: white;
+        self.pull_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 padding: 8px 16px;
                 border-radius: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover { background-color: #1d4ed8; }
-            QPushButton:disabled { background-color: #9ca3af; }
+            }}
+            QPushButton:hover {{ background-color: {T.ACCENT_HOVER}; }}
+            QPushButton:disabled {{ background-color: {T.TEXT_FAINT}; }}
         """)
         self.pull_button.clicked.connect(self._on_pull_field_tasks_clicked)
         btn_row.addWidget(self.pull_button)
@@ -116,7 +117,7 @@ class FieldTasksWidget(QWidget):
             "sequence numbers and sample types."
         )
         plan_desc.setWordWrap(True)
-        plan_desc.setStyleSheet("font-weight: normal; color: #374151;")
+        plan_desc.setStyleSheet(f"font-weight: normal; color: {T.TEXT_PRIMARY};")
         plan_layout.addWidget(plan_desc)
 
         btn_row2 = QHBoxLayout()
@@ -125,17 +126,17 @@ class FieldTasksWidget(QWidget):
         self.plan_button.setToolTip(
             "Create planned samples from any point layer for field collection"
         )
-        self.plan_button.setStyleSheet("""
-            QPushButton {
-                background-color: #059669;
-                color: white;
+        self.plan_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 padding: 8px 16px;
                 border-radius: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover { background-color: #047857; }
-            QPushButton:disabled { background-color: #9ca3af; }
+            }}
+            QPushButton:hover {{ background-color: {T.SUCCESS_TEXT}; }}
+            QPushButton:disabled {{ background-color: {T.TEXT_FAINT}; }}
         """)
         self.plan_button.clicked.connect(self._on_plan_field_samples_clicked)
         btn_row2.addWidget(self.plan_button)

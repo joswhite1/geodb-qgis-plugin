@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from ..utils.logger import PluginLogger
 from ..utils.layer_utils import is_layer_in_project
 from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
+from ..utils.theme import T
 
 
 class ReferenceInputDialog(QDialog):
@@ -54,6 +55,11 @@ class ReferenceInputDialog(QDialog):
 
         self.setWindowTitle("Add Reference Point")
         self.setMinimumWidth(400)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode.
+        self.setStyleSheet(
+            f"ReferenceInputDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         layout = QVBoxLayout()
 
@@ -78,7 +84,7 @@ class ReferenceInputDialog(QDialog):
             "in legal documents. Choose prominent, permanent features.</i>"
         )
         help_label.setWordWrap(True)
-        help_label.setStyleSheet("color: #6b7280; font-size: 11px;")
+        help_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
         layout.addWidget(help_label)
 
         # Buttons
@@ -342,33 +348,33 @@ class ReferencePointsWidget(QWidget):
             "Click points on the map to add them."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        info_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         layout.addWidget(info_label)
 
         # Button row
         button_layout = QHBoxLayout()
 
         self.add_ref_btn = QPushButton("Add Reference Point")
-        self.add_ref_btn.setStyleSheet("""
-            QPushButton {
+        self.add_ref_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 8px 16px;
-                background-color: #059669;
-                color: white;
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #047857;
-            }
-            QPushButton:checked {
-                background-color: #065f46;
-                border: 2px solid #10b981;
-            }
-            QPushButton:disabled {
-                background-color: #a7f3d0;
-                color: #6b7280;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
+            QPushButton:checked {{
+                background-color: {T.SUCCESS_TEXT};
+                border: 2px solid {T.SUCCESS};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.SUCCESS_BG};
+                color: {T.TEXT_MUTED};
+            }}
         """)
         self.add_ref_btn.setCheckable(True)
         self.add_ref_btn.clicked.connect(self._toggle_reference_tool)
@@ -377,17 +383,17 @@ class ReferencePointsWidget(QWidget):
         button_layout.addStretch()
 
         self.clear_btn = QPushButton("Clear All")
-        self.clear_btn.setStyleSheet("""
-            QPushButton {
+        self.clear_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 6px 12px;
-                background-color: #ffffff;
-                color: #dc2626;
-                border: 1px solid #dc2626;
+                background-color: {T.SURFACE};
+                color: {T.DANGER};
+                border: 1px solid {T.DANGER};
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #fef2f2;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.DANGER_BG};
+            }}
         """)
         self.clear_btn.clicked.connect(self._clear_all)
         self.clear_btn.setEnabled(False)
@@ -398,25 +404,26 @@ class ReferencePointsWidget(QWidget):
         # Reference points list
         self.ref_list = QListWidget()
         self.ref_list.setMaximumHeight(100)
-        self.ref_list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #d1d5db;
+        self.ref_list.setStyleSheet(f"""
+            QListWidget {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
-                background-color: #f9fafb;
-            }
-            QListWidget::item {
+                background-color: {T.SURFACE_SUBTLE};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QListWidget::item {{
                 padding: 4px 8px;
-            }
-            QListWidget::item:selected {
-                background-color: #dbeafe;
-                color: #1d4ed8;
-            }
+            }}
+            QListWidget::item:selected {{
+                background-color: {T.INFO_BG};
+                color: {T.ACCENT_HOVER};
+            }}
         """)
         layout.addWidget(self.ref_list)
 
         # Status label
         self.status_label = QLabel("No reference points added")
-        self.status_label.setStyleSheet("color: #6b7280; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
         layout.addWidget(self.status_label)
 
     def _toggle_reference_tool(self, checked: bool):

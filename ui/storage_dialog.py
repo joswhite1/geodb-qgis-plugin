@@ -19,6 +19,7 @@ from qgis.PyQt.QtGui import QFont
 from ..managers.storage_manager import StorageManager, StorageMode
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_HLine
+from ..utils.theme import T
 
 
 class StorageConfigDialog(QDialog):
@@ -64,6 +65,11 @@ class StorageConfigDialog(QDialog):
         self.setWindowTitle("Configure Data Storage")
         self.setMinimumWidth(550)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode.
+        self.setStyleSheet(
+            f"StorageConfigDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
@@ -74,7 +80,7 @@ class StorageConfigDialog(QDialog):
         header_font.setPointSize(11)
         header_font.setBold(True)
         header_label.setFont(header_font)
-        header_label.setStyleSheet("color: #5bbad5;")
+        header_label.setStyleSheet(f"color: {T.INFO};")
         layout.addWidget(header_label)
 
         # Description
@@ -83,7 +89,7 @@ class StorageConfigDialog(QDialog):
             "GeoPackage storage is recommended for persistent data."
         )
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #666;")
+        desc_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layout.addWidget(desc_label)
 
         # Storage options group
@@ -106,7 +112,7 @@ class StorageConfigDialog(QDialog):
         memory_warning = QLabel(
             "  ⚠️ Data will be lost when QGIS closes"
         )
-        memory_warning.setStyleSheet("color: #ff9800; font-style: italic; margin-left: 20px;")
+        memory_warning.setStyleSheet(f"color: {T.WARNING}; font-style: italic; margin-left: 20px;")
         options_layout.addWidget(memory_warning)
 
         options_layout.addSpacing(10)
@@ -114,7 +120,7 @@ class StorageConfigDialog(QDialog):
         # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame_HLine)
-        separator.setStyleSheet("color: #ddd;")
+        separator.setStyleSheet(f"color: {T.BORDER_SUBTLE};")
         options_layout.addWidget(separator)
 
         options_layout.addSpacing(10)
@@ -134,7 +140,7 @@ class StorageConfigDialog(QDialog):
             "  ✓ Can be shared and backed up\n"
             "  ✓ Works offline"
         )
-        gpkg_benefits.setStyleSheet("color: #4caf50; margin-left: 20px;")
+        gpkg_benefits.setStyleSheet(f"color: {T.SUCCESS}; margin-left: 20px;")
         options_layout.addWidget(gpkg_benefits)
 
         # GeoPackage path selection
@@ -160,7 +166,7 @@ class StorageConfigDialog(QDialog):
         # Default directory info
         default_dir = self.storage_manager.get_default_directory()
         default_info = QLabel(f"Default location: {default_dir}")
-        default_info.setStyleSheet("color: #888; font-size: 9pt;")
+        default_info.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 9pt;")
         default_info.setWordWrap(True)
         layout.addWidget(default_info)
 
@@ -176,8 +182,8 @@ class StorageConfigDialog(QDialog):
         self.save_btn.setMinimumWidth(120)
         self.save_btn.setDefault(True)
         self.save_btn.setStyleSheet(
-            "QPushButton { background-color: #5bbad5; color: white; font-weight: bold; }"
-            "QPushButton:hover { background-color: #4aa9c4; }"
+            f"QPushButton {{ background-color: {T.ACCENT}; color: {T.TEXT_ON_ACCENT}; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {T.ACCENT_HOVER}; }}"
         )
         button_layout.addWidget(self.save_btn)
 

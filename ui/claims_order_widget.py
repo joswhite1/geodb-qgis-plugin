@@ -25,6 +25,7 @@ from ..processors.grid_generator import GridGenerator
 from ..utils.crs_utils import auto_detect_utm
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_NoFrame, QFrame_HLine, QDialog_Accepted
+from ..utils.theme import T
 
 
 class ClaimsOrderWidget(QWidget):
@@ -126,7 +127,7 @@ class ClaimsOrderWidget(QWidget):
 
         self.access_status_label = QLabel("Pay-Per-Claim")
         self.access_status_label.setStyleSheet(
-            "font-weight: bold; color: #2563eb;"
+            f"font-weight: bold; color: {T.ACCENT_TEXT};"
         )
         status_layout.addWidget(self.access_status_label)
 
@@ -142,7 +143,7 @@ class ClaimsOrderWidget(QWidget):
 
         # Pricing info
         self.pricing_label = QLabel("Checking pricing...")
-        self.pricing_label.setStyleSheet("color: #6b7280;")
+        self.pricing_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layout.addWidget(self.pricing_label)
 
         return group
@@ -160,7 +161,7 @@ class ClaimsOrderWidget(QWidget):
             "This information will appear on all generated documents."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #6b7280; margin-bottom: 8px;")
+        info_label.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 8px;")
         layout.addWidget(info_label)
 
         # Form layout
@@ -233,7 +234,7 @@ class ClaimsOrderWidget(QWidget):
 
         # UTM zone info
         self.utm_info_label = QLabel("")
-        self.utm_info_label.setStyleSheet("color: #6b7280;")
+        self.utm_info_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         self.utm_info_label.setWordWrap(True)
         layout.addWidget(self.utm_info_label)
 
@@ -252,7 +253,7 @@ class ClaimsOrderWidget(QWidget):
             "You can edit the grid positions before submitting."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #6b7280; margin-bottom: 8px;")
+        info_label.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 8px;")
         layout.addWidget(info_label)
 
         # Grid generator controls
@@ -311,7 +312,7 @@ class ClaimsOrderWidget(QWidget):
         # Separator
         line = QFrame()
         line.setFrameShape(QFrame_HLine)
-        line.setStyleSheet("background-color: #e5e7eb; margin: 8px 0;")
+        line.setStyleSheet(f"background-color: {T.BORDER_SUBTLE}; margin: 8px 0;")
         layout.addWidget(line)
 
         # Layer selector
@@ -352,7 +353,7 @@ class ClaimsOrderWidget(QWidget):
 
         # Claim count display
         self.claim_count_label = QLabel("Claims: 0")
-        self.claim_count_label.setStyleSheet("font-weight: bold; color: #059669;")
+        self.claim_count_label.setStyleSheet(f"font-weight: bold; color: {T.SUCCESS};")
         layout.addWidget(self.claim_count_label)
 
         return group
@@ -366,13 +367,13 @@ class ClaimsOrderWidget(QWidget):
 
         # Pricing summary
         pricing_frame = QFrame()
-        pricing_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f3f4f6;
-                border: 1px solid #e5e7eb;
+        pricing_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T.SURFACE_SUNKEN};
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 padding: 12px;
-            }
+            }}
         """)
         pricing_layout = QVBoxLayout(pricing_frame)
         pricing_layout.setSpacing(4)
@@ -387,7 +388,7 @@ class ClaimsOrderWidget(QWidget):
 
         self.summary_total_label = QLabel("Total: $0.00")
         self.summary_total_label.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #059669;"
+            f"font-size: 18px; font-weight: bold; color: {T.SUCCESS};"
         )
         pricing_layout.addWidget(self.summary_total_label)
 
@@ -400,16 +401,16 @@ class ClaimsOrderWidget(QWidget):
             "Claims will be processed by geodb.io staff after payment."
         )
         self.disclaimer_checkbox.setWordWrap(True)
-        self.disclaimer_checkbox.setStyleSheet("""
-            QCheckBox {
+        self.disclaimer_checkbox.setStyleSheet(f"""
+            QCheckBox {{
                 font-size: 12px;
-                color: #374151;
+                color: {T.TEXT_PRIMARY};
                 padding: 8px;
-            }
-            QCheckBox::indicator {
+            }}
+            QCheckBox::indicator {{
                 width: 20px;
                 height: 20px;
-            }
+            }}
         """)
         self.disclaimer_checkbox.stateChanged.connect(self._update_submit_state)
         layout.addWidget(self.disclaimer_checkbox)
@@ -515,13 +516,13 @@ class ClaimsOrderWidget(QWidget):
             desc = project_crs.description()
             if 'UTM' in desc:
                 self.utm_info_label.setText(f"UTM zone detected: {desc}")
-                self.utm_info_label.setStyleSheet("color: #059669;")
+                self.utm_info_label.setStyleSheet(f"color: {T.SUCCESS};")
             else:
                 self.utm_info_label.setText(
                     "Note: Claims processing requires UTM coordinates. "
                     "Click 'Auto-Detect UTM Zone' to set the appropriate CRS."
                 )
-                self.utm_info_label.setStyleSheet("color: #f59e0b;")
+                self.utm_info_label.setStyleSheet(f"color: {T.WARNING};")
         else:
             self.crs_label.setText("Current CRS: Not set")
             self.utm_info_label.setText("")
@@ -776,129 +777,132 @@ class ClaimsOrderWidget(QWidget):
 
     def _get_group_style(self) -> str:
         """Get group box style."""
-        return """
-            QGroupBox {
+        return f"""
+            QGroupBox {{
                 font-weight: bold;
                 font-size: 14px;
-                color: #1f2937;
-                border: 1px solid #e5e7eb;
+                color: {T.TEXT_STRONG};
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 margin-top: 16px;
                 padding-top: 16px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
                 left: 12px;
                 padding: 0 8px;
-                background-color: white;
-            }
+                background-color: {T.SURFACE};
+            }}
         """
 
     def _get_input_style(self) -> str:
         """Get input field style."""
-        return """
-            QLineEdit {
+        return f"""
+            QLineEdit {{
                 padding: 6px 10px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
-                background-color: white;
-            }
-            QLineEdit:focus {
-                border-color: #2563eb;
-            }
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QLineEdit:focus {{
+                border-color: {T.ACCENT};
+            }}
         """
 
     def _get_combo_style(self) -> str:
         """Get combo box style."""
-        return """
-            QComboBox {
+        return f"""
+            QComboBox {{
                 padding: 6px 10px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
-                background-color: white;
-            }
-            QComboBox:focus {
-                border-color: #2563eb;
-            }
-            QComboBox::drop-down {
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QComboBox:focus {{
+                border-color: {T.ACCENT};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 24px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                selection-background-color: #2563eb;
-                selection-color: white;
-            }
-            QComboBox QAbstractItemView::item {
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
+                selection-background-color: {T.ACCENT};
+                selection-color: {T.TEXT_ON_ACCENT};
+            }}
+            QComboBox QAbstractItemView::item {{
                 padding: 6px 12px;
-                color: #374151;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #dbeafe;
-                color: #1d4ed8;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {T.INFO_BG};
+                color: {T.ACCENT_HOVER};
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get primary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get secondary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 6px 12px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
         """
 
     def _get_success_button_style(self) -> str:
         """Get success button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 8px 16px;
-                background-color: #059669;
-                color: white;
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #047857;
-            }
-            QPushButton:pressed {
-                background-color: #065f46;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
         """

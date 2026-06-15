@@ -32,6 +32,7 @@ from ...utils.compat import (
     Qt_RightArrow, Qt_DownArrow, Qt_PointingHandCursor, QFrame_NoFrame,
     QHeaderView_Stretch, QHeaderView_ResizeToContents, QMessageBox_Warning,
 )
+from ...utils.theme import T
 
 
 class ClaimsStep5AdjustWidget(ClaimsStepBase):
@@ -112,25 +113,25 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         """Create the status panel showing layer generation status."""
         frame = QFrame()
         frame.setObjectName("statusPanel")
-        frame.setStyleSheet("""
-            QFrame#statusPanel {
-                background-color: #f0f9ff;
-                border: 1px solid #0284c7;
+        frame.setStyleSheet(f"""
+            QFrame#statusPanel {{
+                background-color: {T.INFO_BG};
+                border: 1px solid {T.INFO};
                 border-radius: 8px;
                 padding: 12px;
-            }
+            }}
         """)
         layout = QVBoxLayout(frame)
         layout.setSpacing(8)
 
         self.status_label = QLabel("Layers will be generated when you enter this step.")
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #0369a1; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {T.INFO_TEXT}; font-weight: bold;")
         layout.addWidget(self.status_label)
 
         self.status_detail = QLabel("")
         self.status_detail.setWordWrap(True)
-        self.status_detail.setStyleSheet("color: #0369a1;")
+        self.status_detail.setStyleSheet(f"color: {T.INFO_TEXT};")
         layout.addWidget(self.status_detail)
 
         return frame
@@ -270,18 +271,18 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         self.layers_table.horizontalHeader().setSectionResizeMode(1, QHeaderView_ResizeToContents)
         self.layers_table.horizontalHeader().setSectionResizeMode(2, QHeaderView_ResizeToContents)
         self.layers_table.setMaximumHeight(200)
-        self.layers_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e5e7eb;
+        self.layers_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 4px;
-            }
-            QHeaderView::section {
-                background-color: #f3f4f6;
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUNKEN};
                 padding: 8px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: bold;
-            }
+            }}
         """)
         layout.addWidget(self.layers_table)
 
@@ -290,24 +291,24 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
     def _create_instructions_panel(self) -> QFrame:
         """Create the instructions panel with state-specific guidance."""
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background-color: #fefce8;
-                border: 1px solid #fde047;
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T.WARNING_BG};
+                border: 1px solid {T.WARNING};
                 border-radius: 8px;
                 padding: 12px;
-            }
+            }}
         """)
         layout = QVBoxLayout(frame)
         layout.setSpacing(8)
 
         title = QLabel("How to Adjust Monuments")
-        title.setStyleSheet("font-weight: bold; color: #854d0e;")
+        title.setStyleSheet(f"font-weight: bold; color: {T.WARNING_TEXT};")
         layout.addWidget(title)
 
         self.instructions_label = QLabel()
         self.instructions_label.setWordWrap(True)
-        self.instructions_label.setStyleSheet("color: #854d0e;")
+        self.instructions_label.setStyleSheet(f"color: {T.WARNING_TEXT};")
         layout.addWidget(self.instructions_label)
 
         return frame
@@ -329,13 +330,13 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         # Header with toggle button
         header = QFrame()
         header.setObjectName("lmCornerHeader")
-        header.setStyleSheet("""
-            QFrame#lmCornerHeader {
-                background-color: #f3f4f6;
-                border: 1px solid #e5e7eb;
+        header.setStyleSheet(f"""
+            QFrame#lmCornerHeader {{
+                background-color: {T.SURFACE_SUNKEN};
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px 8px 0 0;
                 padding: 8px;
-            }
+            }}
         """)
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(12, 8, 12, 8)
@@ -356,12 +357,12 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
         # Title label
         self.lm_title_label = QLabel("LM Corner / Geometry Rotation")
-        self.lm_title_label.setStyleSheet("font-weight: bold; color: #374151;")
+        self.lm_title_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
         header_layout.addWidget(self.lm_title_label)
 
         # State hint label (shows when collapsed)
         self.lm_state_hint = QLabel("")
-        self.lm_state_hint.setStyleSheet("color: #6b7280; font-style: italic;")
+        self.lm_state_hint.setStyleSheet(f"color: {T.TEXT_MUTED}; font-style: italic;")
         header_layout.addWidget(self.lm_state_hint)
 
         header_layout.addStretch()
@@ -375,14 +376,14 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         # Collapsible content
         self.lm_content = QFrame()
         self.lm_content.setObjectName("lmCornerContent")
-        self.lm_content.setStyleSheet("""
-            QFrame#lmCornerContent {
-                background-color: white;
-                border: 1px solid #e5e7eb;
+        self.lm_content.setStyleSheet(f"""
+            QFrame#lmCornerContent {{
+                background-color: {T.SURFACE};
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-top: none;
                 border-radius: 0 0 8px 8px;
                 padding: 12px;
-            }
+            }}
         """)
         content_layout = QVBoxLayout(self.lm_content)
         content_layout.setSpacing(8)
@@ -406,18 +407,18 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         self.lm_corner_table.horizontalHeader().setSectionResizeMode(1, QHeaderView_ResizeToContents)
         self.lm_corner_table.horizontalHeader().setSectionResizeMode(2, QHeaderView_ResizeToContents)
         self.lm_corner_table.setMaximumHeight(200)
-        self.lm_corner_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e5e7eb;
+        self.lm_corner_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 4px;
-            }
-            QHeaderView::section {
-                background-color: #f3f4f6;
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUNKEN};
                 padding: 8px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: bold;
-            }
+            }}
         """)
         content_layout.addWidget(self.lm_corner_table)
 
@@ -426,18 +427,18 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         btn_layout.addStretch()
 
         self.apply_lm_btn = QPushButton("Apply LM Corner Changes")
-        self.apply_lm_btn.setStyleSheet("""
-            QPushButton {
+        self.apply_lm_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 8px 16px;
-                background-color: #059669;
-                color: white;
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #047857;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
         """)
         self.apply_lm_btn.clicked.connect(self._on_apply_lm_corners)
         btn_layout.addWidget(self.apply_lm_btn)
@@ -479,18 +480,18 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             "WARNING: This will discard ALL your adjustments and\n"
             "regenerate layers from the original claim data."
         )
-        self.reset_btn.setStyleSheet("""
-            QPushButton {
+        self.reset_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #dc2626;
-                color: white;
+                background-color: {T.DANGER};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #b91c1c;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.DANGER_TEXT};
+            }}
         """)
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         layout.addWidget(self.reset_btn)
@@ -942,17 +943,17 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         # Style the Yes button to be red for emphasis
         yes_btn = msg_box.button(QMessageBox.StandardButton.Yes)
         yes_btn.setText("Reset All")
-        yes_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #dc2626;
-                color: white;
+        yes_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.DANGER};
+                color: {T.TEXT_ON_ACCENT};
                 padding: 6px 12px;
                 border-radius: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #b91c1c;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.DANGER_TEXT};
+            }}
         """)
 
         reply = msg_box.exec()

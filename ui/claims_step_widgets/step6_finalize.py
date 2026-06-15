@@ -27,6 +27,7 @@ from qgis.PyQt.QtCore import pyqtSignal
 from .step_base import ClaimsStepBase
 from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double, QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
 from ...utils.layer_utils import is_layer_valid
+from ...utils.theme import T
 
 
 class ClaimsStep6Widget(ClaimsStepBase):
@@ -206,17 +207,17 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
         # Progress bar
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #2563eb;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.ACCENT};
                 border-radius: 3px;
-            }
+            }}
         """)
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
@@ -231,7 +232,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
         # Pricing label (for pay-per-claim users)
         self.pricing_label = QLabel("")
-        self.pricing_label.setStyleSheet("color: #2563eb; font-weight: bold;")
+        self.pricing_label.setStyleSheet(f"color: {T.ACCENT_TEXT}; font-weight: bold;")
         btn_layout.addWidget(self.pricing_label)
 
         btn_layout.addStretch()
@@ -253,21 +254,22 @@ class ClaimsStep6Widget(ClaimsStepBase):
         self.results_table.verticalHeader().setVisible(False)
         self.results_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.results_table.setMaximumHeight(200)
-        self.results_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e5e7eb;
+        self.results_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 4px;
-                background-color: white;
-                gridline-color: #e5e7eb;
-            }
-            QHeaderView::section {
-                background-color: #f9fafb;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                gridline-color: {T.BORDER_SUBTLE};
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUBTLE};
                 padding: 8px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: bold;
-                color: #374151;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         layout.addWidget(self.results_table)
 

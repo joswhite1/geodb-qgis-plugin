@@ -19,6 +19,7 @@ from ..utils.compat import (
     QFrame_HLine, QAbstractItemView_NoEditTriggers, QAbstractItemView_NoSelection,
     QHeaderView_Stretch, QDialog_Accepted,
 )
+from ..utils.theme import T
 
 
 class AssayRangeDialog(QDialog):
@@ -73,6 +74,11 @@ class AssayRangeDialog(QDialog):
         self.setMinimumWidth(550)
         self.setMinimumHeight(450)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode.
+        self.setStyleSheet(
+            f"AssayRangeDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
@@ -84,7 +90,7 @@ class AssayRangeDialog(QDialog):
         header_font.setPointSize(16)
         header_font.setBold(True)
         header_label.setFont(header_font)
-        header_label.setStyleSheet("color: #1f2937;")
+        header_label.setStyleSheet(f"color: {T.TEXT_STRONG};")
         layout.addWidget(header_label)
 
         # Description
@@ -93,20 +99,20 @@ class AssayRangeDialog(QDialog):
             "The ranges below show how values will be colored on the map."
         )
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #6b7280; margin-bottom: 8px;")
+        desc_label.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 8px;")
         layout.addWidget(desc_label)
 
         # Separator
         line = QFrame()
         line.setFrameShape(QFrame_HLine)
-        line.setStyleSheet("background-color: #e5e7eb;")
+        line.setStyleSheet(f"background-color: {T.BORDER_SUBTLE};")
         layout.addWidget(line)
 
         # Configuration selector
         selector_layout = QHBoxLayout()
 
         element_label = QLabel("Element:")
-        element_label.setStyleSheet("font-weight: bold; color: #374151;")
+        element_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
         selector_layout.addWidget(element_label)
 
         self.config_combo = QComboBox()
@@ -126,36 +132,36 @@ class AssayRangeDialog(QDialog):
 
         # Progress bar (hidden by default)
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #2563eb;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.ACCENT};
                 border-radius: 3px;
-            }
+            }}
         """)
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
 
         # Range table group
         range_group = QGroupBox("Color Ranges")
-        range_group.setStyleSheet("""
-            QGroupBox {
+        range_group.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #e5e7eb;
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 margin-top: 12px;
                 padding-top: 16px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 8px;
-            }
+            }}
         """)
         range_layout = QVBoxLayout(range_group)
 
@@ -168,61 +174,62 @@ class AssayRangeDialog(QDialog):
         self.range_table.verticalHeader().setVisible(False)
         self.range_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.range_table.setSelectionMode(QAbstractItemView_NoSelection)
-        self.range_table.setStyleSheet("""
-            QTableWidget {
+        self.range_table.setStyleSheet(f"""
+            QTableWidget {{
                 border: none;
-                background-color: white;
-                gridline-color: #e5e7eb;
-            }
-            QHeaderView::section {
-                background-color: #f9fafb;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                gridline-color: {T.BORDER_SUBTLE};
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUBTLE};
                 padding: 8px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: bold;
-                color: #374151;
-            }
-            QTableWidget::item {
+                color: {T.TEXT_PRIMARY};
+            }}
+            QTableWidget::item {{
                 padding: 8px;
-            }
+            }}
         """)
         range_layout.addWidget(self.range_table)
 
         # Default color info
         self.default_color_label = QLabel()
-        self.default_color_label.setStyleSheet("color: #6b7280; padding: 8px;")
+        self.default_color_label.setStyleSheet(f"color: {T.TEXT_MUTED}; padding: 8px;")
         range_layout.addWidget(self.default_color_label)
 
         layout.addWidget(range_group)
 
         # Merge Settings Info Group
         merge_group = QGroupBox("Assay Merge Settings")
-        merge_group.setStyleSheet("""
-            QGroupBox {
+        merge_group.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #e5e7eb;
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 margin-top: 12px;
                 padding-top: 16px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 8px;
-            }
+            }}
         """)
         merge_layout = QVBoxLayout(merge_group)
 
         self.merge_settings_label = QLabel()
         self.merge_settings_label.setWordWrap(True)
-        self.merge_settings_label.setStyleSheet("color: #374151; padding: 8px;")
+        self.merge_settings_label.setStyleSheet(f"color: {T.TEXT_PRIMARY}; padding: 8px;")
         merge_layout.addWidget(self.merge_settings_label)
 
         layout.addWidget(merge_group)
 
         # Status label
         self.status_label = QLabel()
-        self.status_label.setStyleSheet("color: #6b7280; font-style: italic;")
+        self.status_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-style: italic;")
         layout.addWidget(self.status_label)
 
         layout.addStretch()
@@ -248,84 +255,86 @@ class AssayRangeDialog(QDialog):
 
     def _get_combo_style(self) -> str:
         """Get stylesheet for combo box."""
-        return """
-            QComboBox {
+        return f"""
+            QComboBox {{
                 padding: 8px 12px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
-                background-color: white;
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
                 font-size: 14px;
-            }
-            QComboBox:focus {
-                border-color: #2563eb;
-            }
-            QComboBox::drop-down {
+            }}
+            QComboBox:focus {{
+                border-color: {T.ACCENT};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 30px;
-            }
-            QComboBox::down-arrow {
+            }}
+            QComboBox::down-arrow {{
                 width: 12px;
                 height: 12px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                selection-background-color: #2563eb;
-                selection-color: white;
-            }
-            QComboBox QAbstractItemView::item {
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
+                selection-background-color: {T.ACCENT};
+                selection-color: {T.TEXT_ON_ACCENT};
+            }}
+            QComboBox QAbstractItemView::item {{
                 padding: 6px 12px;
-                color: #374151;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #dbeafe;
-                color: #1d4ed8;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {T.INFO_BG};
+                color: {T.ACCENT_HOVER};
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get stylesheet for primary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
                 min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get stylesheet for secondary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 14px;
                 min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
         """
 
     def _load_configurations(self):

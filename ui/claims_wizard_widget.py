@@ -17,6 +17,7 @@ from qgis.core import QgsProject
 from .claims_wizard_state import ClaimsWizardState
 from ..utils.logger import PluginLogger
 from ..utils.compat import QSizePolicy_Expanding, QSizePolicy_Fixed
+from ..utils.theme import T
 
 if TYPE_CHECKING:
     from ..managers.claims_manager import ClaimsManager
@@ -132,41 +133,41 @@ class StepIndicator(QWidget):
             if i == self.current_step:
                 # Current step - highlighted (restore number in case it was a checkmark)
                 circle.setText(str(i + 1))
-                circle.setStyleSheet("""
-                    QLabel {
-                        background-color: #2563eb;
-                        color: white;
+                circle.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {T.ACCENT};
+                        color: {T.TEXT_ON_ACCENT};
                         border-radius: 16px;
                         font-weight: bold;
                         font-size: 14px;
-                    }
+                    }}
                 """)
-                label.setStyleSheet("font-size: 11px; color: #2563eb; font-weight: bold;")
+                label.setStyleSheet(f"font-size: 11px; color: {T.ACCENT_TEXT}; font-weight: bold;")
             elif i in self.completed_steps:
                 # Completed step - green with checkmark
                 circle.setText("✓")
-                circle.setStyleSheet("""
-                    QLabel {
-                        background-color: #059669;
-                        color: white;
+                circle.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {T.SUCCESS};
+                        color: {T.TEXT_ON_ACCENT};
                         border-radius: 16px;
                         font-weight: bold;
                         font-size: 14px;
-                    }
+                    }}
                 """)
-                label.setStyleSheet("font-size: 11px; color: #059669;")
+                label.setStyleSheet(f"font-size: 11px; color: {T.SUCCESS};")
             else:
                 # Future step - gray
                 circle.setText(str(i + 1))
-                circle.setStyleSheet("""
-                    QLabel {
-                        background-color: #e5e7eb;
-                        color: #6b7280;
+                circle.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {T.BORDER_SUBTLE};
+                        color: {T.TEXT_MUTED};
                         border-radius: 16px;
                         font-size: 14px;
-                    }
+                    }}
                 """)
-                label.setStyleSheet("font-size: 11px; color: #6b7280;")
+                label.setStyleSheet(f"font-size: 11px; color: {T.TEXT_MUTED};")
 
         # Update connector colors
         # Connector i sits between step i and step i+1; it should be green
@@ -174,9 +175,9 @@ class StepIndicator(QWidget):
         for i, connector in enumerate(self.connector_widgets):
             right_step = i + 1
             if right_step <= self.current_step or right_step in self.completed_steps:
-                connector.setStyleSheet("background-color: #059669;")
+                connector.setStyleSheet(f"background-color: {T.SUCCESS};")
             else:
-                connector.setStyleSheet("background-color: #e5e7eb;")
+                connector.setStyleSheet(f"background-color: {T.BORDER_SUBTLE};")
 
 
 class ClaimsWizardWidget(QWidget):
@@ -280,17 +281,17 @@ class ClaimsWizardWidget(QWidget):
 
         # Step indicator at top
         self.step_indicator = StepIndicator(self.STEP_NAMES)
-        self.step_indicator.setStyleSheet("""
-            QWidget {
-                background-color: #f9fafb;
-                border-bottom: 1px solid #e5e7eb;
-            }
+        self.step_indicator.setStyleSheet(f"""
+            QWidget {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
+            }}
         """)
         layout.addWidget(self.step_indicator)
 
         # Stacked widget for step content
         self.stack = QStackedWidget()
-        self.stack.setStyleSheet("background-color: white;")
+        self.stack.setStyleSheet(f"background-color: {T.SURFACE};")
         layout.addWidget(self.stack, 1)
 
         # Navigation bar at bottom
@@ -300,28 +301,28 @@ class ClaimsWizardWidget(QWidget):
     def _create_navigation_bar(self) -> QWidget:
         """Create the navigation bar with Back/Next buttons."""
         nav = QWidget()
-        nav.setStyleSheet("""
-            QWidget {
-                background-color: #f9fafb;
-                border-top: 1px solid #e5e7eb;
-            }
+        nav.setStyleSheet(f"""
+            QWidget {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-top: 1px solid {T.BORDER_SUBTLE};
+            }}
         """)
         layout = QHBoxLayout(nav)
         layout.setContentsMargins(16, 12, 16, 12)
 
         # Cancel/Reset button
         self.reset_btn = QPushButton("Start Over")
-        self.reset_btn.setStyleSheet("""
-            QPushButton {
+        self.reset_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 8px 16px;
-                color: #dc2626;
+                color: {T.DANGER};
                 background-color: transparent;
                 border: none;
                 font-size: 13px;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 text-decoration: underline;
-            }
+            }}
         """)
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         layout.addWidget(self.reset_btn)
@@ -330,47 +331,47 @@ class ClaimsWizardWidget(QWidget):
 
         # Back button
         self.back_btn = QPushButton("Back")
-        self.back_btn.setStyleSheet("""
-            QPushButton {
+        self.back_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 10px 24px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 14px;
                 min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_FAINT};
+            }}
         """)
         self.back_btn.clicked.connect(self._on_back_clicked)
         layout.addWidget(self.back_btn)
 
         # Next/Finish button
         self.next_btn = QPushButton("Next")
-        self.next_btn.setStyleSheet("""
-            QPushButton {
+        self.next_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 10px 24px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
                 min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """)
         self.next_btn.clicked.connect(self._on_next_clicked)
         layout.addWidget(self.next_btn)
@@ -527,11 +528,11 @@ class ClaimsWizardWidget(QWidget):
         # Rebuild the step indicator with new step names
         old_indicator = self.step_indicator
         self.step_indicator = StepIndicator(self.STEP_NAMES)
-        self.step_indicator.setStyleSheet("""
-            QWidget {
-                background-color: #f9fafb;
-                border-bottom: 1px solid #e5e7eb;
-            }
+        self.step_indicator.setStyleSheet(f"""
+            QWidget {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
+            }}
         """)
 
         # Replace old indicator in layout

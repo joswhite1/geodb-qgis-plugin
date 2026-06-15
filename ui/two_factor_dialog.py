@@ -13,6 +13,7 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont
 
 from ..utils.compat import QFrame_HLine, QDialog_Accepted
+from ..utils.theme import T
 
 if TYPE_CHECKING:
     from ..api.client import APIClient
@@ -71,6 +72,12 @@ class TwoFactorDialog(QDialog):
         self.setWindowTitle("Two-Factor Authentication")
         self.setFixedWidth(420)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode (otherwise the host's dark window shows behind the
+        # light input boxes).
+        self.setStyleSheet(
+            f"TwoFactorDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -84,13 +91,13 @@ class TwoFactorDialog(QDialog):
         header_font.setBold(True)
         header_label.setFont(header_font)
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header_label.setStyleSheet("color: #2563eb;")
+        header_label.setStyleSheet(f"color: {T.ACCENT_TEXT};")
         layout.addWidget(header_label)
 
         # Separator
         line = QFrame()
         line.setFrameShape(QFrame_HLine)
-        line.setStyleSheet("background-color: #e5e7eb;")
+        line.setStyleSheet(f"background-color: {T.BORDER_SUBTLE};")
         layout.addWidget(line)
 
         # Stacked widget for different pages
@@ -108,10 +115,10 @@ class TwoFactorDialog(QDialog):
 
         # Error message (shared across pages)
         self.error_label = QLabel()
-        self.error_label.setStyleSheet("""
-            color: #dc2626;
-            background-color: #fef2f2;
-            border: 1px solid #fecaca;
+        self.error_label.setStyleSheet(f"""
+            color: {T.DANGER_TEXT};
+            background-color: {T.DANGER_BG};
+            border: 1px solid {T.DANGER};
             border-radius: 6px;
             padding: 8px 12px;
         """)
@@ -121,10 +128,10 @@ class TwoFactorDialog(QDialog):
 
         # Success message (for recovery email sent)
         self.success_label = QLabel()
-        self.success_label.setStyleSheet("""
-            color: #059669;
-            background-color: #ecfdf5;
-            border: 1px solid #a7f3d0;
+        self.success_label.setStyleSheet(f"""
+            color: {T.SUCCESS_TEXT};
+            background-color: {T.SUCCESS_BG};
+            border: 1px solid {T.SUCCESS};
             border-radius: 6px;
             padding: 8px 12px;
         """)
@@ -160,12 +167,12 @@ class TwoFactorDialog(QDialog):
             "Enter the 6-digit code from your authenticator app."
         )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("color: #6b7280; margin-bottom: 8px;")
+        instructions.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 8px;")
         layout.addWidget(instructions)
 
         # Code input
         code_label = QLabel("Authentication Code")
-        code_label.setStyleSheet("font-weight: bold; color: #374151;")
+        code_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
         layout.addWidget(code_label)
 
         self.code_input = QLineEdit()
@@ -184,7 +191,7 @@ class TwoFactorDialog(QDialog):
             "You can also use a backup code if you saved one during setup."
         )
         backup_hint.setWordWrap(True)
-        backup_hint.setStyleSheet("color: #9ca3af; font-size: 11px;")
+        backup_hint.setStyleSheet(f"color: {T.TEXT_FAINT}; font-size: 11px;")
         layout.addWidget(backup_hint)
 
         layout.addSpacing(16)
@@ -192,17 +199,17 @@ class TwoFactorDialog(QDialog):
         # Recovery link (only if user has recovery email)
         if self.has_recovery_email:
             recovery_link = QPushButton("Can't access your authenticator?")
-            recovery_link.setStyleSheet("""
-                QPushButton {
-                    color: #2563eb;
+            recovery_link.setStyleSheet(f"""
+                QPushButton {{
+                    color: {T.ACCENT_TEXT};
                     background: transparent;
                     border: none;
                     text-decoration: underline;
                     padding: 0;
-                }
-                QPushButton:hover {
-                    color: #1d4ed8;
-                }
+                }}
+                QPushButton:hover {{
+                    color: {T.ACCENT_HOVER};
+                }}
             """)
             recovery_link.setCursor(Qt.CursorShape.PointingHandCursor)
             recovery_link.clicked.connect(self._show_recovery_page)
@@ -223,7 +230,7 @@ class TwoFactorDialog(QDialog):
             "This will allow you to sign in without your authenticator app."
         )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("color: #6b7280; margin-bottom: 16px;")
+        instructions.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 16px;")
         layout.addWidget(instructions)
 
         # Warning
@@ -232,10 +239,10 @@ class TwoFactorDialog(QDialog):
             "You can request up to 3 recovery codes per hour."
         )
         warning.setWordWrap(True)
-        warning.setStyleSheet("""
-            color: #b45309;
-            background-color: #fffbeb;
-            border: 1px solid #fcd34d;
+        warning.setStyleSheet(f"""
+            color: {T.WARNING_TEXT};
+            background-color: {T.WARNING_BG};
+            border: 1px solid {T.WARNING};
             border-radius: 6px;
             padding: 8px 12px;
         """)
@@ -253,17 +260,17 @@ class TwoFactorDialog(QDialog):
 
         # Back link
         back_link = QPushButton("Back to authenticator code")
-        back_link.setStyleSheet("""
-            QPushButton {
-                color: #6b7280;
+        back_link.setStyleSheet(f"""
+            QPushButton {{
+                color: {T.TEXT_MUTED};
                 background: transparent;
                 border: none;
                 text-decoration: underline;
                 padding: 0;
-            }
-            QPushButton:hover {
-                color: #374151;
-            }
+            }}
+            QPushButton:hover {{
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         back_link.setCursor(Qt.CursorShape.PointingHandCursor)
         back_link.clicked.connect(self._show_code_entry_page)
@@ -283,12 +290,12 @@ class TwoFactorDialog(QDialog):
             "Enter the 6-digit recovery code sent to your email."
         )
         self.recovery_instructions.setWordWrap(True)
-        self.recovery_instructions.setStyleSheet("color: #6b7280; margin-bottom: 8px;")
+        self.recovery_instructions.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 8px;")
         layout.addWidget(self.recovery_instructions)
 
         # Recovery code input
         code_label = QLabel("Recovery Code")
-        code_label.setStyleSheet("font-weight: bold; color: #374151;")
+        code_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
         layout.addWidget(code_label)
 
         self.recovery_code_input = QLineEdit()
@@ -311,17 +318,17 @@ class TwoFactorDialog(QDialog):
 
         # Resend link
         resend_link = QPushButton("Didn't receive it? Send again")
-        resend_link.setStyleSheet("""
-            QPushButton {
-                color: #6b7280;
+        resend_link.setStyleSheet(f"""
+            QPushButton {{
+                color: {T.TEXT_MUTED};
                 background: transparent;
                 border: none;
                 text-decoration: underline;
                 padding: 0;
-            }
-            QPushButton:hover {
-                color: #374151;
-            }
+            }}
+            QPushButton:hover {{
+                color: {T.TEXT_PRIMARY};
+            }}
         """)
         resend_link.setCursor(Qt.CursorShape.PointingHandCursor)
         resend_link.clicked.connect(self._on_send_recovery_clicked)
@@ -332,72 +339,73 @@ class TwoFactorDialog(QDialog):
 
     def _get_input_style(self) -> str:
         """Get stylesheet for input fields."""
-        return """
-            QLineEdit {
+        return f"""
+            QLineEdit {{
                 padding: 12px 16px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
-                background-color: #ffffff;
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
                 font-size: 18px;
                 font-family: monospace;
                 letter-spacing: 4px;
-            }
-            QLineEdit:focus {
-                border-color: #2563eb;
+            }}
+            QLineEdit:focus {{
+                border-color: {T.ACCENT};
                 outline: none;
-            }
-            QLineEdit:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+            }}
+            QLineEdit:disabled {{
+                background-color: {T.INPUT_BG_DISABLED};
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get stylesheet for primary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
                 min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get stylesheet for secondary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 14px;
                 min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
-            QPushButton:disabled {
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
+            QPushButton:disabled {{
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def _show_error(self, message: str):

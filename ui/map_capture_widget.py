@@ -18,6 +18,7 @@ from qgis.PyQt.QtGui import QPixmap, QImage
 
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_NoFrame
+from ..utils.theme import T
 
 
 # ProjectFile category choices (matching server model_variables.projectfile_choices)
@@ -95,7 +96,7 @@ class MapCaptureWidget(QWidget):
 
         # Title
         title = QLabel("Map Capture")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e293b;")
+        title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {T.SLATE_STRONG};")
         layout.addWidget(title)
 
         subtitle = QLabel(
@@ -104,7 +105,7 @@ class MapCaptureWidget(QWidget):
             "tiles for mobile and web viewing."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #64748b; font-size: 12px; margin-bottom: 8px;")
+        subtitle.setStyleSheet(f"color: {T.SLATE_MUTED}; font-size: 12px; margin-bottom: 8px;")
         layout.addWidget(subtitle)
 
         # --- Capture Section ---
@@ -132,22 +133,22 @@ class MapCaptureWidget(QWidget):
         self.size_estimate_label = QLabel("")
         self.size_estimate_label.setWordWrap(True)
         self.size_estimate_label.setStyleSheet(
-            "color: #64748b; font-size: 11px; padding: 2px 4px 6px 4px;"
+            f"color: {T.SLATE_MUTED}; font-size: 11px; padding: 2px 4px 6px 4px;"
         )
         capture_layout.addWidget(self.size_estimate_label)
 
         self.capture_button = QPushButton("Capture Current View")
-        self.capture_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6;
-                color: white;
+        self.capture_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 10px 20px;
                 border-radius: 6px;
                 font-size: 13px;
-            }
-            QPushButton:hover { background-color: #2563eb; }
-            QPushButton:pressed { background-color: #1d4ed8; }
+            }}
+            QPushButton:hover {{ background-color: {T.ACCENT_HOVER}; }}
+            QPushButton:pressed {{ background-color: {T.ACCENT_ACTIVE}; }}
         """)
         self.capture_button.clicked.connect(self._on_capture_clicked)
         capture_layout.addWidget(self.capture_button)
@@ -158,8 +159,8 @@ class MapCaptureWidget(QWidget):
         self.preview_label.setMinimumHeight(200)
         self.preview_label.setMaximumHeight(300)
         self.preview_label.setStyleSheet(
-            "background-color: #f1f5f9; border: 2px dashed #cbd5e1; "
-            "border-radius: 8px; color: #94a3b8; font-size: 13px;"
+            f"background-color: {T.SLATE_SUNKEN}; border: 2px dashed {T.SLATE_BORDER}; "
+            f"border-radius: 8px; color: {T.SLATE_FAINT}; font-size: 13px;"
         )
         capture_layout.addWidget(self.preview_label)
 
@@ -167,8 +168,8 @@ class MapCaptureWidget(QWidget):
         self.metadata_label = QLabel("")
         self.metadata_label.setWordWrap(True)
         self.metadata_label.setStyleSheet(
-            "color: #475569; font-size: 11px; padding: 4px 8px; "
-            "background-color: #f8fafc; border-radius: 4px;"
+            f"color: {T.SLATE_TEXT}; font-size: 11px; padding: 4px 8px; "
+            f"background-color: {T.SLATE_SURFACE}; border-radius: 4px;"
         )
         self.metadata_label.setVisible(False)
         capture_layout.addWidget(self.metadata_label)
@@ -209,21 +210,21 @@ class MapCaptureWidget(QWidget):
         # Upload button
         self.upload_button = QPushButton("Upload to Server")
         self.upload_button.setEnabled(False)
-        self.upload_button.setStyleSheet("""
-            QPushButton {
-                background-color: #10b981;
-                color: white;
+        self.upload_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 10px 20px;
                 border-radius: 6px;
                 font-size: 13px;
-            }
-            QPushButton:hover { background-color: #059669; }
-            QPushButton:pressed { background-color: #047857; }
-            QPushButton:disabled {
-                background-color: #d1d5db;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{ background-color: {T.SUCCESS}; }}
+            QPushButton:pressed {{ background-color: {T.SUCCESS_TEXT}; }}
+            QPushButton:disabled {{
+                background-color: {T.BORDER};
+                color: {T.TEXT_FAINT};
+            }}
         """)
         self.upload_button.clicked.connect(self._on_upload_clicked)
         layout.addWidget(self.upload_button)
@@ -588,16 +589,16 @@ class MapCaptureWidget(QWidget):
     def _show_status(self, message: str, level: str = "info"):
         """Show a status message below the upload button."""
         color_map = {
-            "info": "#3b82f6",
-            "success": "#10b981",
-            "warning": "#f59e0b",
-            "error": "#ef4444",
+            "info": T.ACCENT,
+            "success": T.SUCCESS,
+            "warning": T.WARNING,
+            "error": T.DANGER,
         }
-        color = color_map.get(level, "#64748b")
+        color = color_map.get(level, T.SLATE_MUTED)
         self.status_label.setText(message)
         self.status_label.setStyleSheet(
             f"color: {color}; font-size: 12px; padding: 4px 8px; "
-            f"background-color: #f8fafc; border-radius: 4px; border: 1px solid {color};"
+            f"background-color: {T.SLATE_SURFACE}; border-radius: 4px; border: 1px solid {color};"
         )
         self.status_label.setVisible(True)
 

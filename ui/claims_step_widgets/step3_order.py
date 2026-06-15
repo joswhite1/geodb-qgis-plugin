@@ -20,6 +20,7 @@ from qgis.core import QgsProject, QgsVectorLayer
 
 from .step_base import ClaimsStepBase
 from ...utils.compat import QFrame_NoFrame
+from ...utils.theme import T
 
 
 class ClaimsStep3OrderWidget(ClaimsStepBase):
@@ -98,11 +99,11 @@ class ClaimsStep3OrderWidget(ClaimsStepBase):
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setStyleSheet("color: #e5e7eb;")
+        separator.setStyleSheet(f"color: {T.BORDER_SUBTLE};")
 
         self.total_price_label = QLabel("--")
         self.total_price_label.setStyleSheet(
-            "font-weight: bold; font-size: 18px; color: #059669;"
+            f"font-weight: bold; font-size: 18px; color: {T.SUCCESS};"
         )
         form.addRow("Total:", self.total_price_label)
 
@@ -165,28 +166,28 @@ class ClaimsStep3OrderWidget(ClaimsStepBase):
 
         # Purchase button (large, prominent)
         self.purchase_btn = QPushButton("Purchase Claims")
-        self.purchase_btn.setStyleSheet("""
-            QPushButton {
+        self.purchase_btn.setStyleSheet(f"""
+            QPushButton {{
                 padding: 14px 32px;
-                background-color: #059669;
-                color: white;
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 8px;
                 font-weight: bold;
                 font-size: 16px;
                 min-width: 200px;
                 min-height: 48px;
-            }
-            QPushButton:hover {
-                background-color: #047857;
-            }
-            QPushButton:pressed {
-                background-color: #065f46;
-            }
-            QPushButton:disabled {
-                background-color: #a7f3d0;
-                color: #6b7280;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.SUCCESS_BG};
+                color: {T.TEXT_MUTED};
+            }}
         """)
         self.purchase_btn.clicked.connect(self._on_purchase_clicked)
         layout.addWidget(self.purchase_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -340,7 +341,7 @@ class ClaimsStep3OrderWidget(ClaimsStepBase):
         self.purchase_btn.setEnabled(False)
         self.purchase_btn.setText("Creating checkout...")
         self.status_label.setText("Connecting to payment server...")
-        self.status_label.setStyleSheet("font-size: 13px; color: #6b7280;")
+        self.status_label.setStyleSheet(f"font-size: 13px; color: {T.TEXT_MUTED};")
 
         try:
             result = self.claims_manager.create_checkout_session(
@@ -370,7 +371,7 @@ class ClaimsStep3OrderWidget(ClaimsStepBase):
             self.status_label.setText(
                 "Payment page opened in your browser."
             )
-            self.status_label.setStyleSheet("font-size: 13px; color: #059669;")
+            self.status_label.setStyleSheet(f"font-size: 13px; color: {T.SUCCESS};")
 
             QMessageBox.information(
                 self,
@@ -386,7 +387,7 @@ class ClaimsStep3OrderWidget(ClaimsStepBase):
         except Exception as e:
             error_msg = str(e)
             self.status_label.setText(f"Error: {error_msg}")
-            self.status_label.setStyleSheet("font-size: 13px; color: #dc2626;")
+            self.status_label.setStyleSheet(f"font-size: 13px; color: {T.DANGER};")
             self.emit_status(f"Checkout failed: {error_msg}", "error")
 
             QMessageBox.critical(
