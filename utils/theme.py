@@ -119,6 +119,19 @@ _LIGHT = {
     "DANGER":         "#dc2626",  # red-600
     "DANGER_TEXT":    "#b91c1c",  # red-700
     "DANGER_BG":      "#fef2f2",  # red-50
+    "INFO":           "#0891b2",  # cyan-600
+    "INFO_TEXT":      "#0369a1",  # sky-700
+    "INFO_BG":        "#f0f9ff",  # sky-50
+
+    # --- Slate family (used by claims wizard chrome) ---
+    "SLATE_TEXT":     "#475569",  # slate-600
+    "SLATE_MUTED":    "#64748b",  # slate-500
+    "SLATE_FAINT":    "#94a3b8",  # slate-400
+    "SLATE_BORDER":   "#cbd5e1",  # slate-300
+    "SLATE_BORDER_SUBTLE": "#e2e8f0",  # slate-200
+    "SLATE_SURFACE":  "#f8fafc",  # slate-50
+    "SLATE_SUNKEN":   "#f1f5f9",  # slate-100
+    "SLATE_STRONG":   "#1e293b",  # slate-800
 }
 
 _DARK = {
@@ -157,6 +170,19 @@ _DARK = {
     "DANGER":         "#ef4444",  # red-500
     "DANGER_TEXT":    "#f87171",  # red-400
     "DANGER_BG":      "#450a0a",  # red-950
+    "INFO":           "#22d3ee",  # cyan-400
+    "INFO_TEXT":      "#67e8f9",  # cyan-300
+    "INFO_BG":        "#083344",  # cyan-950
+
+    # --- Slate family (mapped onto the dark gray ramp) ---
+    "SLATE_TEXT":     "#cbd5e1",  # slate-300 (was slate-600 in light)
+    "SLATE_MUTED":    "#94a3b8",  # slate-400
+    "SLATE_FAINT":    "#64748b",  # slate-500
+    "SLATE_BORDER":   "#475569",  # slate-600
+    "SLATE_BORDER_SUBTLE": "#374151",  # gray-700
+    "SLATE_SURFACE":  "#1e293b",  # slate-800
+    "SLATE_SUNKEN":   "#0f172a",  # slate-900
+    "SLATE_STRONG":   "#f1f5f9",  # slate-100 (was slate-800 in light)
 }
 
 

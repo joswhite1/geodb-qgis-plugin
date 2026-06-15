@@ -16,6 +16,7 @@ from qgis.PyQt.QtWidgets import (
 
 from .step_base import ClaimsStepBase
 from ...utils.compat import QFrame_NoFrame
+from ...utils.theme import T
 
 
 class ClaimsStep4Widget(ClaimsStepBase):
@@ -108,12 +109,12 @@ class ClaimsStep4Widget(ClaimsStepBase):
             "                    |←─inset─→|\n"
             "                              ◆ Discovery Monument"
         )
-        diagram_label.setStyleSheet("""
+        diagram_label.setStyleSheet(f"""
             font-family: monospace;
-            background-color: #f9fafb;
+            background-color: {T.SURFACE_SUBTLE};
             padding: 12px;
             border-radius: 4px;
-            color: #374151;
+            color: {T.TEXT_PRIMARY};
         """)
         layout.addWidget(diagram_label)
 
@@ -165,7 +166,7 @@ class ClaimsStep4Widget(ClaimsStepBase):
             "For other states, the corner numbering is determined by the claim orientation."
         )
         note_label.setWordWrap(True)
-        note_label.setStyleSheet("color: #6b7280; font-style: italic; font-size: 11px;")
+        note_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-style: italic; font-size: 11px;")
         layout.addWidget(note_label)
 
         return group
@@ -173,19 +174,19 @@ class ClaimsStep4Widget(ClaimsStepBase):
     def _create_state_info(self) -> QWidget:
         """Create the state requirements information panel."""
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background-color: #fefce8;
-                border: 1px solid #fde047;
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T.WARNING_BG};
+                border: 1px solid {T.WARNING};
                 border-radius: 8px;
                 padding: 12px;
-            }
+            }}
         """)
         layout = QVBoxLayout(frame)
         layout.setSpacing(8)
 
         title = QLabel("State-Specific Monument Requirements")
-        title.setStyleSheet("font-weight: bold; color: #854d0e;")
+        title.setStyleSheet(f"font-weight: bold; color: {T.WARNING_TEXT};")
         layout.addWidget(title)
 
         info = QLabel(
@@ -199,7 +200,7 @@ class ClaimsStep4Widget(ClaimsStepBase):
             "based on the state where your claims are located."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color: #854d0e;")
+        info.setStyleSheet(f"color: {T.WARNING_TEXT};")
         layout.addWidget(info)
 
         return frame

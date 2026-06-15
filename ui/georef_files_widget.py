@@ -23,6 +23,7 @@ from ..utils.compat import (
     QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QAbstractItemView_SelectRows,
     QHeaderView_Fixed, QHeaderView_Stretch, QHeaderView_ResizeToContents,
 )
+from ..utils.theme import T
 from .map_capture_widget import PROJECTFILE_CATEGORIES
 
 
@@ -86,7 +87,7 @@ class GeorefFilesWidget(QWidget):
 
         # Title
         title = QLabel("Upload Georeferenced Files")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e293b;")
+        title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {T.SLATE_STRONG};")
         layout.addWidget(title)
 
         subtitle = QLabel(
@@ -95,24 +96,24 @@ class GeorefFilesWidget(QWidget):
             "on the server are detected automatically."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #64748b; font-size: 12px; margin-bottom: 4px;")
+        subtitle.setStyleSheet(f"color: {T.SLATE_MUTED}; font-size: 12px; margin-bottom: 4px;")
         layout.addWidget(subtitle)
 
         # --- Toolbar ---
         toolbar = QHBoxLayout()
 
         self.scan_button = QPushButton("Scan Project Layers")
-        self.scan_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6;
-                color: white;
+        self.scan_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 8px 16px;
                 border-radius: 6px;
                 font-size: 12px;
-            }
-            QPushButton:hover { background-color: #2563eb; }
-            QPushButton:pressed { background-color: #1d4ed8; }
+            }}
+            QPushButton:hover {{ background-color: {T.ACCENT_HOVER}; }}
+            QPushButton:pressed {{ background-color: {T.ACCENT_ACTIVE}; }}
         """)
         self.scan_button.clicked.connect(self._on_scan_clicked)
         toolbar.addWidget(self.scan_button)
@@ -144,23 +145,23 @@ class GeorefFilesWidget(QWidget):
         self.table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e2e8f0;
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 6px;
-                gridline-color: #f1f5f9;
-            }
-            QTableWidget::item {
+                gridline-color: {T.SLATE_SUNKEN};
+            }}
+            QTableWidget::item {{
                 padding: 4px 8px;
-            }
-            QHeaderView::section {
-                background-color: #f8fafc;
+            }}
+            QHeaderView::section {{
+                background-color: {T.SLATE_SURFACE};
                 border: none;
-                border-bottom: 2px solid #e2e8f0;
+                border-bottom: 2px solid {T.SLATE_BORDER_SUBTLE};
                 padding: 6px 8px;
                 font-weight: bold;
-                color: #475569;
-            }
+                color: {T.SLATE_TEXT};
+            }}
         """)
 
         header = self.table.horizontalHeader()
@@ -190,7 +191,7 @@ class GeorefFilesWidget(QWidget):
         select_row.addStretch()
 
         self.count_label = QLabel("")
-        self.count_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.count_label.setStyleSheet(f"color: {T.SLATE_MUTED}; font-size: 11px;")
         select_row.addWidget(self.count_label)
 
         layout.addLayout(select_row)
@@ -198,38 +199,38 @@ class GeorefFilesWidget(QWidget):
         # --- Upload button + progress ---
         self.upload_button = QPushButton("Upload Selected to Server")
         self.upload_button.setEnabled(False)
-        self.upload_button.setStyleSheet("""
-            QPushButton {
-                background-color: #10b981;
-                color: white;
+        self.upload_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 10px 20px;
                 border-radius: 6px;
                 font-size: 13px;
-            }
-            QPushButton:hover { background-color: #059669; }
-            QPushButton:pressed { background-color: #047857; }
-            QPushButton:disabled {
-                background-color: #d1d5db;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{ background-color: {T.SUCCESS}; }}
+            QPushButton:pressed {{ background-color: {T.SUCCESS_TEXT}; }}
+            QPushButton:disabled {{
+                background-color: {T.BORDER};
+                color: {T.TEXT_FAINT};
+            }}
         """)
         self.upload_button.clicked.connect(self._on_upload_clicked)
         layout.addWidget(self.upload_button)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #e2e8f0;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #10b981;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.SUCCESS};
                 border-radius: 3px;
-            }
+            }}
         """)
         layout.addWidget(self.progress_bar)
 
@@ -549,13 +550,13 @@ class GeorefFilesWidget(QWidget):
             # Status
             status_item = QTableWidgetItem(raster['status'])
             if raster['status'] == STATUS_ON_SERVER:
-                status_item.setForeground(QColor('#64748b'))
+                status_item.setForeground(QColor(T.SLATE_MUTED))
             elif raster['status'] == STATUS_NEW:
-                status_item.setForeground(QColor('#10b981'))
+                status_item.setForeground(QColor(T.SUCCESS))
             elif raster['status'] == STATUS_ERROR:
-                status_item.setForeground(QColor('#ef4444'))
+                status_item.setForeground(QColor(T.DANGER))
             elif raster['status'] == STATUS_UPLOADED:
-                status_item.setForeground(QColor('#3b82f6'))
+                status_item.setForeground(QColor(T.ACCENT))
             self.table.setItem(row, 5, status_item)
 
         self._update_counts()
@@ -711,14 +712,14 @@ class GeorefFilesWidget(QWidget):
             status_item.setToolTip(tooltip)
 
         color_map = {
-            STATUS_NEW: '#10b981',
-            STATUS_ON_SERVER: '#64748b',
-            STATUS_UPLOADING: '#f59e0b',
-            STATUS_UPLOADED: '#3b82f6',
-            STATUS_ERROR: '#ef4444',
-            STATUS_SKIPPED: '#94a3b8',
+            STATUS_NEW: T.SUCCESS,
+            STATUS_ON_SERVER: T.SLATE_MUTED,
+            STATUS_UPLOADING: T.WARNING,
+            STATUS_UPLOADED: T.ACCENT,
+            STATUS_ERROR: T.DANGER,
+            STATUS_SKIPPED: T.SLATE_FAINT,
         }
-        status_item.setForeground(QColor(color_map.get(status, '#475569')))
+        status_item.setForeground(QColor(color_map.get(status, T.SLATE_TEXT)))
 
         # Disable checkbox for uploaded/on-server rows
         if status in (STATUS_UPLOADED, STATUS_ON_SERVER):
@@ -748,16 +749,16 @@ class GeorefFilesWidget(QWidget):
     def _show_status(self, message: str, level: str = "info"):
         """Show a status message."""
         color_map = {
-            "info": "#3b82f6",
-            "success": "#10b981",
-            "warning": "#f59e0b",
-            "error": "#ef4444",
+            "info": T.ACCENT,
+            "success": T.SUCCESS,
+            "warning": T.WARNING,
+            "error": T.DANGER,
         }
-        color = color_map.get(level, "#64748b")
+        color = color_map.get(level, T.SLATE_MUTED)
         self.status_label.setText(message)
         self.status_label.setStyleSheet(
             f"color: {color}; font-size: 12px; padding: 4px 8px; "
-            f"background-color: #f8fafc; border-radius: 4px; border: 1px solid {color};"
+            f"background-color: {T.SLATE_SURFACE}; border-radius: 4px; border: 1px solid {color};"
         )
         self.status_label.setVisible(True)
         self.status_message.emit(message, level)

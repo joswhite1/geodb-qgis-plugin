@@ -29,6 +29,7 @@ from ..utils.compat import (
     Qt_DashLine, Qt_Checked, QFrame_NoFrame, QFrame_HLine,
     QSizePolicy_Preferred, QSizePolicy_Expanding,
 )
+from ..utils.theme import T
 
 
 # Default basemap providers with XYZ tile URLs
@@ -229,7 +230,7 @@ class BasemapsWidget(QWidget):
 
         # Header
         header = QLabel("Basemaps & Reference Layers")
-        header.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
+        header.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {T.TEXT_STRONG};")
         layout.addWidget(header)
 
         # Description
@@ -238,7 +239,7 @@ class BasemapsWidget(QWidget):
             "Layers are added to the 'Base Layers' group at the bottom of the layer stack."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #6b7280; font-size: 12px; margin-bottom: 10px;")
+        desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px; margin-bottom: 10px;")
         layout.addWidget(desc)
 
         # ==================== Basemaps ====================
@@ -294,7 +295,7 @@ class BasemapsWidget(QWidget):
 
         # Quick add buttons
         quick_label = QLabel("Quick add at full opacity:")
-        quick_label.setStyleSheet("color: #6b7280; font-size: 12px; margin-top: 4px;")
+        quick_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px; margin-top: 4px;")
         basemap_layout.addWidget(quick_label)
 
         btn_row1 = QHBoxLayout()
@@ -346,13 +347,13 @@ class BasemapsWidget(QWidget):
             "PLSS township and section grid boundaries for US public land surveys."
         )
         plss_desc.setWordWrap(True)
-        plss_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        plss_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         plss_layout.addWidget(plss_desc)
 
         # --- Streaming sub-section ---
         plss_stream_label = QLabel("Streaming (auto-refreshes on pan/zoom)")
         plss_stream_label.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+            f"font-weight: bold; font-size: 12px; color: {T.TEXT_PRIMARY}; margin-top: 4px;"
         )
         plss_layout.addWidget(plss_stream_label)
 
@@ -361,7 +362,7 @@ class BasemapsWidget(QWidget):
             "Requires QClaims subscription."
         )
         plss_stream_desc.setWordWrap(True)
-        plss_stream_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        plss_stream_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
         plss_layout.addWidget(plss_stream_desc)
 
         self.plss_stream_toggle = QCheckBox("Show PLSS Grid (Streaming)")
@@ -372,20 +373,20 @@ class BasemapsWidget(QWidget):
         self.plss_stream_status_label = QLabel("")
         self.plss_stream_status_label.setWordWrap(True)
         self.plss_stream_status_label.setStyleSheet(
-            "color: #6b7280; font-size: 11px; font-style: italic;"
+            f"color: {T.TEXT_MUTED}; font-size: 11px; font-style: italic;"
         )
         plss_layout.addWidget(self.plss_stream_status_label)
 
         # Separator
         plss_sep = QFrame()
         plss_sep.setFrameShape(QFrame_HLine)
-        plss_sep.setStyleSheet("color: #e5e7eb;")
+        plss_sep.setStyleSheet(f"color: {T.BORDER_SUBTLE};")
         plss_layout.addWidget(plss_sep)
 
         # --- Download sub-section ---
         plss_dl_label = QLabel("Download (snapshot of current extent)")
         plss_dl_label.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+            f"font-weight: bold; font-size: 12px; color: {T.TEXT_PRIMARY}; margin-top: 4px;"
         )
         plss_layout.addWidget(plss_dl_label)
 
@@ -394,7 +395,7 @@ class BasemapsWidget(QWidget):
             "with section and township labels."
         )
         plss_dl_desc.setWordWrap(True)
-        plss_dl_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        plss_dl_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
         plss_layout.addWidget(plss_dl_desc)
 
         # Style selector row
@@ -435,7 +436,7 @@ class BasemapsWidget(QWidget):
             "Pan/zoom to your area of interest first."
         )
         extent_note.setWordWrap(True)
-        extent_note.setStyleSheet("color: #9ca3af; font-size: 11px; font-style: italic;")
+        extent_note.setStyleSheet(f"color: {T.TEXT_FAINT}; font-size: 11px; font-style: italic;")
         plss_layout.addWidget(extent_note)
 
         layout.addWidget(plss_group)
@@ -454,13 +455,13 @@ class BasemapsWidget(QWidget):
             "Federal land boundaries, wilderness areas, and mineral withdrawal areas."
         )
         public_lands_desc.setWordWrap(True)
-        public_lands_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        public_lands_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         public_lands_layout.addWidget(public_lands_desc)
 
         # --- Streaming sub-section ---
         fed_stream_label = QLabel("Streaming - BLM + Forest Service (auto-refreshes on pan/zoom)")
         fed_stream_label.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+            f"font-weight: bold; font-size: 12px; color: {T.TEXT_PRIMARY}; margin-top: 4px;"
         )
         public_lands_layout.addWidget(fed_stream_label)
 
@@ -469,7 +470,7 @@ class BasemapsWidget(QWidget):
             "Requires QClaims subscription."
         )
         fed_stream_desc.setWordWrap(True)
-        fed_stream_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        fed_stream_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
         public_lands_layout.addWidget(fed_stream_desc)
 
         self.federal_lands_toggle = QCheckBox("Show Federal Lands (Streaming)")
@@ -503,7 +504,7 @@ class BasemapsWidget(QWidget):
         self.federal_lands_status_label = QLabel("")
         self.federal_lands_status_label.setWordWrap(True)
         self.federal_lands_status_label.setStyleSheet(
-            "color: #6b7280; font-size: 11px; font-style: italic;"
+            f"color: {T.TEXT_MUTED}; font-size: 11px; font-style: italic;"
         )
         public_lands_layout.addWidget(self.federal_lands_status_label)
 
@@ -518,7 +519,7 @@ class BasemapsWidget(QWidget):
         # FeatureServer.
         ak_state_label = QLabel("Streaming - AK State Lands (auto-refreshes on pan/zoom)")
         ak_state_label.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 8px;"
+            f"font-weight: bold; font-size: 12px; color: {T.TEXT_PRIMARY}; margin-top: 8px;"
         )
         public_lands_layout.addWidget(ak_state_label)
 
@@ -529,7 +530,7 @@ class BasemapsWidget(QWidget):
             "corner lands on private overlap."
         )
         ak_state_desc.setWordWrap(True)
-        ak_state_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        ak_state_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
         public_lands_layout.addWidget(ak_state_desc)
 
         self.state_lands_toggle = QCheckBox("Show AK State Lands (Streaming)")
@@ -553,7 +554,7 @@ class BasemapsWidget(QWidget):
         self.state_lands_status_label = QLabel("")
         self.state_lands_status_label.setWordWrap(True)
         self.state_lands_status_label.setStyleSheet(
-            "color: #6b7280; font-size: 11px; font-style: italic;"
+            f"color: {T.TEXT_MUTED}; font-size: 11px; font-style: italic;"
         )
         public_lands_layout.addWidget(self.state_lands_status_label)
 
@@ -564,13 +565,13 @@ class BasemapsWidget(QWidget):
         # Separator
         pub_sep = QFrame()
         pub_sep.setFrameShape(QFrame_HLine)
-        pub_sep.setStyleSheet("color: #e5e7eb;")
+        pub_sep.setStyleSheet(f"color: {T.BORDER_SUBTLE};")
         public_lands_layout.addWidget(pub_sep)
 
         # --- Esri MapServer sub-section ---
         esri_label = QLabel("Esri/USGS MapServer Layers (server-rendered tiles)")
         esri_label.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #374151; margin-top: 4px;"
+            f"font-weight: bold; font-size: 12px; color: {T.TEXT_PRIMARY}; margin-top: 4px;"
         )
         public_lands_layout.addWidget(esri_label)
 
@@ -579,7 +580,7 @@ class BasemapsWidget(QWidget):
             "No login required."
         )
         esri_desc.setWordWrap(True)
-        esri_desc.setStyleSheet("color: #6b7280; font-size: 11px;")
+        esri_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
         public_lands_layout.addWidget(esri_desc)
 
         usa_btn_row1 = QHBoxLayout()
@@ -625,7 +626,7 @@ class BasemapsWidget(QWidget):
             "Points are color-coded by primary commodity. Data frozen at 2011."
         )
         mrds_desc.setWordWrap(True)
-        mrds_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        mrds_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         mrds_layout.addWidget(mrds_desc)
 
         mrds_btn_row = QHBoxLayout()
@@ -644,7 +645,7 @@ class BasemapsWidget(QWidget):
             "Note: Pan/zoom to your area of interest first (max ~100km extent)."
         )
         mrds_note.setWordWrap(True)
-        mrds_note.setStyleSheet("color: #9ca3af; font-size: 11px; font-style: italic;")
+        mrds_note.setStyleSheet(f"color: {T.TEXT_FAINT}; font-size: 11px; font-style: italic;")
         mrds_layout.addWidget(mrds_note)
 
         layout.addWidget(mrds_group)
@@ -660,7 +661,7 @@ class BasemapsWidget(QWidget):
             "Sections are colored by number of active claims."
         )
         blm_desc.setWordWrap(True)
-        blm_desc.setStyleSheet("color: #6b7280; font-size: 12px;")
+        blm_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         blm_layout.addWidget(blm_desc)
 
         # Toggle checkbox
@@ -723,7 +724,7 @@ class BasemapsWidget(QWidget):
         # Status label
         self.blm_status_label = QLabel("")
         self.blm_status_label.setWordWrap(True)
-        self.blm_status_label.setStyleSheet("color: #6b7280; font-size: 11px; font-style: italic;")
+        self.blm_status_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px; font-style: italic;")
         blm_layout.addWidget(self.blm_status_label)
 
         # Color legend
@@ -743,7 +744,7 @@ class BasemapsWidget(QWidget):
                 lbl = QLabel(f"{lower}")
             else:
                 lbl = QLabel(f"{lower}-{upper}")
-            lbl.setStyleSheet("font-size: 10px; color: #6b7280;")
+            lbl.setStyleSheet(f"font-size: 10px; color: {T.TEXT_MUTED};")
             legend_row.addWidget(lbl)
         legend_row.addStretch()
         blm_layout.addLayout(legend_row)
@@ -1845,117 +1846,119 @@ class BasemapsWidget(QWidget):
 
     def _get_group_style(self) -> str:
         """Get group box style."""
-        return """
-            QGroupBox {
+        return f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #e5e7eb;
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 6px;
                 margin-top: 12px;
                 padding-top: 10px;
-                background-color: #f9fafb;
-            }
-            QGroupBox::title {
+                background-color: {T.SURFACE_SUBTLE};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
-                color: #374151;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
         """
 
     def _get_combo_style(self) -> str:
         """Get combo box style."""
-        return """
-            QComboBox {
+        return f"""
+            QComboBox {{
                 padding: 8px 12px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
-                background-color: white;
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
                 font-size: 13px;
-            }
-            QComboBox:focus {
-                border-color: #2563eb;
-            }
-            QComboBox::drop-down {
+            }}
+            QComboBox:focus {{
+                border-color: {T.ACCENT};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 30px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                selection-background-color: #2563eb;
-                selection-color: white;
-            }
-            QComboBox QAbstractItemView::item {
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
+                selection-background-color: {T.ACCENT};
+                selection-color: {T.TEXT_ON_ACCENT};
+            }}
+            QComboBox QAbstractItemView::item {{
                 padding: 6px 12px;
-                color: #374151;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #dbeafe;
-                color: #1d4ed8;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {T.INFO_BG};
+                color: {T.ACCENT_HOVER};
+            }}
         """
 
     def _get_slider_style(self) -> str:
         """Get slider style."""
-        return """
-            QSlider::groove:horizontal {
-                border: 1px solid #d1d5db;
+        return f"""
+            QSlider::groove:horizontal {{
+                border: 1px solid {T.BORDER};
                 height: 8px;
-                background: #e5e7eb;
+                background: {T.BORDER_SUBTLE};
                 border-radius: 4px;
-            }
-            QSlider::handle:horizontal {
-                background: #2563eb;
+            }}
+            QSlider::handle:horizontal {{
+                background: {T.ACCENT};
                 border: none;
                 width: 18px;
                 margin: -5px 0;
                 border-radius: 9px;
-            }
-            QSlider::handle:horizontal:hover {
-                background: #1d4ed8;
-            }
-            QSlider::sub-page:horizontal {
-                background: #2563eb;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: {T.ACCENT_HOVER};
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {T.ACCENT};
                 border-radius: 4px;
-            }
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get primary button style."""
-        return """
-            QPushButton {
-                background-color: #2563eb;
-                color: white;
+        return f"""
+            QPushButton {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 padding: 10px 24px;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get secondary button style."""
-        return """
-            QPushButton {
-                background-color: white;
-                color: #374151;
-                border: 1px solid #d1d5db;
+        return f"""
+            QPushButton {{
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 padding: 8px 16px;
                 border-radius: 6px;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #f3f4f6;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #e5e7eb;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUNKEN};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.BORDER_SUBTLE};
+            }}
         """

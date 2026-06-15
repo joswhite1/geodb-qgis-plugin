@@ -15,6 +15,7 @@ from qgis.PyQt.QtWidgets import (
 from .step_base import ClaimsStepBase
 from ...utils.layer_utils import is_layer_valid
 from ...utils.compat import QFrame_NoFrame
+from ...utils.theme import T
 
 
 class ClaimsStep3Widget(ClaimsStepBase):
@@ -93,7 +94,7 @@ class ClaimsStep3Widget(ClaimsStepBase):
         except ImportError:
             # Fallback if widget not available
             placeholder = QLabel("Reference points widget not available")
-            placeholder.setStyleSheet("color: #dc2626;")
+            placeholder.setStyleSheet(f"color: {T.DANGER};")
             layout.addWidget(placeholder)
 
         return group
@@ -101,19 +102,19 @@ class ClaimsStep3Widget(ClaimsStepBase):
     def _create_instructions(self) -> QWidget:
         """Create the instructions panel."""
         frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background-color: #eff6ff;
-                border: 1px solid #bfdbfe;
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T.INFO_BG};
+                border: 1px solid {T.INFO_BG};
                 border-radius: 8px;
                 padding: 12px;
-            }
+            }}
         """)
         layout = QVBoxLayout(frame)
         layout.setSpacing(8)
 
         title = QLabel("How to Add Reference Points")
-        title.setStyleSheet("font-weight: bold; color: #1e40af;")
+        title.setStyleSheet(f"font-weight: bold; color: {T.ACCENT_ACTIVE};")
         layout.addWidget(title)
 
         instructions = QLabel(
@@ -128,14 +129,14 @@ class ClaimsStep3Widget(ClaimsStepBase):
             "• Permanent man-made structures"
         )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("color: #1e40af;")
+        instructions.setStyleSheet(f"color: {T.ACCENT_ACTIVE};")
         layout.addWidget(instructions)
 
         skip_note = QLabel(
             "Note: This step is optional. Click 'Next' to continue without reference points."
         )
         skip_note.setWordWrap(True)
-        skip_note.setStyleSheet("color: #6b7280; font-style: italic;")
+        skip_note.setStyleSheet(f"color: {T.TEXT_MUTED}; font-style: italic;")
         layout.addWidget(skip_note)
 
         return frame

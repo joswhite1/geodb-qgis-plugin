@@ -31,6 +31,7 @@ from ..utils.compat import (
     QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QAbstractItemView_SelectRows,
     QHeaderView_Fixed, QHeaderView_Stretch, QHeaderView_ResizeToContents,
 )
+from ..utils.theme import T
 
 
 class GpkgSyncWidget(QWidget):
@@ -75,7 +76,7 @@ class GpkgSyncWidget(QWidget):
 
         # Title
         title = QLabel("GeoPackage Sync")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e293b;")
+        title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {T.SLATE_STRONG};")
         layout.addWidget(title)
 
         subtitle = QLabel(
@@ -84,7 +85,7 @@ class GpkgSyncWidget(QWidget):
             "in the GeoPackage for seamless sharing."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #64748b; font-size: 12px; margin-bottom: 4px;")
+        subtitle.setStyleSheet(f"color: {T.SLATE_MUTED}; font-size: 12px; margin-bottom: 4px;")
         layout.addWidget(subtitle)
 
         # --- Push Section ---
@@ -110,21 +111,21 @@ class GpkgSyncWidget(QWidget):
     def _build_push_section(self, parent_layout):
         """Build the Push GeoPackage section."""
         group = QGroupBox("Push GeoPackage to Server")
-        group.setStyleSheet("""
-            QGroupBox {
+        group.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
                 font-size: 13px;
-                border: 1px solid #e2e8f0;
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 8px;
                 margin-top: 8px;
                 padding-top: 16px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 6px;
-                color: #1e293b;
-            }
+                color: {T.SLATE_STRONG};
+            }}
         """)
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(8)
@@ -132,23 +133,23 @@ class GpkgSyncWidget(QWidget):
         # Scan button
         scan_row = QHBoxLayout()
         self.scan_button = QPushButton("Scan Project")
-        self.scan_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6;
-                color: white;
+        self.scan_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 8px 16px;
                 border-radius: 6px;
                 font-size: 12px;
-            }
-            QPushButton:hover { background-color: #2563eb; }
-            QPushButton:pressed { background-color: #1d4ed8; }
+            }}
+            QPushButton:hover {{ background-color: {T.ACCENT_HOVER}; }}
+            QPushButton:pressed {{ background-color: {T.ACCENT_ACTIVE}; }}
         """)
         self.scan_button.clicked.connect(self._on_scan_clicked)
         scan_row.addWidget(self.scan_button)
 
         self.push_count_label = QLabel("")
-        self.push_count_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.push_count_label.setStyleSheet(f"color: {T.SLATE_MUTED}; font-size: 11px;")
         scan_row.addWidget(self.push_count_label)
 
         scan_row.addStretch()
@@ -162,21 +163,21 @@ class GpkgSyncWidget(QWidget):
         self.push_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.push_table.setAlternatingRowColors(True)
         self.push_table.verticalHeader().setVisible(False)
-        self.push_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e2e8f0;
+        self.push_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 6px;
-                gridline-color: #f1f5f9;
-            }
-            QTableWidget::item { padding: 4px 8px; }
-            QHeaderView::section {
-                background-color: #f8fafc;
+                gridline-color: {T.SLATE_SUNKEN};
+            }}
+            QTableWidget::item {{ padding: 4px 8px; }}
+            QHeaderView::section {{
+                background-color: {T.SLATE_SURFACE};
                 border: none;
-                border-bottom: 2px solid #e2e8f0;
+                border-bottom: 2px solid {T.SLATE_BORDER_SUBTLE};
                 padding: 6px 8px;
                 font-weight: bold;
-                color: #475569;
-            }
+                color: {T.SLATE_TEXT};
+            }}
         """)
         header = self.push_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView_Fixed)
@@ -191,7 +192,7 @@ class GpkgSyncWidget(QWidget):
         # Save styles checkbox
         self.save_styles_checkbox = QCheckBox("Save layer styles into GeoPackage before upload")
         self.save_styles_checkbox.setChecked(True)
-        self.save_styles_checkbox.setStyleSheet("font-size: 12px; color: #475569;")
+        self.save_styles_checkbox.setStyleSheet(f"font-size: 12px; color: {T.SLATE_TEXT};")
         group_layout.addWidget(self.save_styles_checkbox)
 
         # Push button + progress
@@ -199,21 +200,21 @@ class GpkgSyncWidget(QWidget):
         push_row.addStretch()
         self.push_button = QPushButton("Push Selected")
         self.push_button.setEnabled(False)
-        self.push_button.setStyleSheet("""
-            QPushButton {
-                background-color: #10b981;
-                color: white;
+        self.push_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 8px 20px;
                 border-radius: 6px;
                 font-size: 13px;
-            }
-            QPushButton:hover { background-color: #059669; }
-            QPushButton:pressed { background-color: #047857; }
-            QPushButton:disabled {
-                background-color: #d1d5db;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{ background-color: {T.SUCCESS}; }}
+            QPushButton:pressed {{ background-color: {T.SUCCESS_TEXT}; }}
+            QPushButton:disabled {{
+                background-color: {T.BORDER};
+                color: {T.TEXT_FAINT};
+            }}
         """)
         self.push_button.clicked.connect(self._on_push_clicked)
         push_row.addWidget(self.push_button)
@@ -221,17 +222,17 @@ class GpkgSyncWidget(QWidget):
 
         self.push_progress = QProgressBar()
         self.push_progress.setVisible(False)
-        self.push_progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #e2e8f0;
+        self.push_progress.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #10b981;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.SUCCESS};
                 border-radius: 3px;
-            }
+            }}
         """)
         group_layout.addWidget(self.push_progress)
 
@@ -240,21 +241,21 @@ class GpkgSyncWidget(QWidget):
     def _build_pull_section(self, parent_layout):
         """Build the Pull GeoPackage section."""
         group = QGroupBox("Pull GeoPackage from Server")
-        group.setStyleSheet("""
-            QGroupBox {
+        group.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
                 font-size: 13px;
-                border: 1px solid #e2e8f0;
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 8px;
                 margin-top: 8px;
                 padding-top: 16px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 6px;
-                color: #1e293b;
-            }
+                color: {T.SLATE_STRONG};
+            }}
         """)
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(8)
@@ -262,23 +263,23 @@ class GpkgSyncWidget(QWidget):
         # Refresh button
         refresh_row = QHBoxLayout()
         self.refresh_button = QPushButton("Refresh")
-        self.refresh_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6;
-                color: white;
+        self.refresh_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 8px 16px;
                 border-radius: 6px;
                 font-size: 12px;
-            }
-            QPushButton:hover { background-color: #2563eb; }
-            QPushButton:pressed { background-color: #1d4ed8; }
+            }}
+            QPushButton:hover {{ background-color: {T.ACCENT_HOVER}; }}
+            QPushButton:pressed {{ background-color: {T.ACCENT_ACTIVE}; }}
         """)
         self.refresh_button.clicked.connect(self._on_refresh_clicked)
         refresh_row.addWidget(self.refresh_button)
 
         self.pull_count_label = QLabel("")
-        self.pull_count_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.pull_count_label.setStyleSheet(f"color: {T.SLATE_MUTED}; font-size: 11px;")
         refresh_row.addWidget(self.pull_count_label)
 
         refresh_row.addStretch()
@@ -292,21 +293,21 @@ class GpkgSyncWidget(QWidget):
         self.pull_table.setEditTriggers(QAbstractItemView_NoEditTriggers)
         self.pull_table.setAlternatingRowColors(True)
         self.pull_table.verticalHeader().setVisible(False)
-        self.pull_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e2e8f0;
+        self.pull_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 6px;
-                gridline-color: #f1f5f9;
-            }
-            QTableWidget::item { padding: 4px 8px; }
-            QHeaderView::section {
-                background-color: #f8fafc;
+                gridline-color: {T.SLATE_SUNKEN};
+            }}
+            QTableWidget::item {{ padding: 4px 8px; }}
+            QHeaderView::section {{
+                background-color: {T.SLATE_SURFACE};
                 border: none;
-                border-bottom: 2px solid #e2e8f0;
+                border-bottom: 2px solid {T.SLATE_BORDER_SUBTLE};
                 padding: 6px 8px;
                 font-weight: bold;
-                color: #475569;
-            }
+                color: {T.SLATE_TEXT};
+            }}
         """)
         header = self.pull_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView_Fixed)
@@ -323,21 +324,25 @@ class GpkgSyncWidget(QWidget):
         pull_row.addStretch()
         self.pull_button = QPushButton("Pull Selected")
         self.pull_button.setEnabled(False)
-        self.pull_button.setStyleSheet("""
-            QPushButton {
+        # Purple fill (#8b5cf6 / #7c3aed / #6d28d9) is left raw: it is the
+        # plugin's distinguishing color for the Pull action (vs blue scan/refresh
+        # and green push) and there is no purple chrome token; per the brief the
+        # disabled-state and text colors below are tokenized.
+        self.pull_button.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #8b5cf6;
-                color: white;
+                color: {T.TEXT_ON_ACCENT};
                 font-weight: bold;
                 padding: 8px 20px;
                 border-radius: 6px;
                 font-size: 13px;
-            }
-            QPushButton:hover { background-color: #7c3aed; }
-            QPushButton:pressed { background-color: #6d28d9; }
-            QPushButton:disabled {
-                background-color: #d1d5db;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{ background-color: #7c3aed; }}
+            QPushButton:pressed {{ background-color: #6d28d9; }}
+            QPushButton:disabled {{
+                background-color: {T.BORDER};
+                color: {T.TEXT_FAINT};
+            }}
         """)
         self.pull_button.clicked.connect(self._on_pull_clicked)
         pull_row.addWidget(self.pull_button)
@@ -345,17 +350,19 @@ class GpkgSyncWidget(QWidget):
 
         self.pull_progress = QProgressBar()
         self.pull_progress.setVisible(False)
-        self.pull_progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #e2e8f0;
+        # Chunk fill (#8b5cf6) kept raw to match the purple Pull action color;
+        # the border is tokenized chrome.
+        self.pull_progress.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.SLATE_BORDER_SUBTLE};
                 border-radius: 4px;
                 text-align: center;
                 height: 20px;
-            }
-            QProgressBar::chunk {
+            }}
+            QProgressBar::chunk {{
                 background-color: #8b5cf6;
                 border-radius: 3px;
-            }
+            }}
         """)
         group_layout.addWidget(self.pull_progress)
 
@@ -1034,16 +1041,16 @@ class GpkgSyncWidget(QWidget):
     def _show_status(self, message: str, level: str = "info"):
         """Show a status message."""
         color_map = {
-            "info": "#3b82f6",
-            "success": "#10b981",
-            "warning": "#f59e0b",
-            "error": "#ef4444",
+            "info": T.ACCENT,
+            "success": T.SUCCESS,
+            "warning": T.WARNING,
+            "error": T.DANGER,
         }
-        color = color_map.get(level, "#64748b")
+        color = color_map.get(level, T.SLATE_MUTED)
         self.status_label.setText(message)
         self.status_label.setStyleSheet(
             f"color: {color}; font-size: 12px; padding: 4px 8px; "
-            f"background-color: #f8fafc; border-radius: 4px; border: 1px solid {color};"
+            f"background-color: {T.SLATE_SURFACE}; border-radius: 4px; border: 1px solid {color};"
         )
         self.status_label.setVisible(True)
         self.status_message.emit(message, level)

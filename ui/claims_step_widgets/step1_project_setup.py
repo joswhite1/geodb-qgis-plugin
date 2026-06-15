@@ -24,6 +24,7 @@ from .step_base import ClaimsStepBase
 from ...utils.compat import QFrame_NoFrame
 from ...utils.crs_utils import is_utm_crs, auto_detect_utm
 from ...utils.geometry import geojson_to_wkt
+from ...utils.theme import T
 
 
 class ClaimsStep1Widget(ClaimsStepBase):
@@ -114,14 +115,14 @@ class ClaimsStep1Widget(ClaimsStepBase):
         # Details
         self.license_details_label = QLabel("")
         self.license_details_label.setWordWrap(True)
-        self.license_details_label.setStyleSheet("color: #6b7280;")
+        self.license_details_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layout.addWidget(self.license_details_label)
 
         # TOS status and button
         tos_layout = QHBoxLayout()
 
         self.tos_status_label = QLabel("Terms of Service: Unknown")
-        self.tos_status_label.setStyleSheet("color: #6b7280;")
+        self.tos_status_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         tos_layout.addWidget(self.tos_status_label)
 
         tos_layout.addStretch()
@@ -197,7 +198,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Detected zone info
         self.detected_zone_label = QLabel("")
-        self.detected_zone_label.setStyleSheet("color: #059669; font-weight: bold;")
+        self.detected_zone_label.setStyleSheet(f"color: {T.SUCCESS}; font-weight: bold;")
         layout.addWidget(self.detected_zone_label)
 
         return group
@@ -265,7 +266,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
         file_layout.addWidget(QLabel("GeoPackage:"))
 
         self.gpkg_path_label = QLabel("Not selected")
-        self.gpkg_path_label.setStyleSheet("color: #6b7280;")
+        self.gpkg_path_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         file_layout.addWidget(self.gpkg_path_label, 1)
 
         layout.addLayout(file_layout)
@@ -390,7 +391,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
             # Update status display
             if is_staff:
                 self.license_status_label.setText("Staff Access (Unlimited)")
-                self.license_status_label.setStyleSheet("font-weight: bold; color: #059669;")
+                self.license_status_label.setStyleSheet(f"font-weight: bold; color: {T.SUCCESS};")
                 self.license_details_label.setText("Full QClaims access with no limits.")
             elif access_type.startswith('enterprise'):
                 monthly_limit = access_info.get('monthly_limit')
@@ -399,7 +400,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 self.license_status_label.setText(
                     f"Enterprise: {access_type.replace('enterprise_', '').title()}"
                 )
-                self.license_status_label.setStyleSheet("font-weight: bold; color: #2563eb;")
+                self.license_status_label.setStyleSheet(f"font-weight: bold; color: {T.ACCENT_TEXT};")
 
                 if monthly_limit:
                     remaining = monthly_limit - used
@@ -410,7 +411,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
                     self.license_details_label.setText("Unlimited claims")
             elif access_type == 'pay_per_claim':
                 self.license_status_label.setText("Pay-Per-Claim")
-                self.license_status_label.setStyleSheet("font-weight: bold; color: #d97706;")
+                self.license_status_label.setStyleSheet(f"font-weight: bold; color: {T.WARNING_TEXT};")
 
                 pricing = access_info.get('pricing', {})
                 price_cents = pricing.get('self_service_per_claim_cents', 0)
@@ -424,7 +425,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
                     self.license_details_label.setText("Pricing not available.")
             else:
                 self.license_status_label.setText("No Access")
-                self.license_status_label.setStyleSheet("font-weight: bold; color: #dc2626;")
+                self.license_status_label.setStyleSheet(f"font-weight: bold; color: {T.DANGER};")
                 self.license_details_label.setText("Unable to determine access level.")
 
             # Check TOS
@@ -434,12 +435,12 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 self.tos_status_label.setText(
                     f"Terms of Service: Accepted (v{tos_info.get('accepted_version', '?')})"
                 )
-                self.tos_status_label.setStyleSheet("color: #059669;")
+                self.tos_status_label.setStyleSheet(f"color: {T.SUCCESS};")
                 self.accept_tos_btn.hide()
             else:
                 self.state.tos_accepted = False
                 self.tos_status_label.setText("Terms of Service: Not Accepted")
-                self.tos_status_label.setStyleSheet("color: #dc2626;")
+                self.tos_status_label.setStyleSheet(f"color: {T.DANGER};")
                 self.accept_tos_btn.show()
 
             # Show/hide staff orders button
@@ -458,13 +459,13 @@ class ClaimsStep1Widget(ClaimsStepBase):
             error_msg = str(e)
             if "Not authenticated" in error_msg or "login" in error_msg.lower():
                 self.license_status_label.setText("Not Logged In")
-                self.license_status_label.setStyleSheet("font-weight: bold; color: #d97706;")
+                self.license_status_label.setStyleSheet(f"font-weight: bold; color: {T.WARNING_TEXT};")
                 self.license_details_label.setText("Please login to check your QClaims access.")
                 self.tos_status_label.setText("Terms of Service: Login Required")
-                self.tos_status_label.setStyleSheet("color: #6b7280;")
+                self.tos_status_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
             else:
                 self.license_status_label.setText("Error checking access")
-                self.license_status_label.setStyleSheet("font-weight: bold; color: #dc2626;")
+                self.license_status_label.setStyleSheet(f"font-weight: bold; color: {T.DANGER};")
                 self.license_details_label.setText(error_msg)
                 self.emit_status(f"License check failed: {e}", "error")
         finally:
@@ -487,7 +488,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 self.tos_status_label.setText(
                     f"Terms of Service: Accepted (v{result.get('version', '?')})"
                 )
-                self.tos_status_label.setStyleSheet("color: #059669;")
+                self.tos_status_label.setStyleSheet(f"color: {T.SUCCESS};")
                 self.accept_tos_btn.hide()
                 self.emit_status("Terms of Service accepted", "success")
                 self.emit_validation_changed()

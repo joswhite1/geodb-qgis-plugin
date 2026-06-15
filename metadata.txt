@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.21.1
+version=2.22.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,16 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.22.0 - Dark-mode compliance for QGIS 4
+        - The plugin's UI hardcoded a light-theme color palette, so on
+          QGIS 4's dark theme some text was low-contrast or invisible (most
+          visibly the login form, where input text rendered white-on-white).
+          All widget styling now flows through one palette-aware token layer
+          (utils/theme.py) that detects light vs dark and resolves each color
+          accordingly. Light mode is unchanged; dark mode is readable.
+        - Semantic data colors (commodity/mineral swatches, map-feature and
+          claim-type fills, range-category colors) are intentionally
+          preserved across both themes.
     2.21.1 - QGIS 4 (Qt6) load-crash fix
         - The main dialog crashed on open under QGIS 4 because a few Qt
           enums were still referenced in their old unscoped form

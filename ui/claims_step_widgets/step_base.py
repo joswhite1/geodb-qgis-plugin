@@ -10,6 +10,8 @@ from abc import abstractmethod
 from qgis.PyQt.QtWidgets import QWidget, QVBoxLayout, QLabel
 from qgis.PyQt.QtCore import pyqtSignal
 
+from ...utils.theme import T
+
 if TYPE_CHECKING:
     from ..claims_wizard_state import ClaimsWizardState
     from ...managers.claims_manager import ClaimsManager
@@ -178,174 +180,181 @@ class ClaimsStepBase(QWidget):
 
     def _get_group_style(self) -> str:
         """Get group box style."""
-        return """
-            QGroupBox {
+        return f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #e5e7eb;
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 margin-top: 12px;
                 padding-top: 16px;
-                background-color: white;
-            }
-            QGroupBox::title {
+                background-color: {T.SURFACE};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 8px;
-                color: #374151;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get primary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
                 min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get secondary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 8px 16px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
-            QPushButton:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def _get_success_button_style(self) -> str:
         """Get success button style (green)."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 8px 16px;
-                background-color: #059669;
-                color: white;
+                background-color: {T.SUCCESS};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #047857;
-            }
-            QPushButton:pressed {
-                background-color: #065f46;
-            }
-            QPushButton:disabled {
-                background-color: #a7f3d0;
-                color: #6b7280;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SUCCESS_TEXT};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.SUCCESS_BG};
+                color: {T.TEXT_MUTED};
+            }}
         """
 
     def _get_staff_button_style(self) -> str:
         """Get staff-specific button style (purple)."""
-        return """
-            QPushButton {
+        # Purple backgrounds (#7c3aed / #6d28d9 / #5b21b6) are left as raw hex:
+        # they are the staff/category purple swatch the brief lists in the
+        # leave-alone set, and theme.py exposes no purple token. Only the text
+        # color (text-on-accent) is tokenized.
+        return f"""
+            QPushButton {{
                 padding: 10px 16px;
                 background-color: #7c3aed;
-                color: white;
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 13px;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #6d28d9;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #5b21b6;
-            }
+            }}
         """
 
     def _get_input_style(self) -> str:
         """Get line edit / input style."""
-        return """
-            QLineEdit, QSpinBox, QDoubleSpinBox {
+        return f"""
+            QLineEdit, QSpinBox, QDoubleSpinBox {{
                 padding: 8px 12px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
-                background-color: white;
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
                 font-size: 13px;
-            }
-            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-                border-color: #2563eb;
-            }
+            }}
+            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
+                border-color: {T.ACCENT};
+            }}
         """
 
     def _get_combo_style(self) -> str:
         """Get combo box style."""
-        return """
-            QComboBox {
+        return f"""
+            QComboBox {{
                 padding: 8px 12px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
-                background-color: white;
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
                 font-size: 13px;
-            }
-            QComboBox:focus {
-                border-color: #2563eb;
-            }
-            QComboBox::drop-down {
+            }}
+            QComboBox:focus {{
+                border-color: {T.ACCENT};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 30px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                selection-background-color: #2563eb;
-                selection-color: white;
-            }
-            QComboBox QAbstractItemView::item {
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
+                selection-background-color: {T.ACCENT};
+                selection-color: {T.TEXT_ON_ACCENT};
+            }}
+            QComboBox QAbstractItemView::item {{
                 padding: 6px 12px;
-                color: #374151;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #dbeafe;
-                color: #1d4ed8;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {T.INFO_BG};
+                color: {T.ACCENT_HOVER};
+            }}
         """
 
     def _get_info_label_style(self) -> str:
         """Get style for informational labels."""
-        return "color: #6b7280; font-size: 12px;"
+        return f"color: {T.TEXT_MUTED}; font-size: 12px;"
 
     def _get_error_label_style(self) -> str:
         """Get style for error labels."""
-        return "color: #dc2626; font-size: 12px;"
+        return f"color: {T.DANGER}; font-size: 12px;"
 
     def _get_success_label_style(self) -> str:
         """Get style for success labels."""
-        return "color: #059669; font-size: 12px;"
+        return f"color: {T.SUCCESS}; font-size: 12px;"
 
     def _create_header(self) -> QWidget:
         """
@@ -360,12 +369,12 @@ class ClaimsStepBase(QWidget):
         layout.setSpacing(8)
 
         title = QLabel(self.get_step_title())
-        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1f2937;")
+        title.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {T.TEXT_STRONG};")
         layout.addWidget(title)
 
         desc = QLabel(self.get_step_description())
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #6b7280; font-size: 13px;")
+        desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 13px;")
         layout.addWidget(desc)
 
         return header

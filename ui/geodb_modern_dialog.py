@@ -27,6 +27,7 @@ from ..utils.format_helpers import format_merge_settings_html
 from ..utils.config import Config, DEV_MODE
 from ..utils.compat import QAbstractItemView_NoEditTriggers, QTextCursor_End, QDialog_Accepted
 from ..utils.logger import PluginLogger
+from ..utils.theme import T
 from ..api.client import APIClient
 from ..api.exceptions import (
     APIPermissionError,
@@ -124,6 +125,13 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """Initialize the dialog."""
         super(GeodbModernDialog, self).__init__(parent)
         self.setupUi(self)
+
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode (otherwise the host's dark window shows behind the
+        # light-themed widgets).
+        self.setStyleSheet(
+            f"GeodbModernDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         # Allow dialog to be resized smaller than content's natural minimum
         # This lets users shrink the window on smaller screens
@@ -273,14 +281,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Create the header widget
         self.context_header = QFrame()
         self.context_header.setObjectName("contextHeader")
-        self.context_header.setStyleSheet("""
-            QFrame#contextHeader {
-                background-color: #f0f9ff;
-                border: 1px solid #bae6fd;
+        self.context_header.setStyleSheet(f"""
+            QFrame#contextHeader {{
+                background-color: {T.INFO_BG};
+                border: 1px solid {T.INFO_BG};
                 border-radius: 6px;
                 padding: 4px 8px;
                 margin: 4px 8px 0px 8px;
-            }
+            }}
         """)
 
         header_layout = QHBoxLayout(self.context_header)
@@ -290,31 +298,31 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Company label
         self.context_company_label = QLabel("Company:")
         self.context_company_label.setStyleSheet(
-            "color: #64748b; font-size: 12px; font-weight: normal;"
+            f"color: {T.SLATE_MUTED}; font-size: 12px; font-weight: normal;"
         )
         header_layout.addWidget(self.context_company_label)
 
         self.context_company_value = QLabel("Not selected")
         self.context_company_value.setStyleSheet(
-            "color: #0369a1; font-size: 12px; font-weight: bold;"
+            f"color: {T.INFO_TEXT}; font-size: 12px; font-weight: bold;"
         )
         header_layout.addWidget(self.context_company_value)
 
         # Separator
         separator = QLabel("|")
-        separator.setStyleSheet("color: #cbd5e1; font-size: 12px;")
+        separator.setStyleSheet(f"color: {T.SLATE_BORDER}; font-size: 12px;")
         header_layout.addWidget(separator)
 
         # Project label
         self.context_project_label = QLabel("Project:")
         self.context_project_label.setStyleSheet(
-            "color: #64748b; font-size: 12px; font-weight: normal;"
+            f"color: {T.SLATE_MUTED}; font-size: 12px; font-weight: normal;"
         )
         header_layout.addWidget(self.context_project_label)
 
         self.context_project_value = QLabel("Not selected")
         self.context_project_value.setStyleSheet(
-            "color: #0369a1; font-size: 12px; font-weight: bold;"
+            f"color: {T.INFO_TEXT}; font-size: 12px; font-weight: bold;"
         )
         header_layout.addWidget(self.context_project_value)
 
@@ -669,7 +677,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """Update authentication status in UI."""
         if logged_in and self.current_session:
             self.statusValue.setText("✓ Logged in")
-            self.statusValue.setStyleSheet("color: #4caf50; font-weight: bold;")
+            self.statusValue.setStyleSheet(f"color: {T.SUCCESS}; font-weight: bold;")
             self.userValue.setText(self.current_session.user.username)
             self.loginButton.setEnabled(False)
             self.logoutButton.setEnabled(True)
@@ -677,7 +685,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.refreshProjectsButton.setEnabled(True)
         else:
             self.statusValue.setText("✗ Not logged in")
-            self.statusValue.setStyleSheet("color: #d32f2f; font-weight: bold;")
+            self.statusValue.setStyleSheet(f"color: {T.DANGER}; font-weight: bold;")
             self.userValue.setText("-")
             self.loginButton.setEnabled(True)
             self.logoutButton.setEnabled(False)
@@ -920,14 +928,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 self.pushButton.setEnabled(can_edit)
 
                 if can_edit:
-                    self.permissionValue.setStyleSheet("color: #4caf50; font-weight: bold;")
+                    self.permissionValue.setStyleSheet(f"color: {T.SUCCESS}; font-weight: bold;")
                 elif can_view:
-                    self.permissionValue.setStyleSheet("color: #ff9800; font-weight: bold;")
+                    self.permissionValue.setStyleSheet(f"color: {T.WARNING}; font-weight: bold;")
                 else:
-                    self.permissionValue.setStyleSheet("color: #d32f2f; font-weight: bold;")
+                    self.permissionValue.setStyleSheet(f"color: {T.DANGER}; font-weight: bold;")
             else:
                 self.permissionValue.setText("No permission")
-                self.permissionValue.setStyleSheet("color: #d32f2f; font-weight: bold;")
+                self.permissionValue.setStyleSheet(f"color: {T.DANGER}; font-weight: bold;")
                 self.pullButton.setEnabled(False)
                 self.pushButton.setEnabled(False)
 
@@ -1702,12 +1710,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """
         # Color coding
         colors = {
-            "info": "#666666",
-            "success": "#4caf50",
-            "warning": "#ff9800",
-            "error": "#d32f2f"
+            "info": T.TEXT_MUTED,
+            "success": T.SUCCESS,
+            "warning": T.WARNING,
+            "error": T.DANGER
         }
-        color = colors.get(level, "#000000")
+        color = colors.get(level, T.TEXT_STRONG)
 
         # Format message
         html = f'<span style="color: {color};">{message}</span>'
@@ -1758,9 +1766,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Set tab text color based on level
         tab_bar = self.mainTabWidget.tabBar()
         if level == "error":
-            tab_bar.setTabTextColor(log_tab_index, QColor("#d32f2f"))
+            tab_bar.setTabTextColor(log_tab_index, QColor(T.DANGER))
         else:
-            tab_bar.setTabTextColor(log_tab_index, QColor("#ff9800"))
+            tab_bar.setTabTextColor(log_tab_index, QColor(T.WARNING))
 
     def _reset_log_tab_highlight(self):
         """Reset the Log tab highlight when it's viewed."""
@@ -1791,7 +1799,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.storageLabel.setStyleSheet("font-weight: bold;")
 
         self.storageValue = QLabel("Not configured")
-        self.storageValue.setStyleSheet("color: #ff9800;")
+        self.storageValue.setStyleSheet(f"color: {T.WARNING};")
 
         # Create storage button
         self.storageButton = QPushButton("Configure Storage")
@@ -1864,7 +1872,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Row 2+: Merge settings display (read-only)
         self.mergeSettingsLabel = QLabel("No configuration selected")
         self.mergeSettingsLabel.setWordWrap(True)
-        self.mergeSettingsLabel.setStyleSheet("color: #374151; padding: 8px; background-color: #f9fafb; border-radius: 4px;")
+        self.mergeSettingsLabel.setStyleSheet(f"color: {T.TEXT_PRIMARY}; padding: 8px; background-color: {T.SURFACE_SUBTLE}; border-radius: 4px;")
         form_layout.addRow(self.mergeSettingsLabel)
 
         # Add separator for color ranges
@@ -1916,7 +1924,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.projectFileMetadata.setReadOnly(True)
         self.projectFileMetadata.setMaximumHeight(150)
         self.projectFileMetadata.setStyleSheet(
-            "background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 8px;"
+            f"background-color: {T.SURFACE_SUBTLE}; color: {T.TEXT_PRIMARY}; "
+            f"border: 1px solid {T.BORDER_SUBTLE}; border-radius: 4px; padding: 8px;"
         )
         self.projectFileMetadata.setPlaceholderText("Select a file to see its details")
         pf_layout.addRow(self.projectFileMetadata)
@@ -2087,7 +2096,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             <tr><td><b>Resolution:</b></td><td>{res_str}</td></tr>
             <tr><td><b>Bounds:</b></td><td style="font-size:9pt">{bounds_str}</td></tr>
         </table>
-        <p style="margin-top:8px; color:#6b7280;"><i>{description}</i></p>
+        <p style="margin-top:8px; color:{T.TEXT_MUTED};"><i>{description}</i></p>
         """
 
         self.projectFileMetadata.setHtml(html)
@@ -2153,7 +2162,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         project = self.project_manager.active_project
         if not project:
             self.storageValue.setText("No project")
-            self.storageValue.setStyleSheet("color: #666;")
+            self.storageValue.setStyleSheet(f"color: {T.TEXT_MUTED};")
             self.storageButton.setEnabled(False)
             return
 
@@ -2163,17 +2172,17 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         if not config.get('configured'):
             self.storageValue.setText("Not configured")
-            self.storageValue.setStyleSheet("color: #ff9800;")
+            self.storageValue.setStyleSheet(f"color: {T.WARNING};")
         elif config.get('is_geopackage'):
             path = config.get('geopackage_path', '')
             # Show just filename for display
             from pathlib import Path
             filename = Path(path).name if path else 'Unknown'
             self.storageValue.setText(f"GeoPackage: {filename}")
-            self.storageValue.setStyleSheet("color: #4caf50;")
+            self.storageValue.setStyleSheet(f"color: {T.SUCCESS};")
         else:
             self.storageValue.setText("Memory (temporary)")
-            self.storageValue.setStyleSheet("color: #ff9800;")
+            self.storageValue.setStyleSheet(f"color: {T.WARNING};")
 
     def _check_storage_before_pull(self) -> bool:
         """

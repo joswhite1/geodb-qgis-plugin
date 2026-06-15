@@ -15,6 +15,7 @@ from qgis.PyQt.QtGui import QFont
 
 from ..managers.claims_manager import ClaimsManager
 from ..utils.compat import QFrame_HLine, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
+from ..utils.theme import T
 
 
 class ClaimsOrderDialog(QDialog):
@@ -24,14 +25,15 @@ class ClaimsOrderDialog(QDialog):
     Shows order details, status, and allows refreshing until fulfilled.
     """
 
-    # Status colors
+    # Status colors (token attribute names on T, resolved against the active
+    # theme at display time so badges read in both light and dark mode).
     STATUS_COLORS = {
-        'pending_approval': '#f59e0b',  # amber
-        'approved': '#2563eb',  # blue
-        'paid': '#059669',  # green
-        'fulfilled': '#059669',  # green
-        'rejected': '#dc2626',  # red
-        'cancelled': '#6b7280',  # gray
+        'pending_approval': 'WARNING',  # amber
+        'approved': 'ACCENT',  # blue
+        'paid': 'SUCCESS',  # green
+        'fulfilled': 'SUCCESS',  # green
+        'rejected': 'DANGER',  # red
+        'cancelled': 'TEXT_MUTED',  # gray
     }
 
     def __init__(
@@ -66,6 +68,11 @@ class ClaimsOrderDialog(QDialog):
         self.setMinimumWidth(500)
         self.setMinimumHeight(400)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode (otherwise the host's dark window shows through).
+        self.setStyleSheet(
+            f"ClaimsOrderDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
@@ -84,7 +91,7 @@ class ClaimsOrderDialog(QDialog):
         header_layout.addStretch()
 
         self.status_badge = QLabel("Loading...")
-        self.status_badge.setStyleSheet(self._get_badge_style('#6b7280'))
+        self.status_badge.setStyleSheet(self._get_badge_style(T.TEXT_MUTED))
         header_layout.addWidget(self.status_badge)
 
         layout.addLayout(header_layout)
@@ -92,7 +99,7 @@ class ClaimsOrderDialog(QDialog):
         # Separator
         line = QFrame()
         line.setFrameShape(QFrame_HLine)
-        line.setStyleSheet("background-color: #e5e7eb;")
+        line.setStyleSheet(f"background-color: {T.BORDER_SUBTLE};")
         layout.addWidget(line)
 
         # Order details group
@@ -112,13 +119,13 @@ class ClaimsOrderDialog(QDialog):
 
         # Created
         self.created_label = QLabel("Created: -")
-        self.created_label.setStyleSheet("font-size: 13px; color: #6b7280;")
+        self.created_label.setStyleSheet(f"font-size: 13px; color: {T.TEXT_MUTED};")
         details_layout.addWidget(self.created_label)
 
         # Requires approval
         self.approval_label = QLabel("")
         self.approval_label.setWordWrap(True)
-        self.approval_label.setStyleSheet("font-size: 13px; color: #6b7280;")
+        self.approval_label.setStyleSheet(f"font-size: 13px; color: {T.TEXT_MUTED};")
         details_layout.addWidget(self.approval_label)
 
         layout.addWidget(details_group)
@@ -126,11 +133,11 @@ class ClaimsOrderDialog(QDialog):
         # Status-specific info
         self.status_info_label = QLabel("")
         self.status_info_label.setWordWrap(True)
-        self.status_info_label.setStyleSheet("""
+        self.status_info_label.setStyleSheet(f"""
             padding: 12px;
-            background-color: #f3f4f6;
+            background-color: {T.SURFACE_SUNKEN};
             border-radius: 6px;
-            color: #374151;
+            color: {T.TEXT_PRIMARY};
         """)
         layout.addWidget(self.status_info_label)
 
@@ -158,7 +165,7 @@ class ClaimsOrderDialog(QDialog):
         refresh_layout = QHBoxLayout()
 
         self.auto_refresh_label = QLabel("Auto-refresh every 30 seconds")
-        self.auto_refresh_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        self.auto_refresh_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 12px;")
         refresh_layout.addWidget(self.auto_refresh_label)
 
         refresh_layout.addStretch()
@@ -221,7 +228,7 @@ class ClaimsOrderDialog(QDialog):
         status_display = self.order_data.get('status_display', status.replace('_', ' ').title())
 
         # Update status badge
-        color = self.STATUS_COLORS.get(status, '#6b7280')
+        color = getattr(T, self.STATUS_COLORS.get(status, 'TEXT_MUTED'))
         self.status_badge.setText(status_display)
         self.status_badge.setStyleSheet(self._get_badge_style(color))
 
@@ -241,69 +248,69 @@ class ClaimsOrderDialog(QDialog):
                 "Your order is waiting for approval from a company manager. "
                 "They will receive an email notification."
             )
-            self.status_info_label.setStyleSheet("""
+            self.status_info_label.setStyleSheet(f"""
                 padding: 12px;
-                background-color: #fef3c7;
-                border: 1px solid #f59e0b;
+                background-color: {T.WARNING_BG};
+                border: 1px solid {T.WARNING};
                 border-radius: 6px;
-                color: #92400e;
+                color: {T.WARNING_TEXT};
             """)
         elif status == 'approved':
             self.status_info_label.setText(
                 "Your order has been approved! Payment will be collected before processing begins."
             )
-            self.status_info_label.setStyleSheet("""
+            self.status_info_label.setStyleSheet(f"""
                 padding: 12px;
-                background-color: #dbeafe;
-                border: 1px solid #2563eb;
+                background-color: {T.INFO_BG};
+                border: 1px solid {T.ACCENT};
                 border-radius: 6px;
-                color: #1e40af;
+                color: {T.ACCENT_ACTIVE};
             """)
         elif status == 'paid':
             self.status_info_label.setText(
                 "Payment received! Your claims are being processed. "
                 "This page will update automatically when complete."
             )
-            self.status_info_label.setStyleSheet("""
+            self.status_info_label.setStyleSheet(f"""
                 padding: 12px;
-                background-color: #d1fae5;
-                border: 1px solid #059669;
+                background-color: {T.SUCCESS_BG};
+                border: 1px solid {T.SUCCESS};
                 border-radius: 6px;
-                color: #065f46;
+                color: {T.SUCCESS_TEXT};
             """)
         elif status == 'fulfilled':
             self.status_info_label.setText(
                 "Your claims have been processed successfully! "
                 "Documents are available for download below."
             )
-            self.status_info_label.setStyleSheet("""
+            self.status_info_label.setStyleSheet(f"""
                 padding: 12px;
-                background-color: #d1fae5;
-                border: 1px solid #059669;
+                background-color: {T.SUCCESS_BG};
+                border: 1px solid {T.SUCCESS};
                 border-radius: 6px;
-                color: #065f46;
+                color: {T.SUCCESS_TEXT};
             """)
             self.refresh_timer.stop()
             self._show_documents()
         elif status == 'rejected':
             reason = self.order_data.get('rejection_reason', 'No reason provided.')
             self.status_info_label.setText(f"Order was rejected. Reason: {reason}")
-            self.status_info_label.setStyleSheet("""
+            self.status_info_label.setStyleSheet(f"""
                 padding: 12px;
-                background-color: #fee2e2;
-                border: 1px solid #dc2626;
+                background-color: {T.DANGER_BG};
+                border: 1px solid {T.DANGER};
                 border-radius: 6px;
-                color: #991b1b;
+                color: {T.DANGER_TEXT};
             """)
             self.refresh_timer.stop()
         elif status == 'cancelled':
             self.status_info_label.setText("This order has been cancelled.")
-            self.status_info_label.setStyleSheet("""
+            self.status_info_label.setStyleSheet(f"""
                 padding: 12px;
-                background-color: #f3f4f6;
-                border: 1px solid #6b7280;
+                background-color: {T.SURFACE_SUNKEN};
+                border: 1px solid {T.TEXT_MUTED};
                 border-radius: 6px;
-                color: #4b5563;
+                color: {T.TEXT_PRIMARY};
             """)
             self.refresh_timer.stop()
         else:
@@ -332,7 +339,7 @@ class ClaimsOrderDialog(QDialog):
             QLabel {{
                 padding: 6px 12px;
                 background-color: {color};
-                color: white;
+                color: {T.TEXT_ON_ACCENT};
                 border-radius: 12px;
                 font-weight: bold;
                 font-size: 12px;
@@ -341,85 +348,87 @@ class ClaimsOrderDialog(QDialog):
 
     def _get_group_style(self) -> str:
         """Get group box style."""
-        return """
-            QGroupBox {
+        return f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #e5e7eb;
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 margin-top: 12px;
                 padding-top: 16px;
-                background-color: white;
-            }
-            QGroupBox::title {
+                background-color: {T.SURFACE};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 8px;
-                color: #374151;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
         """
 
     def _get_table_style(self) -> str:
         """Get table style."""
-        return """
-            QTableWidget {
-                border: 1px solid #e5e7eb;
+        return f"""
+            QTableWidget {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 4px;
-                background-color: white;
-                gridline-color: #e5e7eb;
-            }
-            QHeaderView::section {
-                background-color: #f9fafb;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                gridline-color: {T.BORDER_SUBTLE};
+            }}
+            QHeaderView::section {{
+                background-color: {T.SURFACE_SUBTLE};
+                color: {T.TEXT_PRIMARY};
                 padding: 8px;
                 border: none;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid {T.BORDER_SUBTLE};
                 font-weight: bold;
-            }
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get primary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
                 min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get secondary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 14px;
                 min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
-            QPushButton:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def closeEvent(self, event):

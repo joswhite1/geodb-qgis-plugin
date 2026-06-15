@@ -13,6 +13,7 @@ from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QFont
 
 from ..utils.compat import Qt_Checked, QFrame_HLine
+from ..utils.theme import T
 
 
 class ClaimsTOSDialog(QDialog):
@@ -40,6 +41,11 @@ class ClaimsTOSDialog(QDialog):
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode.
+        self.setStyleSheet(
+            f"ClaimsTOSDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
@@ -54,30 +60,31 @@ class ClaimsTOSDialog(QDialog):
         header_font.setPointSize(16)
         header_font.setBold(True)
         header.setFont(header_font)
-        header.setStyleSheet("color: #1f2937;")
+        header.setStyleSheet(f"color: {T.TEXT_STRONG};")
         layout.addWidget(header)
 
         version_label = QLabel(f"Version {version}")
-        version_label.setStyleSheet("color: #6b7280; margin-bottom: 8px;")
+        version_label.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 8px;")
         layout.addWidget(version_label)
 
         # Separator
         line = QFrame()
         line.setFrameShape(QFrame_HLine)
-        line.setStyleSheet("background-color: #e5e7eb;")
+        line.setStyleSheet(f"background-color: {T.BORDER_SUBTLE};")
         layout.addWidget(line)
 
         # Content area
         self.content_browser = QTextBrowser()
         self.content_browser.setOpenExternalLinks(True)
-        self.content_browser.setStyleSheet("""
-            QTextBrowser {
-                border: 1px solid #e5e7eb;
+        self.content_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 8px;
                 padding: 16px;
-                background-color: #fafafa;
+                background-color: {T.SLATE_SURFACE};
+                color: {T.TEXT_PRIMARY};
                 font-size: 14px;
-            }
+            }}
         """)
 
         # Build HTML content
@@ -93,12 +100,12 @@ class ClaimsTOSDialog(QDialog):
             "data before filing with government agencies."
         )
         notice_label.setWordWrap(True)
-        notice_label.setStyleSheet("""
+        notice_label.setStyleSheet(f"""
             padding: 12px;
-            background-color: #fef3c7;
-            border: 1px solid #f59e0b;
+            background-color: {T.WARNING_BG};
+            border: 1px solid {T.WARNING};
             border-radius: 6px;
-            color: #92400e;
+            color: {T.WARNING_TEXT};
         """)
         layout.addWidget(notice_label)
 
@@ -106,16 +113,16 @@ class ClaimsTOSDialog(QDialog):
         self.accept_checkbox = QCheckBox(
             "I have read, understand, and accept these Terms of Service"
         )
-        self.accept_checkbox.setStyleSheet("""
-            QCheckBox {
+        self.accept_checkbox.setStyleSheet(f"""
+            QCheckBox {{
                 font-weight: bold;
-                color: #374151;
+                color: {T.TEXT_PRIMARY};
                 padding: 8px;
-            }
-            QCheckBox::indicator {
+            }}
+            QCheckBox::indicator {{
                 width: 20px;
                 height: 20px;
-            }
+            }}
         """)
         self.accept_checkbox.stateChanged.connect(self._on_checkbox_changed)
         layout.addWidget(self.accept_checkbox)
@@ -165,8 +172,8 @@ class ClaimsTOSDialog(QDialog):
         important_notice = self.tos_content.get('important_notice')
         if important_notice:
             html_parts.append(f'''
-                <div style="margin-bottom: 20px; padding: 12px; background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
-                    <p style="color: #92400e; margin: 0; white-space: pre-wrap;">{important_notice}</p>
+                <div style="margin-bottom: 20px; padding: 12px; background-color: {T.WARNING_BG}; border: 1px solid {T.WARNING}; border-radius: 6px;">
+                    <p style="color: {T.WARNING_TEXT}; margin: 0; white-space: pre-wrap;">{important_notice}</p>
                 </div>
             ''')
 
@@ -178,8 +185,8 @@ class ClaimsTOSDialog(QDialog):
 
             html_parts.append(f'''
                 <div style="margin-bottom: 20px;">
-                    <h3 style="color: #1f2937; margin-bottom: 8px;">{title}</h3>
-                    <p style="color: #4b5563; margin: 0;">{content_html}</p>
+                    <h3 style="color: {T.TEXT_STRONG}; margin-bottom: 8px;">{title}</h3>
+                    <p style="color: {T.TEXT_PRIMARY}; margin: 0;">{content_html}</p>
                 </div>
             ''')
 
@@ -188,9 +195,9 @@ class ClaimsTOSDialog(QDialog):
         if acknowledgment:
             acknowledgment_html = acknowledgment.replace('\n', '<br>')
             html_parts.append(f'''
-                <div style="margin-top: 24px; padding: 16px; background-color: #f3f4f6; border-radius: 6px;">
-                    <h3 style="color: #1f2937; margin-bottom: 8px;">Acknowledgment</h3>
-                    <p style="color: #4b5563; margin: 0;">{acknowledgment_html}</p>
+                <div style="margin-top: 24px; padding: 16px; background-color: {T.SURFACE_SUNKEN}; border-radius: 6px;">
+                    <h3 style="color: {T.TEXT_STRONG}; margin-bottom: 8px;">Acknowledgment</h3>
+                    <p style="color: {T.TEXT_PRIMARY}; margin: 0;">{acknowledgment_html}</p>
                 </div>
             ''')
 
@@ -204,45 +211,45 @@ class ClaimsTOSDialog(QDialog):
 
     def _get_primary_button_style(self) -> str:
         """Get primary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
                 min-width: 180px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get secondary button style."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 14px;
                 min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
         """

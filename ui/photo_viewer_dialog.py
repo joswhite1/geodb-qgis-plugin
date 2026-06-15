@@ -22,6 +22,7 @@ from ..utils.compat import (
     Qt_Key_Left, Qt_Key_Right, Qt_Key_Escape, Qt_Key_Space,
     QSizePolicy_Ignored,
 )
+from ..utils.theme import T
 
 
 class PhotoLoader(QThread):
@@ -160,6 +161,11 @@ class PhotoViewerDialog(QDialog):
         self.setWindowTitle("Photo Viewer")
         self.setMinimumSize(800, 600)
         self.resize(1000, 750)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode.
+        self.setStyleSheet(
+            f"PhotoViewerDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -168,13 +174,13 @@ class PhotoViewerDialog(QDialog):
 
         # Info bar at top
         self.info_bar = QLabel()
-        self.info_bar.setStyleSheet("""
-            QLabel {
-                background-color: #f0f0f0;
+        self.info_bar.setStyleSheet(f"""
+            QLabel {{
+                background-color: {T.SLATE_SURFACE};
                 padding: 8px;
                 border-radius: 4px;
-                color: #333;
-            }
+                color: {T.TEXT_STRONG};
+            }}
         """)
         layout.addWidget(self.info_bar)
 

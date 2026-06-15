@@ -22,6 +22,7 @@ from qgis.gui import QgsMapLayerComboBox
 
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_HLine
+from ..utils.theme import T
 
 
 # Sample type choices matching the API
@@ -71,6 +72,11 @@ class FieldWorkDialog(QDialog):
         self.setWindowTitle("Plan Field Samples")
         self.setMinimumWidth(500)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode.
+        self.setStyleSheet(
+            f"FieldWorkDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -83,7 +89,7 @@ class FieldWorkDialog(QDialog):
         header_font.setPointSize(14)
         header_font.setBold(True)
         header_label.setFont(header_font)
-        header_label.setStyleSheet("color: #2563eb;")
+        header_label.setStyleSheet(f"color: {T.ACCENT_TEXT};")
         layout.addWidget(header_label)
 
         # Description
@@ -92,13 +98,13 @@ class FieldWorkDialog(QDialog):
             "and push it to geodb.io as planned samples for field collection."
         )
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #6b7280; margin-bottom: 8px;")
+        desc_label.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 8px;")
         layout.addWidget(desc_label)
 
         # Separator
         line = QFrame()
         line.setFrameShape(QFrame_HLine)
-        line.setStyleSheet("background-color: #e5e7eb;")
+        line.setStyleSheet(f"background-color: {T.BORDER_SUBTLE};")
         layout.addWidget(line)
 
         # === Source Layer Selection ===
@@ -115,7 +121,7 @@ class FieldWorkDialog(QDialog):
 
         # Feature count label
         self.feature_count_label = QLabel("0 features")
-        self.feature_count_label.setStyleSheet("color: #6b7280;")
+        self.feature_count_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layer_layout.addRow("Features:", self.feature_count_label)
 
         layout.addWidget(layer_group)
@@ -162,8 +168,8 @@ class FieldWorkDialog(QDialog):
         # Preview
         self.preview_label = QLabel("SS-001, SS-002, SS-003, ...")
         self.preview_label.setStyleSheet(
-            "color: #059669; font-family: monospace; padding: 8px; "
-            "background-color: #ecfdf5; border-radius: 4px;"
+            f"color: {T.SUCCESS_TEXT}; font-family: monospace; padding: 8px; "
+            f"background-color: {T.SUCCESS_BG}; border-radius: 4px;"
         )
         seq_layout.addRow("Preview:", self.preview_label)
 
@@ -177,8 +183,8 @@ class FieldWorkDialog(QDialog):
         self.message_browser = QTextBrowser()
         self.message_browser.setMaximumHeight(100)
         self.message_browser.setStyleSheet(
-            "QTextBrowser { background-color: #f9fafb; border: 1px solid #e5e7eb; "
-            "border-radius: 4px; padding: 8px; }"
+            f"QTextBrowser {{ background-color: {T.SURFACE_SUBTLE}; color: {T.TEXT_PRIMARY}; "
+            f"border: 1px solid {T.BORDER_SUBTLE}; border-radius: 4px; padding: 8px; }}"
         )
         self.message_browser.setVisible(False)
         layout.addWidget(self.message_browser)
@@ -384,7 +390,7 @@ class FieldWorkDialog(QDialog):
                     msg = f"Created {created} planned samples."
 
                 self._log_message(
-                    f"<span style='color: #059669;'><b>Success!</b> {msg}</span>"
+                    f"<span style='color: {T.SUCCESS_TEXT};'><b>Success!</b> {msg}</span>"
                 )
                 QMessageBox.information(
                     self, "Push Complete",
@@ -395,7 +401,7 @@ class FieldWorkDialog(QDialog):
                 self.accept()
             else:
                 self._log_message(
-                    f"<span style='color: #dc2626;'><b>Completed with errors:</b> "
+                    f"<span style='color: {T.DANGER_TEXT};'><b>Completed with errors:</b> "
                     f"{created} created, {updated} updated, {errors} failed.</span>"
                 )
                 error_details = result.get('error_details', [])
@@ -413,7 +419,7 @@ class FieldWorkDialog(QDialog):
 
         except Exception as e:
             self.logger.error(f"Push failed: {e}")
-            self._log_message(f"<span style='color: #dc2626;'><b>Error:</b> {str(e)}</span>")
+            self._log_message(f"<span style='color: {T.DANGER_TEXT};'><b>Error:</b> {str(e)}</span>")
             QMessageBox.critical(self, "Push Failed", f"An error occurred:\n\n{str(e)}")
 
         finally:
@@ -446,7 +452,7 @@ class FieldWorkDialog(QDialog):
         details = "\n".join(detail_lines)
 
         self._log_message(
-            f"<span style='color: #d97706;'><b>Warning:</b> "
+            f"<span style='color: {T.WARNING_TEXT};'><b>Warning:</b> "
             f"{would_update} existing samples would be overwritten.</span>"
         )
 
@@ -508,82 +514,83 @@ class FieldWorkDialog(QDialog):
 
     def _get_group_style(self) -> str:
         """Get stylesheet for group boxes."""
-        return """
-            QGroupBox {
+        return f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #e5e7eb;
+                border: 1px solid {T.BORDER_SUBTLE};
                 border-radius: 6px;
                 margin-top: 12px;
                 padding-top: 16px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 8px;
-                color: #374151;
-            }
+                color: {T.TEXT_PRIMARY};
+            }}
         """
 
     def _get_input_style(self) -> str:
         """Get stylesheet for input fields."""
-        return """
-            QLineEdit, QSpinBox, QComboBox {
+        return f"""
+            QLineEdit, QSpinBox, QComboBox {{
                 padding: 6px 10px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 4px;
-                background-color: #ffffff;
-            }
-            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
-                border-color: #2563eb;
-            }
-            QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{
+                border-color: {T.ACCENT};
+            }}
+            QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{
+                background-color: {T.INPUT_BG_DISABLED};
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get stylesheet for primary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get stylesheet for secondary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
-            QPushButton:disabled {
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
+            QPushButton:disabled {{
+                color: {T.TEXT_FAINT};
+            }}
         """
