@@ -13,6 +13,9 @@ from qgis.core import QgsSettings
 from qgis.PyQt.QtCore import QStandardPaths
 
 from ..utils.logger import PluginLogger
+from ..utils.compat import (
+    QStandardPaths_DocumentsLocation, QStandardPaths_TempLocation,
+)
 
 
 class StorageMode:
@@ -56,7 +59,7 @@ class StorageManager:
 
         # Use platform-appropriate Documents folder
         docs_path = QStandardPaths.writableLocation(
-            QStandardPaths.DocumentsLocation
+            QStandardPaths_DocumentsLocation
         )
         default_dir = Path(docs_path) / 'GeodbData'
 
@@ -69,7 +72,7 @@ class StorageManager:
                 self.logger.warning(f"Could not create default directory: {e}")
                 # Fall back to temp directory
                 default_dir = Path(QStandardPaths.writableLocation(
-                    QStandardPaths.TempLocation
+                    QStandardPaths_TempLocation
                 )) / 'GeodbData'
                 default_dir.mkdir(parents=True, exist_ok=True)
 

@@ -304,3 +304,11 @@ QAbstractItemView_NoSelection = _qabstractitemview('NoSelection', 'SelectionMode
 
 # --- QSizePolicy (additional) ---
 QSizePolicy_Ignored = _qpolicy('Ignored')
+
+# --- QStandardPaths ---
+# Qt6 moved these under QStandardPaths.StandardLocation.*
+from qgis.PyQt.QtCore import QStandardPaths
+QStandardPaths_DocumentsLocation = _qenum(
+    QStandardPaths, 'DocumentsLocation', 'StandardLocation.DocumentsLocation')
+QStandardPaths_TempLocation = _qenum(
+    QStandardPaths, 'TempLocation', 'StandardLocation.TempLocation')

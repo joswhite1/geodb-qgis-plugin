@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.21.1
+version=2.21.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,11 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.21.2 - QGIS 4 (Qt6) Storage dialog crash fix
+        - Configuring storage / pulling data crashed under QGIS 4 because
+          QStandardPaths.DocumentsLocation and .TempLocation were still
+          referenced in their old unscoped form, which PyQt6 removed. These
+          now resolve through the existing Qt5/Qt6 compatibility shim.
     2.21.1 - QGIS 4 (Qt6) load-crash fix
         - The main dialog crashed on open under QGIS 4 because a few Qt
           enums were still referenced in their old unscoped form
