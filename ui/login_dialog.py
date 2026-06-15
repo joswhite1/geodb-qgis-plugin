@@ -19,6 +19,7 @@ from qgis.PyQt.QtGui import QFont
 
 from .two_factor_dialog import TwoFactorDialog
 from ..utils.compat import Qt_AlignCenter, QFrame_HLine, QLineEdit_Password, QDialog_Accepted
+from ..utils.theme import T
 
 
 class LoginDialog(QDialog):
@@ -55,6 +56,12 @@ class LoginDialog(QDialog):
         self.setWindowTitle("Login to geodb.io")
         self.setFixedWidth(400)
         self.setModal(True)
+        # Theme the dialog surface so the card reads correctly in both light
+        # and dark mode (otherwise the host's dark window shows behind the
+        # light input boxes).
+        self.setStyleSheet(
+            f"LoginDialog {{ background-color: {T.SURFACE}; }}"
+        )
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -68,26 +75,26 @@ class LoginDialog(QDialog):
         header_font.setBold(True)
         header_label.setFont(header_font)
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header_label.setStyleSheet("color: #2563eb;")
+        header_label.setStyleSheet(f"color: {T.ACCENT_TEXT};")
         layout.addWidget(header_label)
 
         # Subtitle
         subtitle_label = QLabel("Sign in to sync your geological data")
         subtitle_label.setAlignment(Qt_AlignCenter)
-        subtitle_label.setStyleSheet("color: #6b7280; margin-bottom: 16px;")
+        subtitle_label.setStyleSheet(f"color: {T.TEXT_MUTED}; margin-bottom: 16px;")
         layout.addWidget(subtitle_label)
 
         # Separator line
         line = QFrame()
         line.setFrameShape(QFrame_HLine)
-        line.setStyleSheet("background-color: #e5e7eb;")
+        line.setStyleSheet(f"background-color: {T.BORDER_SUBTLE};")
         layout.addWidget(line)
 
         layout.addSpacing(8)
 
         # Email field
         email_label = QLabel("Email")
-        email_label.setStyleSheet("font-weight: bold; color: #374151;")
+        email_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
         layout.addWidget(email_label)
 
         self.email_input = QLineEdit()
@@ -100,7 +107,7 @@ class LoginDialog(QDialog):
 
         # Password field
         password_label = QLabel("Password")
-        password_label.setStyleSheet("font-weight: bold; color: #374151;")
+        password_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
         layout.addWidget(password_label)
 
         self.password_input = QLineEdit()
@@ -114,22 +121,22 @@ class LoginDialog(QDialog):
 
         # Remember me checkbox
         self.remember_checkbox = QCheckBox("Remember my email")
-        self.remember_checkbox.setStyleSheet("color: #6b7280;")
+        self.remember_checkbox.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layout.addWidget(self.remember_checkbox)
 
         # Save password checkbox
         self.save_password_checkbox = QCheckBox("Save password (stored securely in QGIS)")
-        self.save_password_checkbox.setStyleSheet("color: #6b7280;")
+        self.save_password_checkbox.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layout.addWidget(self.save_password_checkbox)
 
         layout.addSpacing(16)
 
         # Error message label (hidden by default)
         self.error_label = QLabel()
-        self.error_label.setStyleSheet("""
-            color: #dc2626;
-            background-color: #fef2f2;
-            border: 1px solid #fecaca;
+        self.error_label.setStyleSheet(f"""
+            color: {T.DANGER_TEXT};
+            background-color: {T.DANGER_BG};
+            border: 1px solid {T.DANGER};
             border-radius: 6px;
             padding: 8px 12px;
         """)
@@ -158,95 +165,97 @@ class LoginDialog(QDialog):
         layout.addSpacing(16)
         footer_label = QLabel("Don't have an account? Visit geodb.io to sign up.")
         footer_label.setAlignment(Qt_AlignCenter)
-        footer_label.setStyleSheet("color: #9ca3af; font-size: 11px;")
+        footer_label.setStyleSheet(f"color: {T.TEXT_FAINT}; font-size: 11px;")
         layout.addWidget(footer_label)
 
     def _get_input_style(self) -> str:
         """Get stylesheet for input fields."""
-        return """
-            QLineEdit {
+        return f"""
+            QLineEdit {{
                 padding: 10px 12px;
-                border: 1px solid #d1d5db;
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
-                background-color: #ffffff;
+                background-color: {T.INPUT_BG};
+                color: {T.TEXT_PRIMARY};
                 font-size: 14px;
-            }
-            QLineEdit:focus {
-                border-color: #2563eb;
+            }}
+            QLineEdit:focus {{
+                border-color: {T.ACCENT};
                 outline: none;
-            }
-            QLineEdit:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+            }}
+            QLineEdit:disabled {{
+                background-color: {T.INPUT_BG_DISABLED};
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def _get_input_error_style(self) -> str:
         """Get stylesheet for input fields in error state."""
-        return """
-            QLineEdit {
+        return f"""
+            QLineEdit {{
                 padding: 10px 12px;
-                border: 2px solid #dc2626;
+                border: 2px solid {T.DANGER};
                 border-radius: 6px;
-                background-color: #fef2f2;
+                background-color: {T.DANGER_BG};
+                color: {T.TEXT_PRIMARY};
                 font-size: 14px;
-            }
-            QLineEdit:focus {
-                border-color: #dc2626;
+            }}
+            QLineEdit:focus {{
+                border-color: {T.DANGER};
                 outline: none;
-            }
-            QLineEdit:disabled {
-                background-color: #f3f4f6;
-                color: #9ca3af;
-            }
+            }}
+            QLineEdit:disabled {{
+                background-color: {T.INPUT_BG_DISABLED};
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def _get_primary_button_style(self) -> str:
         """Get stylesheet for primary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #2563eb;
-                color: white;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 14px;
                 min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #93c5fd;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.ACCENT_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.ACCENT_ACTIVE};
+            }}
+            QPushButton:disabled {{
+                background-color: {T.ACCENT_DISABLED};
+            }}
         """
 
     def _get_secondary_button_style(self) -> str:
         """Get stylesheet for secondary button."""
-        return """
-            QPushButton {
+        return f"""
+            QPushButton {{
                 padding: 10px 20px;
-                background-color: #ffffff;
-                color: #374151;
-                border: 1px solid #d1d5db;
+                background-color: {T.SURFACE};
+                color: {T.TEXT_PRIMARY};
+                border: 1px solid {T.BORDER};
                 border-radius: 6px;
                 font-size: 14px;
                 min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #f9fafb;
-                border-color: #9ca3af;
-            }
-            QPushButton:pressed {
-                background-color: #f3f4f6;
-            }
-            QPushButton:disabled {
-                color: #9ca3af;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {T.SURFACE_SUBTLE};
+                border-color: {T.TEXT_FAINT};
+            }}
+            QPushButton:pressed {{
+                background-color: {T.SURFACE_SUNKEN};
+            }}
+            QPushButton:disabled {{
+                color: {T.TEXT_FAINT};
+            }}
         """
 
     def _focus_password(self):
