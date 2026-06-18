@@ -51,6 +51,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor, QFont
 from ..utils.compat import QFont_Bold
+from ..utils.sql import quote_identifier
 
 logger = logging.getLogger('geodb')
 
@@ -319,7 +320,11 @@ class ClaimsLoader:
         conn = sqlite3.connect(self.gpkg_path)
         cursor = conn.cursor()
 
-        cursor.execute(f"SELECT key, value FROM {self.fmt.metadata_table}")
+        # Table name is a format-spec identifier (not user input), but it
+        # still cannot be bound with a ? placeholder. Validate it as a bare
+        # SQL identifier before splicing it into the query text.
+        query = "SELECT key, value FROM " + quote_identifier(self.fmt.metadata_table)
+        cursor.execute(query)
         self.metadata = dict(cursor.fetchall())
         conn.close()
 

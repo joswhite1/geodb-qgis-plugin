@@ -26,6 +26,7 @@ from qgis.core import (
 )
 from ..utils.logger import PluginLogger
 from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
+from ..utils.sql import quote_identifier
 
 
 class ClaimsStorageManager:
@@ -238,12 +239,11 @@ class ClaimsStorageManager:
         with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
             cursor = conn.cursor()
 
-            cursor.execute(f'''
-                CREATE TABLE IF NOT EXISTS {self.METADATA_TABLE} (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            ''')
+            meta_table = quote_identifier(self.METADATA_TABLE)
+            cursor.execute(
+                "CREATE TABLE IF NOT EXISTS " + meta_table + " ("
+                "key TEXT PRIMARY KEY, value TEXT)"
+            )
 
             conn.commit()
 
@@ -258,17 +258,19 @@ class ClaimsStorageManager:
         with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
             cursor = conn.cursor()
 
+            meta_table = quote_identifier(self.METADATA_TABLE)
+            insert_sql = (
+                "INSERT OR REPLACE INTO " + meta_table + " (key, value) "
+                "VALUES (?, ?)"
+            )
             for key, value in metadata.items():
-                cursor.execute(f'''
-                    INSERT OR REPLACE INTO {self.METADATA_TABLE} (key, value)
-                    VALUES (?, ?)
-                ''', (key, value))
+                cursor.execute(insert_sql, (key, value))
 
             # Update last modified
-            cursor.execute(f'''
-                INSERT OR REPLACE INTO {self.METADATA_TABLE} (key, value)
-                VALUES (?, ?)
-            ''', (self.KEY_LAST_MODIFIED, datetime.now().isoformat()))
+            cursor.execute(
+                insert_sql,
+                (self.KEY_LAST_MODIFIED, datetime.now().isoformat())
+            )
 
             conn.commit()
 
@@ -1010,8 +1012,11 @@ class ClaimsStorageManager:
             try:
                 with contextlib.closing(sqlite3.connect(gpkg_path)) as conn:
                     cursor = conn.cursor()
-                    # Drop the table
-                    cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+                    # Drop the table (name validated as a bare identifier;
+                    # cannot be bound with a ? placeholder)
+                    cursor.execute(
+                        "DROP TABLE IF EXISTS " + quote_identifier(table_name)
+                    )
                     # Also clean up GeoPackage metadata tables
                     cursor.execute(
                         'DELETE FROM gpkg_contents WHERE table_name = ?',
