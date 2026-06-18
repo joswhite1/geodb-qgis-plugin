@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.5
+version=2.22.6
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,13 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.22.5 - SQL identifier hardening
-        - Table names that must be spliced into a query (the format-specific
-          metadata table, table drops) are now validated as bare SQL
-          identifiers via a shared quote_identifier helper before use, so a
-          malformed name raises instead of reaching the database. Removes the
-          string-built-query pattern flagged by security scanners. No
-          behavior change for normal use.
+    2.22.6 - SQL identifier hardening
+        - Queries that must name a table chosen at runtime (the
+          format-specific metadata table, table drops) no longer assemble SQL
+          from the table name. The metadata read uses a ready-made literal
+          query per format; the remaining identifier sites validate the name
+          as a bare SQL identifier (shared quote_identifier helper) before
+          use, so a malformed name raises instead of reaching the database.
+          Clears the string-built-query pattern flagged by security scanners.
+          No behavior change for normal use.
     2.22.4 - Claim numbering fix on rotated blocks
         - "Number & Rename Claims" could number claims right-to-left / out of
           order when the claim block was rotated even slightly off north. Two

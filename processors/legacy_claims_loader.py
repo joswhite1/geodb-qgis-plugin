@@ -51,7 +51,6 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor, QFont
 from ..utils.compat import QFont_Bold
-from ..utils.sql import quote_identifier
 
 logger = logging.getLogger('geodb')
 
@@ -140,6 +139,11 @@ class ClaimsFormat:
 
     # Metadata table
     metadata_table: str
+    # Complete literal SELECT for this format's metadata table. Kept as a
+    # ready-made constant (not assembled at the call site) so the table name
+    # — which cannot be bound with a ? placeholder — is never spliced into
+    # SQL at runtime.
+    metadata_query: str
     metadata_keys: Dict[str, str]  # logical name -> actual key in this format
 
     # Layer tables — list of (table_name_or_factory, display_name) pairs.
@@ -169,6 +173,7 @@ def _legacy_claims_table(prefix: str) -> str:
 LEGACY_FORMAT = ClaimsFormat(
     name='LEGACY',
     metadata_table='qclaims_metadata',
+    metadata_query='SELECT key, value FROM qclaims_metadata',
     metadata_keys={
         'prefix': 'base_name',
         'claimant_name': 'claimant_name',
@@ -200,6 +205,7 @@ LEGACY_FORMAT = ClaimsFormat(
 NEW_FORMAT = ClaimsFormat(
     name='CLAIMS',
     metadata_table='claims_metadata',
+    metadata_query='SELECT key, value FROM claims_metadata',
     metadata_keys={
         'prefix': 'grid_name_prefix',
         'claimant_name': 'claimant_name',
@@ -320,11 +326,10 @@ class ClaimsLoader:
         conn = sqlite3.connect(self.gpkg_path)
         cursor = conn.cursor()
 
-        # Table name is a format-spec identifier (not user input), but it
-        # still cannot be bound with a ? placeholder. Validate it as a bare
-        # SQL identifier before splicing it into the query text.
-        query = "SELECT key, value FROM " + quote_identifier(self.fmt.metadata_table)
-        cursor.execute(query)
+        # Use the format's ready-made metadata query (a constant string
+        # literal per format) rather than assembling SQL from the table name
+        # at runtime — the table name cannot be bound with a ? placeholder.
+        cursor.execute(self.fmt.metadata_query)
         self.metadata = dict(cursor.fetchall())
         conn.close()
 
