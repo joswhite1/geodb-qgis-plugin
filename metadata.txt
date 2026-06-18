@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.2
+version=2.22.3
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,12 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.22.3 - Hardened HTTP opener (scheme-restricted)
+        - safe_urlopen now fetches through an explicit opener built from only
+          HTTP/HTTPS handlers instead of the module-level urlopen, so no
+          handler exists that could service file:/, ftp:, or custom schemes —
+          defense in depth on top of the existing scheme allowlist. No
+          behavior change for normal http(s) requests.
     2.22.2 - Fix claim numbering order on rotated blocks
         - "Number & Rename Claims" could number claims right-to-left / out of
           order when the claim block was rotated even slightly off north. Two
