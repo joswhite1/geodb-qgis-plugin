@@ -269,7 +269,7 @@ changelog=
           with one line
         - Applied to: Process Claims (Step 6), Align Corners (Step 6 finalize), Validate
           Claim Grid (Step 6), and Generate Witness Points (Step 7). All now show the
-          progress dialog (stage / current claim / % bar / elapsed / Cancel) and survive
+          progress dialog (stage / current claim / %% bar / elapsed / Cancel) and survive
           1000-claim blocks comfortably
         - Pairs with server-side ~3x speed-up of the underlying processor so the typical
           1000-claim run finishes in ~110s server-side
@@ -277,7 +277,7 @@ changelog=
           ClaimStake/LandHolding push — these need a different shape (chunking with
           cleanup_orphans semantics)
     2.16.1 - Live progress dialog for async claim operations
-        - Progress dialog (stage, current claim name, % complete, elapsed time, Cancel button)
+        - Progress dialog (stage, current claim name, %% complete, elapsed time, Cancel button)
           now appears for the duration of Generate Preview Layers (Step 5) and Update LM
           Corner — fed by per-claim progress fields the server reports in each poll response,
           so the user sees real progress instead of a frozen wizard
