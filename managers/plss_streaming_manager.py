@@ -33,13 +33,6 @@ from ..utils.logger import PluginLogger
 from ..utils.compat import Qt_DashLine, Qt_SolidLine
 
 
-# Reuse the same access types as BLM claims
-PLSS_STREAMING_ACCESS_TYPES = {
-    'staff',
-    'enterprise_api', 'enterprise_integrated',
-    'enterprise_api_trial', 'enterprise_integrated_trial',
-}
-
 # Default style for streaming layers
 PLSS_STREAMING_STYLES = {
     'townships': {

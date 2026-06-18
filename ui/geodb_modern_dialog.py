@@ -39,11 +39,11 @@ from ..managers.project_manager import ProjectManager
 from ..managers.data_manager import DataManager
 from ..managers.sync_manager import SyncManager
 from ..managers.storage_manager import StorageManager, StorageMode
-from ..managers.claims_manager import ClaimsManager
-from ..managers.blm_claims_manager import BLMClaimsManager, BLM_STREAMING_ACCESS_TYPES
-from ..managers.plss_streaming_manager import PLSSStreamingManager, PLSS_STREAMING_ACCESS_TYPES
-from ..managers.federal_lands_manager import FederalLandsStreamingManager, FEDERAL_LANDS_ACCESS_TYPES
-from ..managers.state_lands_manager import StateLandsStreamingManager, STATE_LANDS_ACCESS_TYPES
+from ..managers.claims_manager import ClaimsManager, data_layers_allowed
+from ..managers.blm_claims_manager import BLMClaimsManager
+from ..managers.plss_streaming_manager import PLSSStreamingManager
+from ..managers.federal_lands_manager import FederalLandsStreamingManager
+from ..managers.state_lands_manager import StateLandsStreamingManager
 from ..models.auth import AuthSession, UserContext
 from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
@@ -496,7 +496,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         try:
             access_info = self.claims_manager.check_access()
             access_type = access_info.get('access_type')
-            has_access = access_type in BLM_STREAMING_ACCESS_TYPES
+            has_access = data_layers_allowed(access_info)
 
             # Recreate BLM manager with current API client
             self.blm_claims_manager = BLMClaimsManager(self.config, self.api_client)
@@ -509,7 +509,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if has_access:
                 self._log_message(f"BLM Claims streaming: enabled ({access_type})", "info")
             else:
-                self._log_message("BLM Claims streaming: requires QClaims subscription", "info")
+                self._log_message("BLM Claims streaming: requires an active geodb.io subscription", "info")
 
         except Exception as e:
             self.logger.warning(f"Could not check BLM claims access: {e}")
@@ -521,7 +521,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         try:
             access_info = self.claims_manager.check_access()
             access_type = access_info.get('access_type')
-            has_access = access_type in PLSS_STREAMING_ACCESS_TYPES
+            has_access = data_layers_allowed(access_info)
 
             # Recreate PLSS manager with current API client
             self.plss_streaming_manager = PLSSStreamingManager(self.config, self.api_client)
@@ -533,7 +533,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if has_access:
                 self._log_message(f"PLSS streaming: enabled ({access_type})", "info")
             else:
-                self._log_message("PLSS streaming: requires QClaims subscription", "info")
+                self._log_message("PLSS streaming: requires an active geodb.io subscription", "info")
 
         except Exception as e:
             self.logger.warning(f"Could not check PLSS streaming access: {e}")
@@ -545,7 +545,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         try:
             access_info = self.claims_manager.check_access()
             access_type = access_info.get('access_type')
-            has_access = access_type in FEDERAL_LANDS_ACCESS_TYPES
+            has_access = data_layers_allowed(access_info)
 
             self.federal_lands_manager = FederalLandsStreamingManager(self.config, self.api_client)
             self.federal_lands_manager.log_message.connect(self._log_message)
@@ -556,7 +556,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if has_access:
                 self._log_message(f"Federal Lands streaming: enabled ({access_type})", "info")
             else:
-                self._log_message("Federal Lands streaming: requires QClaims subscription", "info")
+                self._log_message("Federal Lands streaming: requires an active geodb.io subscription", "info")
 
         except Exception as e:
             self.logger.warning(f"Could not check Federal Lands streaming access: {e}")
@@ -573,7 +573,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         try:
             access_info = self.claims_manager.check_access()
             access_type = access_info.get('access_type')
-            has_access = access_type in STATE_LANDS_ACCESS_TYPES
+            has_access = data_layers_allowed(access_info)
 
             self.state_lands_manager = StateLandsStreamingManager(self.config, self.api_client)
             self.state_lands_manager.log_message.connect(self._log_message)
@@ -584,7 +584,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if has_access:
                 self._log_message(f"AK State Lands streaming: enabled ({access_type})", "info")
             else:
-                self._log_message("AK State Lands streaming: requires QClaims subscription", "info")
+                self._log_message("AK State Lands streaming: requires an active geodb.io subscription", "info")
 
         except Exception as e:
             self.logger.warning(f"Could not check AK State Lands streaming access: {e}")

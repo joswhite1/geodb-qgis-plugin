@@ -20,6 +20,39 @@ from ..utils.config import Config
 from ..utils.logger import PluginLogger
 
 
+# Fallback only: access_types that imply data-layer access on older servers that
+# do not yet return the authoritative `data_layers_access` flag in check-access.
+# The server's real gate is a valid geodb.io subscription, not the QClaims tier —
+# new servers send `data_layers_access` and this set is ignored. See
+# has_data_layer_access().
+DATA_LAYER_ACCESS_TYPES_FALLBACK = frozenset({
+    'staff',
+    'enterprise_api', 'enterprise_integrated',
+    'enterprise_api_trial', 'enterprise_integrated_trial',
+})
+
+
+def data_layers_allowed(access_info: Dict[str, Any]) -> bool:
+    """Single source of truth (plugin side) for whether the streaming reference
+    data layers (BLM claims, PLSS, federal/state lands) should be enabled.
+
+    Prefers the server's authoritative `data_layers_access` flag, which mirrors the
+    server-side IsGeodbBLMClient gate exactly (valid geodb.io subscription / staff /
+    web origin). Falls back to the legacy access_type tier check only when talking to
+    an older server that does not return the flag, so the plugin keeps working during
+    rollout.
+
+    Args:
+        access_info: the dict returned by ClaimsManager.check_access()
+    """
+    if access_info is None:
+        return False
+    if 'data_layers_access' in access_info:
+        return bool(access_info['data_layers_access'])
+    # Legacy server fallback
+    return access_info.get('access_type') in DATA_LAYER_ACCESS_TYPES_FALLBACK
+
+
 class ClaimsManager:
     """
     Manages QClaims API interactions for the QGIS plugin.

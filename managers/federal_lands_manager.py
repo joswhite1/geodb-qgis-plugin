@@ -38,13 +38,6 @@ from ..utils.geometry import geojson_to_wkt
 from ..utils.logger import PluginLogger
 
 
-# Reuse the same access types as BLM claims / PLSS
-FEDERAL_LANDS_ACCESS_TYPES = {
-    'staff',
-    'enterprise_api', 'enterprise_integrated',
-    'enterprise_api_trial', 'enterprise_integrated_trial',
-}
-
 # Agency color scheme matching Esri USA Federal Lands and geodb.io web map
 FEDERAL_LANDS_STYLES = {
     'Bureau of Land Management': {

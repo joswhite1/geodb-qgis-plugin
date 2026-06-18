@@ -47,14 +47,6 @@ from ..utils.logger import PluginLogger
 from .federal_lands_manager import FederalLandsFetchWorker
 
 
-# Reuse the same access gate as federal lands — both overlays are
-# QClaims-subscription features on the same endpoint.
-STATE_LANDS_ACCESS_TYPES = {
-    'staff',
-    'enterprise_api', 'enterprise_integrated',
-    'enterprise_api_trial', 'enterprise_integrated_trial',
-}
-
 # Pale gold for AK state land — matches the staff-page preview map's
 # state-land style + the MTRSC filing-map renderer's `state` category.
 STATE_LANDS_STYLE = {

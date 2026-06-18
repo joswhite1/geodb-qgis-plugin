@@ -42,14 +42,6 @@ BLM_CLAIM_COUNT_COLORS = [
     (40, 999999, '#8B0000', 'Dark red'),
 ]
 
-# Access types that indicate a real QClaims subscription (not the default fallback)
-BLM_STREAMING_ACCESS_TYPES = {
-    'staff',
-    'enterprise_api', 'enterprise_integrated',
-    'enterprise_api_trial', 'enterprise_integrated_trial',
-}
-
-
 class BLMFetchWorker(QThread):
     """Background worker to fetch BLM claims GeoJSON from the API.
 
