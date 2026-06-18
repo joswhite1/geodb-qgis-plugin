@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.0
+version=2.22.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,17 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.22.1 - Fix claim numbering order on rotated blocks
+        - "Number & Rename Claims" could number claims right-to-left / out of
+          order when the claim block was rotated even slightly off north. Two
+          causes: the numbering UI never passed the API client, so it always
+          used the local fallback; and that fallback (plus the server path it
+          should have used) sorted strictly by northing-then-easting, which
+          interleaves rows when a row's claims don't share an exact northing.
+          Numbering now bands claims into rows first, then orders each row
+          west-to-east — top-to-bottom, left-to-right book order — matching
+          how grid generation already numbers. Serpentine ordering uses the
+          same row banding so the two never disagree.
     2.22.0 - Dark-mode compliance for QGIS 4
         - The plugin's UI hardcoded a light-theme color palette, so on
           QGIS 4's dark theme some text was low-contrast or invisible (most

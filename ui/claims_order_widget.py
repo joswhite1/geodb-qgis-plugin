@@ -627,7 +627,11 @@ class ClaimsOrderWidget(QWidget):
 
         try:
             from ..processors.grid_processor import GridProcessor
-            processor = GridProcessor()
+            # Pass the API client so numbering uses the server's book-reading
+            # (strip-banding) order. Without it the processor falls back to the
+            # local strict-sort, which scrambles rows on a rotated block.
+            api_client = self.claims_manager.api if self.claims_manager else None
+            processor = GridProcessor(api_client=api_client)
 
             # Step 1: Auto-number (assigns Manual_FID by spatial position)
             processor.autopopulate_manual_fid(self._claims_layer)

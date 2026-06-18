@@ -70,9 +70,16 @@ class ClaimsStep2Widget(ClaimsStepBase):
 
     def _get_grid_processor(self):
         """Lazy-load grid processor."""
+        # Pass the API client so numbering uses the server's book-reading
+        # (strip-banding) order. Without it the processor falls back to the
+        # local strict-sort, which scrambles rows on a rotated block. Refresh
+        # it each call since claims_manager.api may be assigned after init.
+        api_client = self.claims_manager.api if self.claims_manager else None
         if self._grid_processor is None:
             from ...processors.grid_processor import GridProcessor
-            self._grid_processor = GridProcessor()
+            self._grid_processor = GridProcessor(api_client=api_client)
+        else:
+            self._grid_processor.set_api_client(api_client)
         return self._grid_processor
 
     def _setup_ui(self):

@@ -973,15 +973,16 @@ class GridProcessor:
         claims_data: List[Dict[str, Any]],
         sort_direction: str
     ) -> List[Dict[str, Any]]:
-        """Order claims locally (fallback for offline mode)."""
-        if sort_direction == 'left_to_right_top_to_bottom':
-            # Primary: Y descending (north first), Secondary: X ascending (west first)
-            sorted_claims = sorted(
-                claims_data,
-                key=lambda c: (-c['centroid'].y(), c['centroid'].x())
-            )
-        elif sort_direction == 'top_to_bottom_left_to_right':
-            # Primary: X ascending, Secondary: Y descending
+        """Order claims locally (fallback for offline mode).
+
+        Mirrors the server's book-reading rule: band claims into rows by a
+        northing tolerance first, THEN sort each row west-to-east. A naive
+        (-y, x) sort interleaves adjacent rows whenever a row's claims don't
+        share an exact northing — the common case on a block rotated even
+        slightly off north, which scrambled the numbering in the field.
+        """
+        if sort_direction == 'top_to_bottom_left_to_right':
+            # Primary: X ascending, Secondary: Y descending (column-first)
             sorted_claims = sorted(
                 claims_data,
                 key=lambda c: (c['centroid'].x(), -c['centroid'].y())
@@ -993,11 +994,8 @@ class GridProcessor:
             # Group by columns, alternate direction
             sorted_claims = self._snake_sort(claims_data, horizontal=False)
         else:
-            # Default: west to east, north to south
-            sorted_claims = sorted(
-                claims_data,
-                key=lambda c: (-c['centroid'].y(), c['centroid'].x())
-            )
+            # Default + left_to_right_top_to_bottom: book-reading raster order
+            sorted_claims = self._band_by_rows(claims_data)
 
         # Add order numbers
         for i, claim in enumerate(sorted_claims):
@@ -1005,39 +1003,75 @@ class GridProcessor:
 
         return sorted_claims
 
+    def _band_by_rows(
+        self,
+        claims_data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Book-reading raster order: top-to-bottom by row, west-to-east in row.
+
+        Greedy row banding (the same rule the server uses): walking claims by
+        descending northing, a claim joins the current row when its northing is
+        within ``row_tol`` of that row's anchor (topmost) northing, else it
+        opens a new row. Each row is then sorted west-to-east. ``row_tol`` is
+        half the estimated row spacing — larger than within-row northing jitter
+        on a rotated block, smaller than the one-row spacing between rows.
+        """
+        return [c for row in self._band_into_rows(claims_data) for c in
+                sorted(row, key=lambda c: c['centroid'].x())]
+
+    def _band_into_rows(
+        self,
+        claims_data: List[Dict[str, Any]]
+    ) -> List[List[Dict[str, Any]]]:
+        """Group claims into book-reading rows (top to bottom).
+
+        Shared row formation for both the straight and serpentine orderings so
+        the two can never disagree about row boundaries. Rows are not sorted
+        internally here — the caller sorts each row in the direction it needs.
+        """
+        if not claims_data:
+            return []
+        row_tol = self._estimate_row_spacing(claims_data) * 0.5
+        by_north = sorted(claims_data, key=lambda c: -c['centroid'].y())
+        rows: List[List[Dict[str, Any]]] = []
+        anchor_y = None
+        for claim in by_north:
+            y = claim['centroid'].y()
+            if rows and (anchor_y - y) <= row_tol:
+                rows[-1].append(claim)
+            else:
+                rows.append([claim])
+                anchor_y = y
+        return rows
+
     def _snake_sort(
         self,
         claims_data: List[Dict[str, Any]],
         horizontal: bool = True
     ) -> List[Dict[str, Any]]:
-        """Sort claims in a snake pattern."""
-        tolerance = self._estimate_row_spacing(claims_data) * 0.3
-
+        """Sort claims in a snake pattern (boustrophedon)."""
         if horizontal:
-            # Group by Y coordinate (rows)
-            groups = self._group_by_coordinate(
-                claims_data,
-                key_func=lambda c: c['centroid'].y(),
-                tolerance=tolerance
-            )
-            # Sort groups by Y descending (north first)
-            sorted_groups = sorted(groups.items(), key=lambda x: -x[0])
+            # Form rows with the shared row-banding rule so serpentine rows are
+            # identical to the straight book-reading rows — never drifting
+            # between the two directions, and correct on a rotated block.
+            groups = self._band_into_rows(claims_data)
         else:
-            # Group by X coordinate (columns)
-            groups = self._group_by_coordinate(
+            # Group by X coordinate (columns) — a genuinely different axis.
+            tolerance = self._estimate_row_spacing(claims_data) * 0.3
+            col_groups = self._group_by_coordinate(
                 claims_data,
                 key_func=lambda c: c['centroid'].x(),
                 tolerance=tolerance
             )
             # Sort groups by X ascending (west first)
-            sorted_groups = sorted(groups.items(), key=lambda x: x[0])
+            groups = [g for _, g in sorted(col_groups.items(), key=lambda x: x[0])]
 
         result = []
         reverse = False
 
-        for _, group in sorted_groups:
+        for group in groups:
             if horizontal:
-                # Sort within row by X
+                # Sort within row by X (alternating)
                 sorted_group = sorted(
                     group,
                     key=lambda c: c['centroid'].x(),
