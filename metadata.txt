@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.1
+version=2.22.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,7 +24,7 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.22.1 - Fix claim numbering order on rotated blocks
+    2.22.2 - Fix claim numbering order on rotated blocks
         - "Number & Rename Claims" could number claims right-to-left / out of
           order when the claim block was rotated even slightly off north. Two
           causes: the numbering UI never passed the API client, so it always
