@@ -1,0 +1,22 @@
+# Files excluded from the distributed plugin zip (git archive honors
+# export-ignore). They stay in the repo for development but are dev/build
+# tooling a QGIS user never runs — keeping them out shrinks the package and
+# clears "suspicious file" scanner noise (.bat/.sh) on plugins.qgis.org.
+
+# Dev/build tooling
+Makefile            export-ignore
+pb_tool.cfg         export-ignore
+pylintrc            export-ignore
+.gitignore          export-ignore
+.gitattributes      export-ignore
+scripts/            export-ignore
+help/make.bat       export-ignore
+help/Makefile       export-ignore
+
+# Tests + fixtures (not shipped to end users)
+test/               export-ignore
+
+# Planning / reference docs (internal)
+docs/               export-ignore
+DARKMODE_PLAN.md    export-ignore
+DARKMODE_BRIEF.md   export-ignore
