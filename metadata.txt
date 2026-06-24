@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.6
+version=2.22.7
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.22.7 - Claim map title block + grid polish
+        - Field and filing map title blocks: the company name and the map
+          type/name line below it (e.g. "BMX Lode Claims - Field Map") now
+          auto-fit to a single line. Long names shrink just enough to stay
+          legible and never wrap to a second line.
+        - The author line populates from the signed-in geoDB user's name
+          (e.g. "Elizabeth White") instead of a fixed placeholder.
+        - Coordinate grid: the eastern (right-side) labels now sit outside
+          the map in the page margin instead of inside the map frame.
     2.22.6 - SQL identifier hardening
         - Queries that must name a table chosen at runtime (the
           format-specific metadata table, table drops) no longer assemble SQL

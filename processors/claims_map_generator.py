@@ -315,11 +315,15 @@ class ClaimsMapGenerator:
             'Project Name': f"{prefix} Lode Claims",
             'County Name': self._get_county_state(),
         }
+        author = self._author_label()
+        if author:
+            label_values['Joshua White, P.Geo.'] = author
         crs_label = self._get_crs_label()
         if crs_label:
             label_values['CRS: NAD83 / UTM Zone 11N'] = f"CRS: {crs_label}"
 
         self._populate_labels(layout, label_values)
+        self._autofit_title_labels(layout)
         self._fix_logo_paths(layout)
         self._configure_scale_bars(layout, use_feet=True)
         self._configure_legend(layout, map_layers)
@@ -391,11 +395,15 @@ class ClaimsMapGenerator:
             'Project Name': f"{prefix} Lode Claims",
             'County Name': self._get_county_state(),
         }
+        author = self._author_label()
+        if author:
+            label_values['Joshua White, P.Geo.'] = author
         crs_label = self._get_crs_label()
         if crs_label:
             label_values['CRS: NAD83 / UTM Zone 11N'] = f"CRS: {crs_label}"
 
         self._populate_labels(layout, label_values)
+        self._autofit_title_labels(layout)
         self._fix_logo_paths(layout)
         self._configure_scale_bars(layout, use_feet=True)
         self._remove_legend(layout)
@@ -498,6 +506,9 @@ class ClaimsMapGenerator:
             'County Filing Map': map_title,
             'scale 1":2000\' (1:24,000)': scale_text,
         }
+        author = self._author_label()
+        if author:
+            label_values['Josh White, P.Geo.'] = author
 
         crs_label = self._get_crs_label()
         if crs_label:
@@ -525,6 +536,7 @@ class ClaimsMapGenerator:
             )
 
         self._populate_labels(layout, label_values)
+        self._autofit_title_labels(layout)
         self._fix_logo_paths(layout)
 
         # Configure legend to show only monument markers
@@ -1224,6 +1236,101 @@ class ClaimsMapGenerator:
                 item.setNumberOfSegments(4)
                 item.setUnitsPerSegment(best)
 
+    def _author_label(self) -> str:
+        """Resolve the map author shown in the title-block "Prepared by" slot.
+
+        Returns the logged-in geoDB user's full name (first + last), set on
+        the wizard state by the dialog at construction time. Falls back to an
+        empty string when unknown, in which case the caller leaves the
+        template's placeholder text untouched.
+        """
+        return (getattr(self.state, 'author_name', '') or '').strip()
+
+    # Title-block header labels (company name, map type/name, project name)
+    # are authored at 14 pt in every template. Variable-length user text
+    # (long company names) overruns to a second line at that size. Auto-fit
+    # shrinks each header just enough to stay on ONE line within its own box,
+    # never exceeding the template size and never dropping below a legible
+    # floor. Satisfies Elizabeth's "12 pt or auto-fit, legible but never
+    # overruns" request without hardcoding a single size.
+    _TITLE_HEADER_POINT_SIZE = 14.0   # template font size that marks a header
+    _TITLE_AUTOFIT_FLOOR = 8.0        # never shrink a header below this
+
+    @staticmethod
+    def _logical_dpi() -> float:
+        """Screen logical DPI for font-metric → physical-size conversions.
+
+        Falls back to 96 dpi when no GUI application is available (e.g. a
+        headless render), which is the conventional default.
+        """
+        try:
+            from qgis.PyQt.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app is not None:
+                screen = app.primaryScreen()
+                if screen is not None and screen.logicalDotsPerInch() > 0:
+                    return float(screen.logicalDotsPerInch())
+        except Exception:
+            pass
+        return 96.0
+
+    def _autofit_title_labels(self, layout: QgsPrintLayout):
+        """Shrink title-block header labels so each fits on a single line.
+
+        Targets the header labels (authored at 14 pt) — the company name,
+        the map type/name line, and the project name. Computes the largest
+        point size (<= the template's 14 pt, >= ``_TITLE_AUTOFIT_FLOOR``) at
+        which the text fits within the label's box width on one line, and
+        applies it. The box geometry and alignment are left untouched, so
+        the title-block layout is preserved; only the glyphs get smaller.
+        """
+        from qgis.PyQt.QtGui import QFontMetricsF
+
+        # QFontMetricsF measures glyph advance in device pixels at the screen's
+        # logical DPI. Convert the (physical, mm) box width into the SAME pixel
+        # space so the comparison is dimensionless and DPI-independent rather
+        # than assuming a fixed 96 dpi.
+        dpi = self._logical_dpi()
+
+        for item in layout.items():
+            if not isinstance(item, QgsLayoutItemLabel):
+                continue
+
+            text = item.text().strip()
+            if not text or '\n' in text:
+                # Multi-line labels (e.g. the NV stacked title) manage their
+                # own layout; single-line headers are the target here.
+                continue
+
+            font = item.font()
+            ref_size = font.pointSizeF()
+            # Only treat template 14-pt labels as headers. pointSizeF() is
+            # negative when a font is sized in pixels — those won't match.
+            if round(ref_size, 1) != self._TITLE_HEADER_POINT_SIZE:
+                continue
+
+            # Available width inside the label box, minus a small text inset.
+            # Title-block label boxes are authored in mm in every template.
+            box_width_mm = item.sizeWithUnits().width()
+            available_mm = max(0.0, box_width_mm - 1.0)
+
+            # Measure the rendered width at the current size, then exploit
+            # the fact that text advance scales linearly with point size:
+            # the largest fitting size is ref_size * (available / measured).
+            available_px = available_mm * (dpi / 25.4)
+            measured_px = QFontMetricsF(font).horizontalAdvance(text)
+            if measured_px <= 0 or measured_px <= available_px:
+                continue  # already fits at full size — leave it alone
+
+            fitted = ref_size * (available_px / measured_px)
+            # Round down to a clean 0.5-pt step so we never exceed the box,
+            # and clamp to the legibility floor.
+            fitted = max(self._TITLE_AUTOFIT_FLOOR, (int(fitted * 2)) / 2.0)
+
+            if round(fitted, 1) < round(ref_size, 1):
+                font.setPointSizeF(fitted)
+                item.setFont(font)
+
     def _autofit_text_labels(self, layout: QgsPrintLayout):
         """Resize variable-length text labels to fit their actual content.
 
@@ -1546,16 +1653,24 @@ class ClaimsMapGenerator:
             grid.setIntervalX(chosen_interval)
             grid.setIntervalY(chosen_interval)
 
-            # Place bottom and right annotations inside the map frame
-            # so they don't extend into the title block area.
-            # Top and left stay outside (they have room).
+            # Place the easting (left/right) and northing (top) annotations
+            # OUTSIDE the map frame, in the page margin, so they read as map
+            # coordinates rather than clutter painted over the data. Per
+            # Elizabeth's request, the eastern (right) labels in particular
+            # must sit on the margin, not inside the map.
+            #
+            # The BOTTOM stays inside: the title block sits just a few mm
+            # below the map frame, so bottom annotations placed outside would
+            # collide with the company/project labels. Keeping the bottom
+            # easting labels inside the frame avoids that overlap while every
+            # other side reads cleanly on the margin.
             from qgis.core import QgsLayoutItemMapGrid
             grid.setAnnotationPosition(
                 QgsLayoutItemMapGrid.InsideMapFrame,
                 QgsLayoutItemMapGrid.Bottom,
             )
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.InsideMapFrame,
+                QgsLayoutItemMapGrid.OutsideMapFrame,
                 QgsLayoutItemMapGrid.Right,
             )
             grid.setAnnotationPosition(
@@ -1567,10 +1682,12 @@ class ClaimsMapGenerator:
                 QgsLayoutItemMapGrid.Left,
             )
 
-            # Disable grid frame on bottom and right to prevent the
-            # zebra/tick frame from overlapping the title block.
+            # Draw the tick frame on the three sides whose annotations are
+            # outside (left/right/top). The bottom frame stays off so its
+            # zebra/tick ticks don't run into the title block.
             grid.setFrameSideFlags(
                 QgsLayoutItemMapGrid.FrameLeft
+                | QgsLayoutItemMapGrid.FrameRight
                 | QgsLayoutItemMapGrid.FrameTop
             )
 

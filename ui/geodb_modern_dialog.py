@@ -379,6 +379,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
                 self._update_auth_status(True)
                 self._load_projects_from_context()
+                # Refresh the map author for the restored user.
+                self._apply_author_to_wizard()
 
                 user_name = session.user.full_name or session.user.email
                 self._log_message(f"Session restored. Welcome back, {user_name}!", "success")
@@ -439,6 +441,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Update UI
             self._update_auth_status(True)
             self._load_projects_from_context()
+            # Refresh the map author now that we know who logged in.
+            self._apply_author_to_wizard()
 
             # Welcome message
             user_name = self.current_session.user.full_name or self.current_session.user.email
@@ -597,6 +601,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._log_message("Logging out...", "info")
             self.auth_manager.logout()
             self.current_session = None
+            # Drop the cached author so the next user's name isn't stale.
+            self._apply_author_to_wizard()
 
             # Clear claims manager cache (tokens are now invalid)
             self.claims_manager.clear_cache()
@@ -2296,6 +2302,26 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
     # ==================== CLAIMS MANAGEMENT ====================
 
+    def _apply_author_to_wizard(self):
+        """Stamp the logged-in user's name onto the claims wizard state.
+
+        The map title block's "Prepared by" label is populated from this at
+        render time (replacing the template placeholder). Resolved fresh from
+        the live session so the author always reflects the current geoDB user
+        — never persisted to the GeoPackage. Safe to call before login (no-op
+        until a session exists) and idempotent.
+        """
+        if not self.claims_wizard:
+            return
+        author = ""
+        if self.current_session and self.current_session.user:
+            author = (
+                self.current_session.user.full_name
+                or self.current_session.user.email
+                or ""
+            )
+        self.claims_wizard.state.author_name = author
+
     def _setup_claims_ui(self):
         """Set up the Claims widget in the Claims tab.
 
@@ -2307,6 +2333,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.claims_wizard = ClaimsWizardWidget(
             self.claims_manager, self, data_manager=self.data_manager
         )
+        self._apply_author_to_wizard()
 
         # Connect signals
         self.claims_wizard.status_message.connect(self._on_claims_status)
@@ -2497,6 +2524,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.claims_wizard.wizard_completed.connect(self._on_wizard_completed)
             self.claims_wizard.project_context_switched.connect(self._on_project_context_switched)
             self.claimsTabLayout.addWidget(self.claims_wizard)
+
+        self._apply_author_to_wizard()
 
         # Show wizard
         self.claims_wizard.show()

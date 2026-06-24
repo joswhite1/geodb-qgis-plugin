@@ -34,6 +34,11 @@ class ClaimsWizardState:
 
     # Step 1: Project Setup
     claimant_name: str = ""
+    # Author name shown in the map title block "Prepared by" label.
+    # Populated from the logged-in geoDB user's full name (first + last) by
+    # the dialog at wizard construction. Not persisted to the GeoPackage —
+    # it always reflects the current user, not whoever first built the package.
+    author_name: str = ""
     address_line1: str = ""
     address_line2: str = ""
     address_line3: str = ""
