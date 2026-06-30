@@ -1592,6 +1592,7 @@ class DataManager:
         start_number: int,
         padding: int,
         sample_type: str,
+        name_field: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
         skip_conflict_check: bool = False
     ) -> Dict[str, Any]:
@@ -1601,10 +1602,21 @@ class DataManager:
         This creates "Planned" samples that can be assigned to field workers
         via the geodb.io dashboard. The samples have:
         - status = 'PL' (Planned)
-        - sequence_number = generated ID (e.g., SS-001)
+        - sequence_number = generated ID (e.g., SS-001) -- always generated, the
+          planning/navigation ID and the server natural key for planned samples
         - target_latitude/longitude = point coordinates (where to go)
-        - name = NULL (lab sample ID not yet known)
+        - name = NULL by default (lab sample ID not yet known), OR -- when
+          ``name_field`` is given -- the value of that layer attribute, so the
+          customer's own sample names (e.g. "AK26-1001S") become the display
+          name on the web dashboard and the mobile app map / collect page.
         - latitude/longitude = NULL (actual coords set in field)
+
+        ``name_field`` maps to ``name`` (a free-text column on every client),
+        never ``sequence_number`` (numeric on the mobile app -- text there would
+        coerce to NaN). The generated ``sequence_number`` is sent regardless to
+        satisfy the planned-sample natural key. Validate the field with
+        :meth:`validate_name_field` before calling so blanks/duplicates/overlong
+        values are rejected up front rather than landing malformed records.
 
         Args:
             source_layer: Any point layer in QGIS (QgsVectorLayer)
@@ -1612,6 +1624,8 @@ class DataManager:
             start_number: Starting sequence number (e.g., 1)
             padding: Zero-padding width (e.g., 3 for "001")
             sample_type: Sample type code (SL, RK, OC, etc.)
+            name_field: Optional layer attribute name to read the sample ``name``
+                from. When None (default), ``name`` is left empty.
             progress_callback: Optional callback(progress_percent, status_message)
 
         Returns:
@@ -1720,6 +1734,24 @@ class DataManager:
 
                     if elevation is not None:
                         sample_data['target_elevation'] = elevation
+
+                    # Optional: customer-supplied sample name from a layer field.
+                    # Goes to `name` (free-text everywhere, incl. mobile), never
+                    # `sequence_number` (numeric on mobile). Blanks/dups/overlong
+                    # values are rejected up front by validate_name_field(); this
+                    # is the defensive last line.
+                    if name_field:
+                        raw = feature[name_field]
+                        value = '' if raw is None else str(raw).strip()
+                        if not value:
+                            raise ValueError(
+                                f"Field '{name_field}' is empty for this feature"
+                            )
+                        if len(value) > 50:
+                            raise ValueError(
+                                f"Sample name '{value[:20]}...' exceeds 50 characters"
+                            )
+                        sample_data['name'] = value
 
                     samples_to_push.append(sample_data)
 
@@ -1834,3 +1866,55 @@ class DataManager:
         except Exception as e:
             self.logger.error(f"Push planned samples failed: {e}")
             raise
+
+    @staticmethod
+    def validate_name_field(source_layer, name_field: str) -> Dict[str, Any]:
+        """Check a layer attribute is usable as the planned-sample ``name``.
+
+        Stringifies each feature's value exactly as :meth:`push_planned_samples`
+        will (``str(raw).strip()``) and reports the three ways the field can be
+        unusable as a sample name:
+
+        - **blanks** -- NULL/empty after trimming (a planned sample needs a name
+          when the field is chosen, and an empty one is meaningless)
+        - **duplicates** -- the same value on >1 feature (``name``/``sequence_number``
+          is the per-project natural key, so duplicates would upsert onto each
+          other -- last write wins -- silently losing points)
+        - **too_long** -- over the 50-char ``name`` column limit
+
+        Returns a dict::
+
+            {
+              'ok': bool,                       # True only if all three lists empty
+              'blanks': [fid, ...],             # feature ids with blank values
+              'duplicates': {value: [fid, ...]},# value -> feature ids sharing it
+              'too_long': [(fid, value), ...],  # (feature id, offending value)
+            }
+
+        ``fid`` is the QGIS feature id, suitable for selecting the offending
+        rows in the layer so the user can fix them.
+        """
+        blanks: List[int] = []
+        too_long: List[tuple] = []
+        seen: Dict[str, List[int]] = {}
+
+        for feature in source_layer.getFeatures():
+            fid = feature.id()
+            raw = feature[name_field]
+            value = '' if raw is None else str(raw).strip()
+            if not value:
+                blanks.append(fid)
+                continue
+            if len(value) > 50:
+                too_long.append((fid, value))
+                # still track for duplicates so the user sees the full picture
+            seen.setdefault(value, []).append(fid)
+
+        duplicates = {value: fids for value, fids in seen.items() if len(fids) > 1}
+
+        return {
+            'ok': not blanks and not duplicates and not too_long,
+            'blanks': blanks,
+            'duplicates': duplicates,
+            'too_long': too_long,
+        }

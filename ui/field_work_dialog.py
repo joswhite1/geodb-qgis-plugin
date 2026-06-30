@@ -6,19 +6,21 @@ Allows users to:
 1. Select any existing point layer in QGIS
 2. Configure sequence number pattern (prefix, start number)
 3. Set sample type
-4. Push points as "Planned" samples to geodb.io server
+4. Optionally take each sample's name from a layer attribute field
+   (e.g. the customer's own "AK26-1001S" IDs) instead of leaving it blank
+5. Push points as "Planned" samples to geodb.io server
 """
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QSpinBox, QFrame, QProgressBar,
-    QTextBrowser, QGroupBox, QFormLayout, QMessageBox
+    QTextBrowser, QGroupBox, QFormLayout, QMessageBox, QCheckBox
 )
 from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtGui import QFont
 from qgis.core import (
     QgsVectorLayer, QgsWkbTypes, QgsMapLayerProxyModel
 )
-from qgis.gui import QgsMapLayerComboBox
+from qgis.gui import QgsMapLayerComboBox, QgsFieldComboBox
 
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_HLine
@@ -139,6 +141,37 @@ class FieldWorkDialog(QDialog):
 
         layout.addWidget(config_group)
 
+        # === Sample Name (optional, from a layer field) ===
+        # By default planned samples have no name -- the crew scans the bag
+        # barcode in the field. Optionally, a layer attribute can supply the
+        # sample name up front (e.g. the customer's own "AK26-1001S" IDs).
+        name_group = QGroupBox("Sample Name")
+        name_group.setStyleSheet(self._get_group_style())
+        name_layout = QFormLayout(name_group)
+
+        self.use_name_field_check = QCheckBox("Use a layer field for the sample name")
+        self.use_name_field_check.setChecked(False)
+        self.use_name_field_check.setToolTip(
+            "Off (default): names are left blank for the field crew to scan/enter.\n"
+            "On: each sample's name comes from the chosen layer attribute."
+        )
+        name_layout.addRow(self.use_name_field_check)
+
+        self.name_field_combo = QgsFieldComboBox()
+        self.name_field_combo.setEnabled(False)
+        name_layout.addRow("Name field:", self.name_field_combo)
+
+        self.name_field_hint = QLabel(
+            "Sequence numbers below are still generated for navigation; "
+            "your field sets the sample name."
+        )
+        self.name_field_hint.setWordWrap(True)
+        self.name_field_hint.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
+        self.name_field_hint.setVisible(False)
+        name_layout.addRow(self.name_field_hint)
+
+        layout.addWidget(name_group)
+
         # === Sequence Number Configuration ===
         seq_group = QGroupBox("Sequence Numbers")
         seq_group.setStyleSheet(self._get_group_style())
@@ -217,9 +250,24 @@ class FieldWorkDialog(QDialog):
         self.prefix_edit.textChanged.connect(self._update_preview)
         self.start_spin.valueChanged.connect(self._update_preview)
         self.padding_spin.valueChanged.connect(self._update_preview)
+        self.use_name_field_check.toggled.connect(self._on_use_name_field_toggled)
+        self.name_field_combo.fieldChanged.connect(self._update_preview)
         self.cancel_button.clicked.connect(self.reject)
         self.preview_button.clicked.connect(self._show_full_preview)
         self.push_button.clicked.connect(self._on_push_clicked)
+
+    def _on_use_name_field_toggled(self, checked: bool):
+        """Enable/disable the name-field picker and its hint."""
+        self.name_field_combo.setEnabled(checked)
+        self.name_field_hint.setVisible(checked)
+        self._update_preview()
+
+    def _name_field(self):
+        """Return the chosen name field, or None when the option is off."""
+        if not self.use_name_field_check.isChecked():
+            return None
+        field = self.name_field_combo.currentField()
+        return field or None
 
     def _select_active_layer(self):
         """Pre-select the currently active layer from the QGIS Layers panel."""
@@ -240,9 +288,12 @@ class FieldWorkDialog(QDialog):
             count = layer.featureCount()
             self.feature_count_label.setText(f"{count} features")
             self.push_button.setEnabled(count > 0)
+            # Repopulate the name-field picker with this layer's attributes.
+            self.name_field_combo.setLayer(layer)
         else:
             self.feature_count_label.setText("0 features")
             self.push_button.setEnabled(False)
+            self.name_field_combo.setLayer(None)
 
         self._update_preview()
 
@@ -279,7 +330,33 @@ class FieldWorkDialog(QDialog):
         else:
             preview_text = ', '.join(samples)
 
+        # When pulling names from a field, preview those names too -- it's what
+        # the user actually cares about; the sequence is secondary (navigation).
+        name_field = self._name_field()
+        if name_field:
+            name_vals = self._sample_field_values(layer, name_field, limit=3)
+            if name_vals:
+                shown = ', '.join(name_vals)
+                if count > len(name_vals):
+                    shown += ', ...'
+                preview_text = f"Names: {shown}  |  Seq: {preview_text}"
+
         self.preview_label.setText(preview_text)
+
+    @staticmethod
+    def _sample_field_values(layer, field_name, limit=None):
+        """Return stringified field values (str(raw).strip()) for preview.
+
+        Mirrors how push_planned_samples reads the field, so the preview matches
+        exactly what will be pushed.
+        """
+        values = []
+        for feature in layer.getFeatures():
+            raw = feature[field_name]
+            values.append('' if raw is None else str(raw).strip())
+            if limit is not None and len(values) >= limit:
+                break
+        return values
 
     def _show_full_preview(self):
         """Show full preview in message browser."""
@@ -291,12 +368,24 @@ class FieldWorkDialog(QDialog):
         prefix = self.prefix_edit.text()
         start = self.start_spin.value()
         padding = self.padding_spin.value()
+        name_field = self._name_field()
 
-        # Generate all sequence numbers
-        lines = [f"<b>Sequence numbers to be assigned ({count} total):</b><br/>"]
-        for i in range(min(count, 50)):  # Show max 50
-            num = str(start + i).zfill(padding)
-            lines.append(f"  {prefix}{num}")
+        if name_field:
+            # Pair each sample name with its generated sequence number.
+            names = self._sample_field_values(layer, name_field, limit=50)
+            lines = [
+                f"<b>Sample names from '{name_field}' "
+                f"(sequence number in brackets, {count} total):</b><br/>"
+            ]
+            for i, nm in enumerate(names):
+                num = str(start + i).zfill(padding)
+                shown = nm if nm else "(blank!)"
+                lines.append(f"  {shown}  [{prefix}{num}]")
+        else:
+            lines = [f"<b>Sequence numbers to be assigned ({count} total):</b><br/>"]
+            for i in range(min(count, 50)):  # Show max 50
+                num = str(start + i).zfill(padding)
+                lines.append(f"  {prefix}{num}")
 
         if count > 50:
             lines.append(f"  ... and {count - 50} more")
@@ -330,12 +419,35 @@ class FieldWorkDialog(QDialog):
         project = self.project_manager.get_active_project()
         count = layer.featureCount()
 
+        # If pulling names from a field, validate it up front and block on any
+        # blank / duplicate / overlong value rather than landing bad records.
+        name_field = self._name_field()
+        if self.use_name_field_check.isChecked() and not name_field:
+            QMessageBox.warning(
+                self, "No Name Field",
+                "Choose a layer field for the sample name, or uncheck "
+                "'Use a layer field for the sample name'."
+            )
+            return
+        if name_field and not self._validate_name_field_or_warn(layer, name_field):
+            return
+
         # Confirm
+        if name_field:
+            name_line = (
+                f"Sample names: from field '{name_field}'\n"
+                f"Sequence numbers (for navigation): "
+                f"{self.prefix_edit.text()}{str(self.start_spin.value()).zfill(self.padding_spin.value())} ..."
+            )
+        else:
+            name_line = (
+                f"Sequence numbers: {self.prefix_edit.text()}{str(self.start_spin.value()).zfill(self.padding_spin.value())} "
+                f"through {self.prefix_edit.text()}{str(self.start_spin.value() + count - 1).zfill(self.padding_spin.value())}"
+            )
         reply = QMessageBox.question(
             self, "Confirm Push",
             f"This will create {count} planned samples in project '{project.name}'.\n\n"
-            f"Sequence numbers: {self.prefix_edit.text()}{str(self.start_spin.value()).zfill(self.padding_spin.value())} "
-            f"through {self.prefix_edit.text()}{str(self.start_spin.value() + count - 1).zfill(self.padding_spin.value())}\n\n"
+            f"{name_line}\n\n"
             "Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
@@ -345,6 +457,36 @@ class FieldWorkDialog(QDialog):
             return
 
         self._execute_push(layer)
+
+    def _validate_name_field_or_warn(self, layer, name_field) -> bool:
+        """Run validate_name_field; on problems, show them and return False."""
+        report = self.data_manager.validate_name_field(layer, name_field)
+        if report['ok']:
+            return True
+
+        parts = []
+        if report['blanks']:
+            parts.append(f"• {len(report['blanks'])} feature(s) have a blank '{name_field}'")
+        if report['duplicates']:
+            dup_count = sum(len(f) for f in report['duplicates'].values())
+            examples = ', '.join(list(report['duplicates'].keys())[:5])
+            parts.append(
+                f"• {len(report['duplicates'])} duplicated value(s) across "
+                f"{dup_count} features (e.g. {examples})"
+            )
+        if report['too_long']:
+            parts.append(
+                f"• {len(report['too_long'])} value(s) exceed 50 characters"
+            )
+
+        QMessageBox.warning(
+            self, "Fix the name field first",
+            f"The field '{name_field}' can't be used as sample names yet:\n\n"
+            + "\n".join(parts)
+            + "\n\nSample names must be present and unique within the project. "
+            "Fix these rows (or pick a different field) and try again."
+        )
+        return False
 
     def _execute_push(self, layer: QgsVectorLayer, skip_conflict_check: bool = False):
         """Execute the push operation."""
@@ -357,6 +499,7 @@ class FieldWorkDialog(QDialog):
             start = self.start_spin.value()
             padding = self.padding_spin.value()
             sample_type = self.sample_type_combo.currentData()
+            name_field = self._name_field()
 
             self._log_message(f"Starting push of {layer.featureCount()} planned samples...")
 
@@ -367,6 +510,7 @@ class FieldWorkDialog(QDialog):
                 start_number=start,
                 padding=padding,
                 sample_type=sample_type,
+                name_field=name_field,
                 progress_callback=self._on_progress,
                 skip_conflict_check=skip_conflict_check
             )
@@ -498,6 +642,11 @@ class FieldWorkDialog(QDialog):
 
         self.layer_combo.setEnabled(not pushing)
         self.sample_type_combo.setEnabled(not pushing)
+        self.use_name_field_check.setEnabled(not pushing)
+        # The field picker is only live when the option is checked.
+        self.name_field_combo.setEnabled(
+            not pushing and self.use_name_field_check.isChecked()
+        )
         self.prefix_edit.setEnabled(not pushing)
         self.start_spin.setEnabled(not pushing)
         self.padding_spin.setEnabled(not pushing)

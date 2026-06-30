@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.7
+version=2.22.8
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.22.8 - Plan samples using your own names from a layer field
+        - When pushing a point layer as planned samples, you can now tick
+          "Use a layer field for the sample name" and pick an attribute
+          (e.g. your own "AK26-1001S" IDs). Those become the sample names
+          shown on the web dashboard and the mobile app map / collect page.
+        - Off by default - sequence numbers are still generated for
+          navigation, and names stay blank for the field crew to scan as
+          before. The chosen field is checked up front: blanks, duplicates
+          and over-50-character values are flagged before anything is pushed.
     2.22.7 - Claim map title block + grid polish
         - Field and filing map title blocks: the company name and the map
           type/name line below it (e.g. "BMX Lode Claims - Field Map") now
