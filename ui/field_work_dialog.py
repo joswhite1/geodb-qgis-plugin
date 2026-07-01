@@ -67,6 +67,12 @@ class FieldWorkDialog(QDialog):
         self._setup_ui()
         self._connect_signals()
         self._select_active_layer()
+        # Bind the name-field picker to whatever layer is currently shown.
+        # QgsMapLayerComboBox auto-selects a layer at construction (before
+        # signals are connected), and _select_active_layer may re-select the
+        # same layer (a no-op that emits no layerChanged), so the field combo
+        # would otherwise never get populated. Sync it explicitly here.
+        self._on_layer_changed(self.layer_combo.currentLayer())
         self._update_preview()
 
     def _setup_ui(self):
@@ -260,6 +266,11 @@ class FieldWorkDialog(QDialog):
         """Enable/disable the name-field picker and its hint."""
         self.name_field_combo.setEnabled(checked)
         self.name_field_hint.setVisible(checked)
+        # Re-bind to the current layer when enabling, so the field list is
+        # always fresh -- covers the case where no layer was bound at open
+        # (e.g. the map-layer combo defaulted to its empty entry).
+        if checked:
+            self.name_field_combo.setLayer(self.layer_combo.currentLayer())
         self._update_preview()
 
     def _name_field(self):

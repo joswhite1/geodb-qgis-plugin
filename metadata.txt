@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.8
+version=2.22.9
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,12 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.22.9 - Fix: sample-name field dropdown now populates on open
+        - The "Name field" dropdown in Plan Field Samples was empty because
+          it was only bound when the layer changed, not for the layer already
+          shown when the dialog opens. It now populates immediately and
+          re-syncs when you tick the option, so the layer's fields are always
+          listed.
     2.22.8 - Plan samples using your own names from a layer field
         - When pushing a point layer as planned samples, you can now tick
           "Use a layer field for the sample name" and pick an attribute
