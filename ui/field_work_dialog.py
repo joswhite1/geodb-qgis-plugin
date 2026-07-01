@@ -443,17 +443,32 @@ class FieldWorkDialog(QDialog):
         if name_field and not self._validate_name_field_or_warn(layer, name_field):
             return
 
+        # Work out the effective start number: the push will auto-advance past
+        # any existing <prefix><number> in the project so a new batch never
+        # overwrites already-planned samples. Preview that advanced start here so
+        # the confirmation shows the numbers that will actually be used.
+        prefix = self.prefix_edit.text()
+        padding = self.padding_spin.value()
+        start = self.start_spin.value()
+        eff_start, advanced = self._effective_start_number(prefix, start)
+
         # Confirm
+        advance_note = ""
+        if advanced:
+            advance_note = (
+                f"\n(started at {prefix}{str(eff_start).zfill(padding)} to avoid "
+                f"existing samples)"
+            )
         if name_field:
             name_line = (
                 f"Sample names: from field '{name_field}'\n"
                 f"Sequence numbers (for navigation): "
-                f"{self.prefix_edit.text()}{str(self.start_spin.value()).zfill(self.padding_spin.value())} ..."
+                f"{prefix}{str(eff_start).zfill(padding)} ...{advance_note}"
             )
         else:
             name_line = (
-                f"Sequence numbers: {self.prefix_edit.text()}{str(self.start_spin.value()).zfill(self.padding_spin.value())} "
-                f"through {self.prefix_edit.text()}{str(self.start_spin.value() + count - 1).zfill(self.padding_spin.value())}"
+                f"Sequence numbers: {prefix}{str(eff_start).zfill(padding)} "
+                f"through {prefix}{str(eff_start + count - 1).zfill(padding)}{advance_note}"
             )
         reply = QMessageBox.question(
             self, "Confirm Push",
@@ -468,6 +483,24 @@ class FieldWorkDialog(QDialog):
             return
 
         self._execute_push(layer)
+
+    def _effective_start_number(self, prefix, start):
+        """Return (start_number the push will use, advanced?).
+
+        Asks the server for the next unused sequence number for this prefix so
+        the confirmation preview matches what the push will do. Best-effort: on
+        any error (older server, offline) fall back to the user's start number.
+        """
+        try:
+            project = self.project_manager.get_active_project()
+            project_nk = {'name': project.name, 'company': project.company_name}
+            info = self.data_manager.api_client.get_next_sequence(project_nk, prefix)
+            suggested = info.get('next_number')
+            if suggested and suggested > start:
+                return suggested, True
+        except Exception as e:
+            self.logger.warning(f"Could not preview next sequence number: {e}")
+        return start, False
 
     def _validate_name_field_or_warn(self, layer, name_field) -> bool:
         """Run validate_name_field; on problems, show them and return False."""
@@ -531,6 +564,14 @@ class FieldWorkDialog(QDialog):
                 self._set_pushing(False)
                 self._handle_conflicts(layer, result['conflicts'])
                 return
+
+            # If the start number was auto-advanced past existing samples, say so.
+            if result.get('advanced_from') is not None:
+                self._log_message(
+                    f"Started at {prefix}{str(result['advanced_to']).zfill(padding)} "
+                    f"(requested {prefix}{str(result['advanced_from']).zfill(padding)}) "
+                    f"to avoid overwriting existing samples."
+                )
 
             # Show results
             created = result.get('created', 0)

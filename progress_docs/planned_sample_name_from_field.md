@@ -80,8 +80,40 @@ def validate_name_field(self, source_layer, name_field) -> Dict[str, Any]:
 - Commit to `v2.1` (no branch). Bump `metadata.txt` `version=` (currently `2.22.7`) and prepend a `changelog=` entry — **escape any literal `%` as `%%`**; validate with the configparser one-liner.
 - Package: `git archive --prefix=geodb/ -o ~/workspace/dist/geodb-<ver>.zip HEAD`; verify with Python `zipfile`.
 
+## Follow-on (2026-06-30): auto-advance sequence numbers past existing
+
+Live test surfaced a real bug independent of the name feature: pushing a NEW
+batch always started at the user's start number (default 1), so `SS-001…` would
+**overwrite already-assigned** samples with the same sequence numbers. Fixed by
+auto-advancing the start past anything already in the project.
+
+**Server (needs deploy):** new `POST /api/v1/point-samples/next-sequence/`
+action on `PointSampleViewSet` (`point_sample.py`). Body `{project, prefix}` →
+`{highest_existing, next_number, existing_count}`. Rides the existing
+`get_queryset()` (capability + active-project scoped → no cross-tenant leak);
+matches `^<prefix>\d+$` anchored, regex-escaped prefix, padding-agnostic, max
+(not count). Unit-tested: `api/tests/test_point_sample_next_sequence.py`
+(10 tests, `SimpleTestCase`, no DB).
+
+**Client (`api/client.py`):** `get_next_sequence(project, prefix)`.
+
+**Data manager (`push_planned_samples`):** before building the batch, calls
+`get_next_sequence`; if `next_number > start_number`, bumps `start_number` and
+records `advanced_from`/`advanced_to` in the result. Best-effort — on any error
+(older server) it keeps the user's start and the existing conflict-check prompt
+remains the safety net.
+
+**Dialog:** `_effective_start_number` previews the advanced start in the confirm
+dialog ("started at SS-025 to avoid existing samples"); a log line reports it
+after the push. The pre-existing conflict-check/overwrite prompt still fires as
+a backstop when auto-advance is unavailable or the exact same batch is re-pushed.
+
+> This makes the feature a **two-repo change with a server deploy**, no longer
+> QGIS-only. Still zero mobile changes.
+
 ## Test
 
 - Point layer with a text attribute (e.g. `sample_id` = `AK26-1001S`, …) → check the box → pick the field → push → confirm planned `PointSample`s land with `name` = those values and an auto `sequence_number` (`SS-001`…). Confirm `name` shows on the web dashboard and (manually, if a device is handy) the mobile map.
 - Blank-value row, duplicate-value rows, and a >50-char value → push blocked with a clear message naming the offending features.
 - **Default (box unchecked) unchanged** — prefix/start/padding → `sequence_number`, `name` empty (regression).
+- **Auto-advance:** with `SS-001…024` already in the project, push a new 24-point batch → lands as `SS-025…048` (not overwriting), confirm dialog + log note the advance. Server unit tests: `api/tests/test_point_sample_next_sequence.py`.

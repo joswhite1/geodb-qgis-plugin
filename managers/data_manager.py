@@ -1687,6 +1687,31 @@ class DataManager:
                 f"Project natural key: name='{project.name}', company='{project.company_name}'"
             )
 
+            # Auto-advance the start number past any existing <prefix><number>
+            # already in the project, so a new batch never collides with -- and
+            # silently overwrites -- samples that are already planned/assigned.
+            # Best-effort: if the endpoint is unavailable (older server) we keep
+            # the user's start number and fall back to the conflict-check prompt.
+            advanced_from = None
+            try:
+                info = self.api_client.get_next_sequence(project_nk, prefix)
+                suggested = info.get('next_number')
+                if suggested and suggested > start_number:
+                    advanced_from = start_number
+                    start_number = suggested
+                    self.logger.info(
+                        f"Auto-advanced start number {advanced_from} -> {start_number} "
+                        f"(highest existing '{prefix}' = {info.get('highest_existing')})"
+                    )
+                    if progress_callback:
+                        progress_callback(
+                            8,
+                            f"Started at {prefix}{str(start_number).zfill(padding)} "
+                            f"to avoid {info.get('existing_count')} existing sample(s)"
+                        )
+            except Exception as e:
+                self.logger.warning(f"next-sequence lookup unavailable, using start as-is: {e}")
+
             if progress_callback:
                 progress_callback(10, f"Processing {feature_count} features...")
 
@@ -1859,6 +1884,11 @@ class DataManager:
                 'errors': len(all_errors),
                 'error_details': all_errors if all_errors else None
             }
+            # Report the auto-advanced start so the UI can tell the user why the
+            # numbers differ from what they typed.
+            if advanced_from is not None:
+                result['advanced_from'] = advanced_from
+                result['advanced_to'] = start_number
 
             self.logger.info(f"Planned samples push complete: {result}")
             return result

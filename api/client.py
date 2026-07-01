@@ -1087,6 +1087,37 @@ class APIClient:
         url = f"{endpoint}check-conflicts/"
         return self._make_request('POST', url, data=records)
 
+    def get_next_sequence(
+        self,
+        project: Dict[str, Any],
+        prefix: str,
+    ) -> Dict[str, Any]:
+        """
+        Ask the server for the next unused sequence number for a prefix.
+
+        Used before pushing a new batch of planned samples so it starts *after*
+        any existing ``<prefix><number>`` in the project, rather than colliding
+        with (and overwriting) samples that are already planned/assigned.
+
+        Args:
+            project: Project natural key ({'name': ..., 'company': ...})
+            prefix: Sequence number prefix (e.g., "SS-")
+
+        Returns:
+            {
+                'prefix': 'SS-',
+                'highest_existing': 24,   # 0 if none
+                'next_number': 25,        # safe start number
+                'existing_count': 24,
+            }
+        """
+        endpoint = self.config.get_model_endpoint('PointSample')
+        if not endpoint:
+            raise ValueError("Unknown model: PointSample")
+
+        url = f"{endpoint}next-sequence/"
+        return self._make_request('POST', url, data={'project': project, 'prefix': prefix})
+
     def delete_record(self, model_name: str, record_id: int) -> None:
         """
         Delete a record (soft delete).

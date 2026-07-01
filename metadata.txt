@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.9
+version=2.22.10
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,13 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.22.10 - Planned samples no longer overwrite existing ones
+        - When you push a new batch of planned samples, the sequence numbers
+          now start after the highest one already in the project, so a fresh
+          batch can't overwrite samples that are already planned or assigned.
+          The confirmation and log show the start that was used (e.g. "started
+          at SS-025 to avoid existing samples"). Requires the matching server
+          update; on older servers the existing overwrite warning still applies.
     2.22.9 - Fix: sample-name field dropdown now populates on open
         - The "Name field" dropdown in Plan Field Samples was empty because
           it was only bound when the layer changed, not for the layer already
