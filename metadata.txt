@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.22.10
+version=2.23.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.23.0 - Arizona filing maps ready for e-recording
+        - AZ filing maps now keep all content inside a 1 inch page margin,
+          as required by the Arizona e-file platform. The layout is scaled
+          uniformly, so proportions, map scale, and the scale bar all stay
+          correct.
+        - Claim corners on AZ filing maps now show as plain black dots
+          without C1-C4 text. Corner identification is already covered by
+          the bearing and distance edge labels and the bearings narrative,
+          so the text only added clutter.
     2.22.10 - Planned samples no longer overwrite existing ones
         - When you push a new batch of planned samples, the sequence numbers
           now start after the highest one already in the project, so a fresh

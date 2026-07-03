@@ -24,6 +24,8 @@ from qgis.core import (
     QgsVectorLayer,
     QgsMapLayer,
     QgsPrintLayout,
+    QgsLayoutItem,
+    QgsLayoutItemPage,
     QgsLayoutItemMap,
     QgsLayoutItemLabel,
     QgsLayoutItemPicture,
@@ -445,6 +447,86 @@ class ClaimsMapGenerator:
             layers, extent, map_title='AZ Filing Map'
         )
 
+    # AZ e-recording platforms reject maps with content inside a 1" page
+    # margin (recorder feedback via Katie, 2026-07-03). ARS 11-480's own
+    # statutory floor is only 1/2", but the e-file gate is the binding one.
+    _AZ_EFILE_MARGIN_MM = 25.4
+
+    def _apply_page_margins(
+        self, layout: QgsPrintLayout, margin_mm: float
+    ) -> Tuple[float, float, float]:
+        """Uniformly scale + shift every layout item so all content sits
+        at least ``margin_mm`` from each page edge.
+
+        The bundled templates are authored nearly full-bleed. Rather than
+        re-author them, this maps the authored content box onto the
+        margin-safe box with one uniform transform — positions, sizes,
+        and label font sizes all scale by the same factor, so the layout
+        keeps its proportions. The 14 pt title-block headers are left at
+        authored size: ``_autofit_title_labels`` recognizes headers by
+        that size and fits each one to its (now smaller) box anyway.
+
+        Call immediately after ``_load_template`` so every later step
+        (map extent/scale, label autofit, scale-bar segments) computes
+        against the final geometry.
+
+        Returns ``(scale, offset_x, offset_y)`` mapping authored template
+        coordinates to transformed page coordinates
+        (``new = offset + old * scale``) — use it to transform any later
+        placement that hardcodes authored template coordinates.
+        """
+        page = layout.pageCollection().page(0)
+        page_w = page.pageSize().width()
+        page_h = page.pageSize().height()
+        avail_w = page_w - 2 * margin_mm
+        avail_h = page_h - 2 * margin_mm
+
+        items = [
+            it for it in layout.items()
+            if isinstance(it, QgsLayoutItem)
+            and not isinstance(it, QgsLayoutItemPage)
+        ]
+        if not items or avail_w <= 0 or avail_h <= 0:
+            return 1.0, 0.0, 0.0
+
+        min_x = min(it.pagePos().x() for it in items)
+        min_y = min(it.pagePos().y() for it in items)
+        max_x = max(it.pagePos().x() + it.sizeWithUnits().width() for it in items)
+        max_y = max(it.pagePos().y() + it.sizeWithUnits().height() for it in items)
+        content_w = max_x - min_x
+        content_h = max_y - min_y
+        if content_w <= 0 or content_h <= 0:
+            return 1.0, 0.0, 0.0
+
+        scale = min(avail_w / content_w, avail_h / content_h, 1.0)
+        # Center the scaled content inside the margin-safe box.
+        off_x = margin_mm + (avail_w - content_w * scale) / 2 - min_x * scale
+        off_y = margin_mm + (avail_h - content_h * scale) / 2 - min_y * scale
+
+        for it in items:
+            pos = it.pagePos()
+            size = it.sizeWithUnits()
+            it.attemptResize(QgsLayoutSize(
+                size.width() * scale, size.height() * scale, size.units()
+            ))
+            it.attemptMove(QgsLayoutPoint(
+                off_x + pos.x() * scale, off_y + pos.y() * scale,
+                QgsUnitTypes.LayoutMillimeters,
+            ))
+            if isinstance(it, QgsLayoutItemLabel):
+                font = it.font()
+                size_pt = font.pointSizeF()
+                if (size_pt > 0
+                        and round(size_pt, 1) != self._TITLE_HEADER_POINT_SIZE):
+                    font.setPointSizeF(size_pt * scale)
+                    it.setFont(font)
+
+        logger.info(
+            f"[CLAIMS MAP] Applied {margin_mm}mm page margins "
+            f"(content scaled x{scale:.3f})"
+        )
+        return scale, off_x, off_y
+
     def _build_az_style_filing_map(
         self,
         layers: Dict[str, Optional[QgsMapLayer]],
@@ -456,7 +538,8 @@ class ClaimsMapGenerator:
         Used by both ``_create_az_filing_map`` (the ARS 27-203 state filing
         map) and ``_create_filing_map`` for AZ projects, so the generic
         filing map and the state filing map produce consistent, polished
-        output from the same template and pipeline.
+        output from the same template and pipeline. All content is pulled
+        inside 1" page margins for AZ e-recording (``_apply_page_margins``).
 
         Args:
             layers: Layer collection from ``_collect_layers``.
@@ -471,8 +554,16 @@ class ClaimsMapGenerator:
         )
         layout = self._load_template('az_state_filing_map.qpt', layout_name)
 
+        # AZ e-file: pull all content inside the 1" margin box BEFORE any
+        # geometry-dependent configuration (map scale, autofit, scale bar).
+        margin_scale, _margin_off_x, margin_off_y = self._apply_page_margins(
+            layout, self._AZ_EFILE_MARGIN_MM
+        )
+
         # Layer selection: monuments + endline monuments, no waypoints,
-        # corner labels + dimensions + tie line + reference point.
+        # corner dots + dimensions + tie line + reference point. (For AZ
+        # the corner layer renders dots only — no C1-C4 text; see
+        # _create_corner_label_layer.)
         map_layers = self._build_layer_list(
             layers,
             include_waypoints=False,
@@ -542,15 +633,24 @@ class ClaimsMapGenerator:
         # Configure legend to show only monument markers
         self._configure_az_filing_legend(layout, map_layers)
 
-        # Resize variable-length text labels to fit their actual content.
-        self._autofit_text_labels(layout)
+        # Resize variable-length text labels to fit their actual content,
+        # keeping them clear of the e-file margin on the right.
+        self._autofit_text_labels(
+            layout, right_margin=self._AZ_EFILE_MARGIN_MM
+        )
 
         # Configure scale bars for feet with segments appropriate to scale
         self._configure_scale_bars(layout, use_feet=True)
         self._adjust_scale_bar_segments(layout, map_item)
 
-        # Move the main scale bar + scale text down into the title block
-        self._move_scalebar_into_titleblock(layout)
+        # Move the main scale bar + scale text down into the title block.
+        # Targets are authored in template coordinates — map them through
+        # the margin transform.
+        self._move_scalebar_into_titleblock(
+            layout,
+            y_scalebar=margin_off_y + 244.0 * margin_scale,
+            y_scaletext=margin_off_y + 248.0 * margin_scale,
+        )
 
         QgsProject.instance().layoutManager().addLayout(layout)
         logger.info(f"[CLAIMS MAP] Created {map_title}: {layout_name}")
@@ -1331,19 +1431,21 @@ class ClaimsMapGenerator:
                 font.setPointSizeF(fitted)
                 item.setFont(font)
 
-    def _autofit_text_labels(self, layout: QgsPrintLayout):
+    def _autofit_text_labels(
+        self, layout: QgsPrintLayout, right_margin: float = 8.0
+    ):
         """Resize variable-length text labels to fit their actual content.
 
         Keeps label width constrained so text wraps within the page rather
         than running off the right edge.  Height is estimated from the
-        wrapped line count.
+        wrapped line count.  ``right_margin`` (mm) is the page-edge
+        clearance — pass the e-file margin for margin-constrained maps.
         """
         from qgis.PyQt.QtGui import QFontMetrics
 
         # Get page and map dimensions for width constraints
         page = layout.pageCollection().page(0)
         page_width = page.pageSize().width()
-        right_margin = 8.0  # mm
 
         dynamic_prefixes = ('Bearings and distances', 'Corners are all', 'Reference:')
         for item in layout.items():
@@ -1467,16 +1569,23 @@ class ClaimsMapGenerator:
         legend_item.setTitle('')
         legend_item.adjustBoxSize()
 
-    def _move_scalebar_into_titleblock(self, layout: QgsPrintLayout):
+    def _move_scalebar_into_titleblock(
+        self,
+        layout: QgsPrintLayout,
+        y_scalebar: float = 244.0,
+        y_scaletext: float = 248.0,
+    ):
         """Move the main scale bar and scale text label down into the title
         block area so they don't overlap the map content.
 
         The template has the main scale bar at y≈225mm (bottom of map area).
-        This shifts it down to sit inside the title block band.
+        This shifts it down to sit inside the title block band. The default
+        targets are authored AZ-template coordinates; callers that have
+        transformed the layout (``_apply_page_margins``) must pass targets
+        mapped through the same transform.
         """
-        # Title block starts at roughly y=238mm in the AZ template
-        target_scalebar_y = 244.0  # mm — inside title block
-        target_scaletext_y = 248.0
+        target_scalebar_y = y_scalebar  # mm — inside title block
+        target_scaletext_y = y_scaletext
 
         for item in layout.items():
             if isinstance(item, QgsLayoutItemScaleBar):
@@ -2644,6 +2753,12 @@ class ClaimsMapGenerator:
         Used on filing maps where corner identification is required.
         Persisted to the project GeoPackage when one is configured so the
         labels survive a "Lock Styles For Layers" toggle in the composer.
+
+        For ARIZONA claims the C1-C4 text is suppressed and only the small
+        black corner dots render: the AZ filing maps already label every
+        edge with bearing+distance plus a full bearings narrative, so
+        per-corner text is redundant clutter (recorder feedback via Katie,
+        2026-07-03 — "the little black dots are fine").
         """
         claims = self.state.processed_claims
         if not claims:
@@ -2689,15 +2804,19 @@ class ClaimsMapGenerator:
         if layer is None:
             return None
 
-        self._style_corner_label_layer(layer)
+        # AZ: dots only — no C1-C4 text (see docstring above).
+        self._style_corner_label_layer(
+            layer, show_text=self._get_claims_state() != 'AZ'
+        )
         logger.info(
             f"[CLAIMS MAP] Corner label layer: {layer.featureCount()} points"
         )
         return layer
 
     @staticmethod
-    def _style_corner_label_layer(layer: QgsVectorLayer):
-        """Apply the small-black-dot + bold-label style to a corner-labels layer."""
+    def _style_corner_label_layer(layer: QgsVectorLayer, show_text: bool = True):
+        """Apply the small-black-dot + bold-label style to a corner-labels
+        layer. With ``show_text=False`` only the dots render (AZ maps)."""
         symbol = QgsSymbol.defaultSymbol(layer.geometryType())
         symbol.deleteSymbolLayer(0)
         marker = QgsSimpleMarkerSymbolLayer()
@@ -2707,6 +2826,13 @@ class ClaimsMapGenerator:
         marker.setStrokeWidth(0.3)
         symbol.appendSymbolLayer(marker)
         layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+
+        if not show_text:
+            # Explicitly disable in case a persisted GeoPackage layer
+            # carries labeling from a previous run.
+            layer.setLabelsEnabled(False)
+            layer.triggerRepaint()
+            return
 
         label_settings = QgsPalLayerSettings()
         label_settings.fieldName = '"label"'
