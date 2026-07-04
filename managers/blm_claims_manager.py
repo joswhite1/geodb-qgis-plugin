@@ -60,8 +60,7 @@ class BLMFetchWorker(QThread):
 
     def run(self):
         import urllib.request
-        import ssl
-        from ..utils.http import safe_urlopen
+        from ..utils.http import safe_urlopen, get_shared_ssl_context
 
         try:
             req = urllib.request.Request(self.url)
@@ -69,10 +68,8 @@ class BLMFetchWorker(QThread):
             req.add_header('Accept', 'application/json')
             req.add_header('User-Agent', 'GeodbIO-QGIS-Plugin/2.0')
 
-            ctx = ssl.create_default_context()
-            if 'localhost' in self.url or '127.0.0.1' in self.url:
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
+            insecure = 'localhost' in self.url or '127.0.0.1' in self.url
+            ctx = get_shared_ssl_context(insecure=insecure)
 
             with safe_urlopen(req, context=ctx, timeout=30) as response:
                 data = json.loads(response.read().decode('utf-8'))

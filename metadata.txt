@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.23.0
+version=2.23.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,18 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.23.1 - Fix Windows crash in PLSS/Federal Lands/BLM claims streaming
+        - QGIS could crash with a fatal access violation while panning or
+          zooming with PLSS Grid, Federal Lands, or BLM Claims streaming
+          enabled. Each background fetch built its own SSL context on its
+          own thread; on Windows, building more than one at the same time
+          races inside Python's SSL layer and corrupts memory, which then
+          crashed somewhere unrelated (often the map renderer) shortly
+          after.
+        - Fix: all three streaming layers now share one SSL context per
+          plugin session, built once and reused, so concurrent background
+          fetches can no longer race during setup. No behavior change to
+          streaming itself.
     2.23.0 - Arizona filing maps ready for e-recording
         - AZ filing maps now keep all content inside a 1 inch page margin,
           as required by the Arizona e-file platform. The layout is scaled

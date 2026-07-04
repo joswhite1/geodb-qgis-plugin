@@ -6,10 +6,47 @@ Provides a scheme-validated urlopen wrapper so that call sites
 are not flagged by Bandit S310 / B310 security scanners.
 """
 import ssl
+import threading
 import urllib.request
 from urllib.parse import urlparse
 
 ALLOWED_SCHEMES = ('http', 'https')
+
+# Cache of lazily-built SSLContext objects, keyed by whether hostname/cert
+# verification is relaxed (the local-dev case). Built once behind a lock and
+# reused by every worker thread from here on.
+#
+# This exists because ssl.create_default_context() was being called directly
+# from each streaming-layer QThread's run() (BLM claims / PLSS / federal
+# lands fetch workers). On Windows, concurrent SSLContext construction across
+# threads races inside CPython's _ssl module (cert-store enumeration releases
+# the GIL without synchronizing shared state — see cpython#134698/#134724),
+# corrupting the heap and crashing QGIS, often nowhere near the actual call
+# site (e.g. inside Qt's map renderer). SSLContext is safe to *share and
+# reuse* concurrently; it is only concurrent *construction* that's unsafe.
+_context_cache = {}
+_context_lock = threading.Lock()
+
+
+def get_shared_ssl_context(insecure=False):
+    """Return a process-wide shared SSLContext, building it on first use.
+
+    Args:
+        insecure: If True, return a context with hostname/cert verification
+            disabled (used for localhost/127.0.0.1 development URLs).
+
+    Returns:
+        A cached ssl.SSLContext, safe to reuse concurrently across threads.
+    """
+    with _context_lock:
+        ctx = _context_cache.get(insecure)
+        if ctx is None:
+            ctx = ssl.create_default_context()
+            if insecure:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            _context_cache[insecure] = ctx
+        return ctx
 
 
 def safe_urlopen(request, *, context=None, timeout=30):
@@ -34,7 +71,7 @@ def safe_urlopen(request, *, context=None, timeout=30):
             f"only {ALLOWED_SCHEMES} are permitted"
         )
     if context is None:
-        context = ssl.create_default_context()
+        context = get_shared_ssl_context()
     # Use an explicit opener restricted to HTTP(S) handlers rather than the
     # module-level urllib.request.urlopen. The scheme is already validated
     # against ALLOWED_SCHEMES above, so file:/, ftp:, and custom-scheme opens
