@@ -562,6 +562,41 @@ class BasemapsWidget(QWidget):
         self._state_lands_manager = None
         self._state_lands_has_access = False
 
+        # ---- Lead-file plotted claims + tri-state QQ (WT3 §4b) ----
+        cp_desc = QLabel(
+            "Lead-file claim plots: public plotted claims, your own private plots "
+            "(30-day window), and quarter-sections colored by plot state."
+        )
+        cp_desc.setWordWrap(True)
+        cp_desc.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
+        public_lands_layout.addWidget(cp_desc)
+
+        self.plotted_public_toggle = QCheckBox("Show public plotted claims (Streaming)")
+        self.plotted_public_toggle.setEnabled(False)
+        self.plotted_public_toggle.stateChanged.connect(self._on_plotted_public_toggle_changed)
+        public_lands_layout.addWidget(self.plotted_public_toggle)
+
+        self.plotted_mine_toggle = QCheckBox("Show my plotted claims (Streaming)")
+        self.plotted_mine_toggle.setEnabled(False)
+        self.plotted_mine_toggle.stateChanged.connect(self._on_plotted_mine_toggle_changed)
+        public_lands_layout.addWidget(self.plotted_mine_toggle)
+
+        self.qq_tristate_toggle = QCheckBox("Show quarter-sections tri-state (Streaming)")
+        self.qq_tristate_toggle.setEnabled(False)
+        self.qq_tristate_toggle.stateChanged.connect(self._on_qq_tristate_toggle_changed)
+        public_lands_layout.addWidget(self.qq_tristate_toggle)
+
+        self.claim_plot_status_label = QLabel("")
+        self.claim_plot_status_label.setWordWrap(True)
+        self.claim_plot_status_label.setStyleSheet(
+            f"color: {T.TEXT_MUTED}; font-size: 11px; font-style: italic;"
+        )
+        public_lands_layout.addWidget(self.claim_plot_status_label)
+
+        self._plotted_mine_manager = None
+        self._plotted_public_manager = None
+        self._qq_tristate_manager = None
+
         # Separator
         pub_sep = QFrame()
         pub_sep.setFrameShape(QFrame_HLine)
@@ -1841,6 +1876,59 @@ class BasemapsWidget(QWidget):
         )
         self.state_lands_toggle.setChecked(False)
         self.state_lands_toggle.setEnabled(False)
+
+    # ---- Lead-file plotted claims + tri-state QQ (WT3 §4b) ----
+    def set_claim_plot_managers(self, mine_manager, public_manager, qq_manager, has_access: bool):
+        """Wire the plotted-claims (mine/public) + tri-state QQ streaming managers.
+        These are free layers — enabled whenever an authenticated token exists."""
+        self._plotted_mine_manager = mine_manager
+        self._plotted_public_manager = public_manager
+        self._qq_tristate_manager = qq_manager
+
+        toggles = (self.plotted_mine_toggle, self.plotted_public_toggle, self.qq_tristate_toggle)
+        if not has_access or mine_manager is None:
+            for t in toggles:
+                t.setChecked(False)
+                t.setEnabled(False)
+            self.claim_plot_status_label.setText("Login to stream plotted claims")
+            return
+
+        for t in toggles:
+            t.setEnabled(True)
+        self.claim_plot_status_label.setText("")
+        for mgr in (mine_manager, public_manager, qq_manager):
+            mgr.status_changed.connect(self._on_claim_plot_status_changed)
+            mgr.access_denied.connect(self._on_claim_plot_access_denied)
+
+    def _on_plotted_mine_toggle_changed(self, state):
+        if not self._plotted_mine_manager:
+            return
+        if state == Qt_Checked:
+            self._plotted_mine_manager.enable()
+        else:
+            self._plotted_mine_manager.disable()
+
+    def _on_plotted_public_toggle_changed(self, state):
+        if not self._plotted_public_manager:
+            return
+        if state == Qt_Checked:
+            self._plotted_public_manager.enable()
+        else:
+            self._plotted_public_manager.disable()
+
+    def _on_qq_tristate_toggle_changed(self, state):
+        if not self._qq_tristate_manager:
+            return
+        if state == Qt_Checked:
+            self._qq_tristate_manager.enable()
+        else:
+            self._qq_tristate_manager.disable()
+
+    def _on_claim_plot_status_changed(self, status: str):
+        self.claim_plot_status_label.setText(status)
+
+    def _on_claim_plot_access_denied(self, message: str):
+        self.claim_plot_status_label.setText("Plotted-claim streaming unavailable.")
 
     # ==================== Styling Helpers ====================
 

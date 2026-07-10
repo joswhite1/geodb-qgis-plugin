@@ -277,6 +277,12 @@ class Config:
 
             # Federal Lands (BLM + Forest Service boundaries)
             'federal_lands': f"{self.services_base_url}/federal-lands/",
+
+            # Lead-file plotted claims + tri-state quarter-sections (WT3 §4b).
+            # DRF v1 surface (Knox) — the api-subdomain v1 sibling of base_url,
+            # same derivation as the 2FA endpoints above.
+            'plotted_claims': f"{base.replace('/v2', '/v1')}/plotted-claims/",
+            'qq_tristate': f"{base.replace('/v2', '/v1')}/qq-tristate/",
         }
 
     def get_model_endpoint(self, model_name: str) -> str:

@@ -44,6 +44,8 @@ from ..managers.blm_claims_manager import BLMClaimsManager
 from ..managers.plss_streaming_manager import PLSSStreamingManager
 from ..managers.federal_lands_manager import FederalLandsStreamingManager
 from ..managers.state_lands_manager import StateLandsStreamingManager
+from ..managers.plotted_claims_manager import PlottedClaimsStreamingManager
+from ..managers.qq_tristate_manager import QQTristateStreamingManager
 from ..models.auth import AuthSession, UserContext
 from ..processors.style_processor import StyleProcessor
 from .login_dialog import LoginDialog
@@ -161,6 +163,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.plss_streaming_manager = PLSSStreamingManager(self.config, self.api_client)
         self.federal_lands_manager = FederalLandsStreamingManager(self.config, self.api_client)
         self.state_lands_manager = StateLandsStreamingManager(self.config, self.api_client)
+        # Lead-file plotted claims + tri-state QQ (WT3 §4b) — free layers, gated
+        # only on an authenticated token (public claims + your own plots).
+        self.plotted_mine_manager = PlottedClaimsStreamingManager(self.config, self.api_client, scope='mine')
+        self.plotted_public_manager = PlottedClaimsStreamingManager(self.config, self.api_client, scope='public')
+        self.qq_tristate_manager = QQTristateStreamingManager(self.config, self.api_client)
 
         # Claims wizard widget
         self.claims_wizard: Optional[ClaimsWizardWidget] = None
@@ -405,6 +412,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 # Set up AK State Lands streaming access for restored session
                 self._setup_state_lands_access()
 
+                # Set up lead-file plotted-claims + tri-state QQ streaming (WT3 §4b)
+                self._setup_claim_plot_access()
+
         except Exception as e:
             self.logger.error(f"Failed to restore session: {e}")
 
@@ -467,6 +477,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
             # Set up AK State Lands streaming layer access
             self._setup_state_lands_access()
+
+            # Set up lead-file plotted-claims + tri-state QQ streaming (WT3 §4b)
+            self._setup_claim_plot_access()
 
             # Update context header
             self._update_context_header()
@@ -595,6 +608,26 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if self.basemaps_widget:
                 self.basemaps_widget.set_state_lands_manager(None, False)
 
+    def _setup_claim_plot_access(self):
+        """Wire up the lead-file plotted-claims + tri-state QQ streaming layers
+        (WT3 §4b). These are FREE layers — public plotted claims + the token
+        owner's own plots — so the only gate is an authenticated token."""
+        try:
+            has_access = bool(self.api_client and self.api_client.token)
+            self.plotted_mine_manager = PlottedClaimsStreamingManager(self.config, self.api_client, scope='mine')
+            self.plotted_public_manager = PlottedClaimsStreamingManager(self.config, self.api_client, scope='public')
+            self.qq_tristate_manager = QQTristateStreamingManager(self.config, self.api_client)
+            for mgr in (self.plotted_mine_manager, self.plotted_public_manager, self.qq_tristate_manager):
+                mgr.log_message.connect(self._log_message)
+            if self.basemaps_widget:
+                self.basemaps_widget.set_claim_plot_managers(
+                    self.plotted_mine_manager, self.plotted_public_manager,
+                    self.qq_tristate_manager, has_access)
+        except Exception as e:
+            self.logger.warning(f"Could not set up claim-plot streaming access: {e}")
+            if self.basemaps_widget:
+                self.basemaps_widget.set_claim_plot_managers(None, None, None, False)
+
     def _on_logout_clicked(self):
         """Handle logout button click."""
         try:
@@ -626,6 +659,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.state_lands_manager.cleanup()
             if self.basemaps_widget:
                 self.basemaps_widget.set_state_lands_manager(None, False)
+
+            # Cleanup lead-file plotted-claims + tri-state QQ streaming (WT3 §4b)
+            for mgr in (self.plotted_mine_manager, self.plotted_public_manager, self.qq_tristate_manager):
+                mgr.cleanup()
+            if self.basemaps_widget:
+                self.basemaps_widget.set_claim_plot_managers(None, None, None, False)
 
             # Update UI
             self._update_auth_status(False)
@@ -663,6 +702,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.plss_streaming_manager.cleanup()
             self.federal_lands_manager.cleanup()
             self.state_lands_manager.cleanup()
+            self.plotted_mine_manager.cleanup()
+            self.plotted_public_manager.cleanup()
+            self.qq_tristate_manager.cleanup()
 
             # Log the change
             mode = "LOCAL DEVELOPMENT" if is_enabled else "PRODUCTION"

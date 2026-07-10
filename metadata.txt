@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.23.1
+version=2.24.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,20 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.24.0 - Lead-file plotted claims + tri-state quarter-sections
+        - New streaming layers for the lead-file claim plotting service:
+          "Public Plotted Claims" (claims whose private window has elapsed) and
+          "My Plotted Claims" (your own plots, including in-window private ones
+          with a days-remaining note). Only you ever see your private plots.
+        - New "Quarter-sections (tri-state)" layer colors each quarter-section by
+          plot state: unplotted (class-color fill), plotted (tier-styled outline),
+          or mixed/partially-plotted (black diagonal hatch that survives
+          black-and-white filing-map prints and color-blindness). The state is
+          computed on the server for the signed-in account, so a private plot
+          never leaks its existence to anyone else.
+        - The plotted-claims layer also carries the derivation chain (reference
+          point to tie line to corners) with the parsed course labels, matching
+          the web map overlay.
     2.23.1 - Fix Windows crash in PLSS/Federal Lands/BLM claims streaming
         - QGIS could crash with a fatal access violation while panning or
           zooming with PLSS Grid, Federal Lands, or BLM Claims streaming
