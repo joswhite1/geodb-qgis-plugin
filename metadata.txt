@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.24.0
+version=2.25.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,22 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.25.0 - Number & Rename fix: server ordering restored, simple offline fallback
+        - "Number & Rename Claims" silently numbered nothing on the server
+          path: the request sent sort_direction where the endpoint reads
+          direction, and the reply was parsed for ordered_claims where the
+          endpoint returns claims. The empty result skipped Manual_FID
+          assignment without an error, so renaming fell back to feature
+          insertion order - the scrambled / right-to-left numbering seen in
+          the field. The request/response now match the endpoint, and any
+          empty or mismatched reply raises so the offline fallback runs.
+        - The offline fallback is now deliberately simple (strict north-south
+          then west-east sort). The row-banding port added in 2.22.1 was
+          removed: the rotation-tolerant banding rule is maintained
+          server-side only, so the two implementations cannot drift apart.
+        - When the simple offline ordering runs (offline or server error),
+          the plugin warns on the message bar that rotated blocks may be
+          misnumbered and to re-run Number & Rename when online.
     2.24.0 - Lead-file plotted claims + tri-state quarter-sections
         - New streaming layers for the lead-file claim plotting service:
           "Public Plotted Claims" (claims whose private window has elapsed) and

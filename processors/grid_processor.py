@@ -105,7 +105,10 @@ class GridProcessor:
         if not claims_data:
             return 0
 
-        # Try server-side ordering first
+        # Try server-side ordering first — the server's rotation-tolerant
+        # row banding is the canonical numbering rule. The local fallback is
+        # deliberately simple and may misnumber rotated blocks, so falling
+        # back is LOUD (warn-and-proceed, ruled 2026-07-11).
         if self.api_client and not self._offline_mode:
             try:
                 ordered = self._order_claims_server(claims_data, sort_direction)
@@ -114,8 +117,10 @@ class GridProcessor:
                     f"[GRID PROCESSOR] Server-side ordering failed, falling back to local: {e}"
                 )
                 ordered = self._order_claims_local(claims_data, sort_direction)
+                self._warn_simple_ordering_applied('the server could not be reached')
         else:
             ordered = self._order_claims_local(claims_data, sort_direction)
+            self._warn_simple_ordering_applied('working offline')
 
         # Apply ordering to layer
         return self._apply_ordering(layer, ordered, start_number)
@@ -125,15 +130,32 @@ class GridProcessor:
         claims_data: List[Dict[str, Any]],
         sort_direction: str
     ) -> List[Dict[str, Any]]:
-        """Order claims using server API."""
+        """Order claims using the server's canonical banding rule.
+
+        The server (geodb GridValidator via ``order-claims/``) is the single
+        source of truth for book-reading claim ordering — rotation-tolerant
+        row banding. This client sends centroids only, with the local list
+        index as the join key: layer names can be blank or duplicated before
+        renaming, so names cannot key the response mapping.
+
+        Raises on any error, empty, or mismatched response so the caller
+        falls back to the simple local ordering (loudly).
+
+        Fixed 2026-07-11 (v2.25.0): this path was a silent no-op — it sent
+        ``sort_direction`` where the endpoint reads ``direction`` and parsed
+        ``ordered_claims`` where the endpoint returns ``claims``, so the
+        empty result numbered nothing, no exception fired, and renaming fell
+        back to feature-insertion order (the scrambled / right-to-left
+        numbering seen in the field).
+        """
         # Build API endpoint URL
         endpoint = self.api_client.config.get_claims_url('order-claims/')
 
-        # Prepare data for API
+        # Prepare data for API — index-as-name join key, centroids only
         api_claims = []
-        for claim in claims_data:
+        for i, claim in enumerate(claims_data):
             api_claims.append({
-                'name': claim['name'],
+                'name': str(i),
                 'centroid': {
                     'easting': claim['centroid'].x(),
                     'northing': claim['centroid'].y()
@@ -143,25 +165,62 @@ class GridProcessor:
         # Call server API
         response = self.api_client._make_request('POST', endpoint, data={
             'claims': api_claims,
-            'sort_direction': sort_direction
+            'direction': sort_direction
         })
 
         if 'error' in response:
             raise ValueError(response['error'])
 
-        # Convert response back to our format
+        # Server returns {'claims': [...input claims + 'order'...], 'statistics': ...}
+        # in INPUT order — the 'order' field carries the spatial rank.
+        returned = response.get('claims') or []
+        if len(returned) != len(claims_data):
+            raise ValueError(
+                f"order-claims returned {len(returned)} claims "
+                f"for {len(claims_data)} sent"
+            )
+
         ordered = []
-        name_to_data = {c['name']: c for c in claims_data}
+        for item in returned:
+            try:
+                idx = int(item['name'])
+                order = int(item['order'])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(f"order-claims response malformed: {item!r}")
+            if not 0 <= idx < len(claims_data):
+                raise ValueError(f"order-claims returned unknown claim index {idx}")
+            ordered.append({**claims_data[idx], 'order': order})
 
-        for item in response.get('ordered_claims', []):
-            name = item['name']
-            if name in name_to_data:
-                ordered.append({
-                    **name_to_data[name],
-                    'order': item['order']
-                })
-
+        # _apply_ordering numbers by list position — sort into spatial rank
+        ordered.sort(key=lambda c: c['order'])
         return ordered
+
+    def _warn_simple_ordering_applied(self, reason: str):
+        """Loud warn-and-proceed when the simple local ordering ran.
+
+        The local fallback is a plain strict sort (see _order_claims_local)
+        and can misnumber blocks rotated off north. Surface that to the user
+        on the QGIS message bar — no confirm gate, the ordering has already
+        been applied.
+        """
+        msg = (
+            f"Claim ordering used the simple offline rule ({reason}). "
+            "Blocks rotated off north may be misnumbered — re-run "
+            "Number & Rename when online to apply the server's "
+            "rotation-tolerant numbering."
+        )
+        self.logger.warning(f"[GRID PROCESSOR] {msg}")
+        try:
+            from qgis.core import Qgis
+            from qgis.utils import iface
+            if iface and iface.messageBar():
+                iface.messageBar().pushMessage(
+                    "QClaims ordering", msg, level=Qgis.Warning, duration=10
+                )
+        except Exception:
+            # Headless/test contexts have no message bar — the log line above
+            # is the record.
+            pass
 
     def rename_claims(
         self,
@@ -973,13 +1032,20 @@ class GridProcessor:
         claims_data: List[Dict[str, Any]],
         sort_direction: str
     ) -> List[Dict[str, Any]]:
-        """Order claims locally (fallback for offline mode).
+        """Order claims locally — SIMPLE fallback, deliberately divergent.
 
-        Mirrors the server's book-reading rule: band claims into rows by a
-        northing tolerance first, THEN sort each row west-to-east. A naive
-        (-y, x) sort interleaves adjacent rows whenever a row's claims don't
-        share an exact northing — the common case on a block rotated even
-        slightly off north, which scrambled the numbering in the field.
+        DELIBERATE DIVERGENCE (no-duplicate-paths, ruled 2026-07-11): the
+        canonical book-reading rule — rotation-tolerant row banding — lives
+        server-side only (geodb ``services/claims/grid_validator.py`` behind
+        the ``order-claims/`` endpoint). This offline fallback is a plain
+        strict sort: correct for axis-aligned layouts, and it WILL misnumber
+        a block rotated off north (claims in one visual row stop sharing a
+        northing, so the strict sort interleaves adjacent rows). Callers
+        surface a loud warning whenever this path runs (see
+        ``autopopulate_manual_fid``) telling the user to re-run ordering
+        when online. A banding port that lived here from v2.22.1 (940c80a)
+        to v2.24.0 was removed in v2.25.0 so the two implementations cannot
+        drift apart — do NOT re-port the server rule into this file.
         """
         if sort_direction == 'top_to_bottom_left_to_right':
             # Primary: X ascending, Secondary: Y descending (column-first)
@@ -994,8 +1060,11 @@ class GridProcessor:
             # Group by columns, alternate direction
             sorted_claims = self._snake_sort(claims_data, horizontal=False)
         else:
-            # Default + left_to_right_top_to_bottom: book-reading raster order
-            sorted_claims = self._band_by_rows(claims_data)
+            # Default + left_to_right_top_to_bottom: strict N→S then W→E
+            sorted_claims = sorted(
+                claims_data,
+                key=lambda c: (-c['centroid'].y(), c['centroid'].x())
+            )
 
         # Add order numbers
         for i, claim in enumerate(sorted_claims):
@@ -1003,73 +1072,42 @@ class GridProcessor:
 
         return sorted_claims
 
-    def _band_by_rows(
-        self,
-        claims_data: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Book-reading raster order: top-to-bottom by row, west-to-east in row.
-
-        Greedy row banding (the same rule the server uses): walking claims by
-        descending northing, a claim joins the current row when its northing is
-        within ``row_tol`` of that row's anchor (topmost) northing, else it
-        opens a new row. Each row is then sorted west-to-east. ``row_tol`` is
-        half the estimated row spacing — larger than within-row northing jitter
-        on a rotated block, smaller than the one-row spacing between rows.
-        """
-        return [c for row in self._band_into_rows(claims_data) for c in
-                sorted(row, key=lambda c: c['centroid'].x())]
-
-    def _band_into_rows(
-        self,
-        claims_data: List[Dict[str, Any]]
-    ) -> List[List[Dict[str, Any]]]:
-        """Group claims into book-reading rows (top to bottom).
-
-        Shared row formation for both the straight and serpentine orderings so
-        the two can never disagree about row boundaries. Rows are not sorted
-        internally here — the caller sorts each row in the direction it needs.
-        """
-        if not claims_data:
-            return []
-        row_tol = self._estimate_row_spacing(claims_data) * 0.5
-        by_north = sorted(claims_data, key=lambda c: -c['centroid'].y())
-        rows: List[List[Dict[str, Any]]] = []
-        anchor_y = None
-        for claim in by_north:
-            y = claim['centroid'].y()
-            if rows and (anchor_y - y) <= row_tol:
-                rows[-1].append(claim)
-            else:
-                rows.append([claim])
-                anchor_y = y
-        return rows
-
     def _snake_sort(
         self,
         claims_data: List[Dict[str, Any]],
         horizontal: bool = True
     ) -> List[Dict[str, Any]]:
-        """Sort claims in a snake pattern (boustrophedon)."""
+        """Sort claims in a snake pattern (boustrophedon).
+
+        Simple coordinate-cluster grouping — same deliberate-divergence note
+        as ``_order_claims_local``: the canonical row formation is
+        server-side; this offline grouping can misgroup rotated blocks.
+        """
+        tolerance = self._estimate_row_spacing(claims_data) * 0.3
+
         if horizontal:
-            # Form rows with the shared row-banding rule so serpentine rows are
-            # identical to the straight book-reading rows — never drifting
-            # between the two directions, and correct on a rotated block.
-            groups = self._band_into_rows(claims_data)
+            # Group by Y coordinate (rows)
+            groups = self._group_by_coordinate(
+                claims_data,
+                key_func=lambda c: c['centroid'].y(),
+                tolerance=tolerance
+            )
+            # Sort groups by Y descending (north first)
+            sorted_groups = sorted(groups.items(), key=lambda x: -x[0])
         else:
-            # Group by X coordinate (columns) — a genuinely different axis.
-            tolerance = self._estimate_row_spacing(claims_data) * 0.3
-            col_groups = self._group_by_coordinate(
+            # Group by X coordinate (columns)
+            groups = self._group_by_coordinate(
                 claims_data,
                 key_func=lambda c: c['centroid'].x(),
                 tolerance=tolerance
             )
             # Sort groups by X ascending (west first)
-            groups = [g for _, g in sorted(col_groups.items(), key=lambda x: x[0])]
+            sorted_groups = sorted(groups.items(), key=lambda x: x[0])
 
         result = []
         reverse = False
 
-        for group in groups:
+        for _, group in sorted_groups:
             if horizontal:
                 # Sort within row by X (alternating)
                 sorted_group = sorted(
