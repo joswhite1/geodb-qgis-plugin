@@ -232,6 +232,9 @@ Qt_SmoothTransformation = _qt('SmoothTransformation', 'TransformationMode.Smooth
 # --- AlignmentFlag ---
 Qt_AlignCenter = _qt('AlignCenter', 'AlignmentFlag.AlignCenter')
 
+# --- ItemDataRole ---
+Qt_UserRole = _qt('UserRole', 'ItemDataRole.UserRole')
+
 # --- QFrame ---
 QFrame_NoFrame = _qframe('NoFrame', 'Shape.NoFrame')
 QFrame_HLine = _qframe('HLine', 'Shape.HLine')

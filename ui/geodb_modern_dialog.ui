@@ -40,12 +40,6 @@
      <property name="currentIndex">
       <number>0</number>
      </property>
-     <property name="styleSheet">
-      <string notr="true">QTabBar::tab { padding: 10px 25px; font-weight: bold; min-width: 90px; }
-QTabBar::tab:selected { background-color: #5bbad5; color: white; }
-QTabBar::tab:!selected { background-color: #e5e7eb; color: #374151; }
-QTabWidget::pane { border: 1px solid #d1d5db; border-radius: 4px; }</string>
-     </property>
      <property name="elideMode">
       <enum>Qt::ElideNone</enum>
      </property>
@@ -371,10 +365,6 @@ QTabWidget::pane { border: 1px solid #d1d5db; border-radius: 4px; }</string>
       <layout class="QVBoxLayout" name="modelListLayout">
        <item>
         <widget class="QListWidget" name="modelListWidget">
-         <property name="styleSheet">
-          <string notr="true">QListWidget::item { padding: 8px; padding-left: 4px; }
-QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
-         </property>
          <property name="uniformItemSizes">
           <bool>true</bool>
          </property>
@@ -487,10 +477,7 @@ QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
        <item>
         <widget class="QLabel" name="selectedModelLabel">
          <property name="text">
-          <string>Select a model from the list</string>
-         </property>
-         <property name="styleSheet">
-          <string notr="true">font-size: 16pt; font-weight: bold; color: #5bbad5;</string>
+          <string>Select a data type from the list</string>
          </property>
         </widget>
        </item>
@@ -674,9 +661,6 @@ QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
               <property name="minimumHeight">
                <number>40</number>
               </property>
-              <property name="styleSheet">
-               <string notr="true">QPushButton { font-size: 11pt; }</string>
-              </property>
              </widget>
             </item>
             <item>
@@ -694,9 +678,6 @@ QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
               <property name="minimumHeight">
                <number>40</number>
               </property>
-              <property name="styleSheet">
-               <string notr="true">QPushButton { font-size: 11pt; }</string>
-              </property>
              </widget>
             </item>
            </layout>
@@ -704,14 +685,10 @@ QListWidget::item:selected { background-color: #5bbad5; color: white; }</string>
           <item>
            <widget class="QLabel" name="actionHintLabel">
             <property name="text">
-             <string>💡 Pull: Downloads data from server to QGIS
-Push: Uploads your local changes to server</string>
+             <string>Pull downloads this data from geodb.io into a QGIS layer. Push uploads your local edits back to the server.</string>
             </property>
             <property name="wordWrap">
              <bool>true</bool>
-            </property>
-            <property name="styleSheet">
-             <string notr="true">color: #666; font-style: italic;</string>
             </property>
            </widget>
           </item>

@@ -27,6 +27,8 @@ class AuthManager:
     AUTH_CONFIG_NAME = "geodb.io"
     AUTH_METHOD = "Basic"
     SETTINGS_KEY = "geodb/saved_email"
+    REMEMBER_EMAIL_OPT_KEY = "geodb/remember_email_opt"
+    SAVE_PASSWORD_OPT_KEY = "geodb/save_password_opt"
 
     def __init__(self, config: Config, api_client: APIClient):
         """
@@ -81,8 +83,10 @@ class AuthManager:
                     'session_token': response.get('session_token', ''),
                     'user_id': response.get('user_id', 0),
                     'has_recovery_email': response.get('has_recovery_email', False),
-                    # Pass through for use after 2FA verification
+                    # Pass through for use after 2FA verification (password so
+                    # it can still be saved once the 2FA code is verified)
                     'username': username,
+                    'password': password,
                     'save_password': save_password
                 })
 
@@ -106,7 +110,8 @@ class AuthManager:
         self,
         token: str,
         username: str,
-        save_password: bool = False
+        save_password: bool = False,
+        password: str = None
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Complete login after successful 2FA verification.
@@ -117,6 +122,8 @@ class AuthManager:
             token: Knox token from 2FA verification
             username: User's email/username (for credential storage)
             save_password: Whether to save password in QGIS Auth Manager
+            password: The password entered before the 2FA challenge (so 2FA
+                accounts can persist it too)
 
         Returns:
             Tuple of (success: bool, result: dict)
@@ -126,7 +133,7 @@ class AuthManager:
         self.logger.info(f"Completing 2FA login for user: {username}")
 
         try:
-            return self._complete_login(username, token, {}, save_password)
+            return self._complete_login(username, token, {}, save_password, password=password)
         except Exception as e:
             self.logger.error(f"Failed to complete 2FA login: {e}")
             return (False, {'error': f"Failed to complete login: {e}"})
@@ -174,10 +181,11 @@ class AuthManager:
                 )
             )
 
-        # Store credentials in QGIS Auth Manager
-        # Password is saved only when save_password is True and password is available
-        # For 2FA users, password is None (they'll need to re-auth anyway)
-        password_to_save = password if save_password else None
+        # Store credentials in QGIS Auth Manager.
+        # save_password + password  -> store it
+        # save_password, no password -> None = preserve whatever is already stored
+        # opt-out                    -> '' = explicitly clear the stored password
+        password_to_save = password if save_password else ''
         auth_config_id = self._store_credentials(username, token, password_to_save)
 
         # Create session with full context
@@ -284,12 +292,38 @@ class AuthManager:
             return self.current_session
 
         except AuthenticationError:
-            self.logger.warning("Stored token is invalid")
-            self._remove_credentials(auth_config_id)
+            # Token definitively rejected by the server (expired/revoked).
+            # If a password was saved, log back in transparently instead of
+            # making the user re-enter credentials.
+            self.api_client.set_token(None)
+            saved_password = auth_config.config('password', '')
+            if saved_password:
+                self.logger.info("Stored token expired; re-authenticating with saved password")
+                try:
+                    success, result = self.login(username, saved_password, save_password=True)
+                except Exception as e:
+                    self.logger.warning(f"Silent re-login failed: {e}")
+                    return None
+                if success:
+                    return self.current_session
+                if result.get('field') == 'password':
+                    # The saved password itself was rejected (changed on the
+                    # server) — clear it so the login dialog doesn't keep
+                    # replaying bad credentials. Keep the username.
+                    self._store_credentials(username, '', '')
+                # 2FA-required or other non-password failure: keep everything;
+                # the login dialog will prefill and take it from there.
+                return None
+            # No saved password: clear only the dead token, keep the username
+            # so the login dialog can prefill it.
+            self._store_credentials(username, '', None)
             return None
         except Exception as e:
-            self.logger.warning(f"Failed to restore session: {e}")
-            self._remove_credentials(auth_config_id)
+            # Transient failure (offline, SSL hiccup, server 5xx). Keep ALL
+            # stored credentials — wiping them here is how "my password never
+            # saves" happens. The user can simply retry when connectivity is back.
+            self.logger.warning(f"Could not restore session (transient error, credentials kept): {e}")
+            self.api_client.set_token(None)
             return None
 
     def set_active_project(self, project_id: int) -> Optional[UserContext]:
@@ -368,6 +402,33 @@ class AuthManager:
         """Clear saved email from settings."""
         self.settings.remove(self.SETTINGS_KEY)
 
+    def get_login_prefs(self) -> Tuple[bool, bool]:
+        """
+        Get the (remember_email, save_password) checkbox preferences.
+
+        Both default to True — persistence is what users expect from a desktop
+        plugin; opting out is the explicit action.
+        """
+        remember = self.settings.value(self.REMEMBER_EMAIL_OPT_KEY, True, type=bool)
+        save_pw = self.settings.value(self.SAVE_PASSWORD_OPT_KEY, True, type=bool)
+        return remember, save_pw
+
+    def save_login_prefs(self, remember_email: bool, save_password: bool) -> None:
+        """Persist the login-dialog checkbox choices."""
+        self.settings.setValue(self.REMEMBER_EMAIL_OPT_KEY, bool(remember_email))
+        self.settings.setValue(self.SAVE_PASSWORD_OPT_KEY, bool(save_password))
+
+    def get_saved_username(self) -> Optional[str]:
+        """Username from the stored auth config (fallback email prefill)."""
+        auth_config_id = self._find_auth_config()
+        if not auth_config_id:
+            return None
+        auth_config = QgsAuthMethodConfig()
+        if not self.auth_manager.loadAuthenticationConfig(auth_config_id, auth_config, True):
+            return None
+        username = auth_config.config('username', '')
+        return username if username else None
+
     def get_saved_password(self) -> Optional[str]:
         """
         Get saved password from QGIS Auth Manager.
@@ -393,7 +454,8 @@ class AuthManager:
         Args:
             username: Username
             token: Authentication token
-            password: Optional password to save securely
+            password: '' clears the stored password; None preserves whatever is
+                already stored; any other value replaces it
 
         Returns:
             Auth config ID
@@ -418,7 +480,11 @@ class AuthManager:
         # Note: Token is stored in 'realm' field as per legacy implementation
         auth_config.setConfig('username', username)
         auth_config.setConfig('realm', token)
-        auth_config.setConfig('password', password if password else '')
+        if password is not None:
+            auth_config.setConfig('password', password)
+        elif not existing_id:
+            auth_config.setConfig('password', '')
+        # (existing config + password=None: leave the stored password untouched)
 
         # Save to auth manager
         if existing_id:

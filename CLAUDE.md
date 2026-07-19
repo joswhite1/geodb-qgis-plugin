@@ -7,7 +7,7 @@ QGIS plugin for claims management + data sync against the geoDB DRF API (`api.ge
 These bite repeatedly; the authoritative version is in `~/workspace/CLAUDE.md` → "QGIS plugin packaging gotchas". Summary:
 
 - **Commit to `v2.1`, never branch** (workspace-wide never-branch rule; branches only in worktrees).
-- Bump `metadata.txt` `version=` (currently `2.22.6`) for any user-facing change; prepend a `changelog=` entry.
+- Bump `metadata.txt` `version=` for any user-facing change; prepend a `changelog=` entry.
 - **Escape every literal `%` as `%%`** in `metadata.txt` — `configparser` interpolation on plugins.qgis.org fails the upload otherwise. Validate before packaging: `python3 -c "import configparser as c; p=c.ConfigParser(); p.read('metadata.txt'); _=p['general']['changelog']"`.
 - Package via `git archive --prefix=geodb/ -o ~/workspace/dist/geodb-<ver>.zip HEAD` (single top-level `geodb/` folder). Verify with Python `zipfile` (no `unzip` on the VM). `make package` fails here (no `pyrcc5`) but `resources_rc.py` is already committed, so recompiling is unnecessary.
 

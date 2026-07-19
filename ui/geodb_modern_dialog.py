@@ -10,7 +10,7 @@ import os
 import sys
 from typing import Optional, List, Dict, Any
 from qgis.PyQt import uic
-from qgis.PyQt.QtCore import QTimer, QThread, pyqtSignal
+from qgis.PyQt.QtCore import QTimer, QThread, pyqtSignal, QSettings, QDateTime
 from qgis.PyQt.QtWidgets import (
     QDialog, QMessageBox, QLabel, QComboBox, QPushButton,
     QTableWidget, QTableWidgetItem, QTabWidget
@@ -25,7 +25,9 @@ except ImportError:
 # Import our new managers
 from ..utils.format_helpers import format_merge_settings_html
 from ..utils.config import Config, DEV_MODE
-from ..utils.compat import QAbstractItemView_NoEditTriggers, QTextCursor_End, QDialog_Accepted
+from ..utils.compat import (
+    QAbstractItemView_NoEditTriggers, QTextCursor_End, QDialog_Accepted, Qt_UserRole
+)
 from ..utils.logger import PluginLogger
 from ..utils.theme import T
 from ..api.client import APIClient
@@ -123,6 +125,22 @@ class RefreshWorker(QThread):
 class GeodbModernDialog(QDialog, FORM_CLASS):
     """Modern dialog for Geodb.io plugin with clean UI and manager integration."""
 
+    # Display name + description for each syncable model. The list widget shows
+    # the friendly name; the Django model name rides in Qt_UserRole and stays
+    # the key used by every manager (SUPPORTED_MODELS etc.).
+    MODEL_DISPLAY = {
+        'LandHolding': ('Land Holdings', 'Claim boundaries and land parcels'),
+        'DrillPad': ('Drill Pads', 'Drill pad locations'),
+        'DrillCollar': ('Drill Collars', 'Drill hole collar locations'),
+        'PointSample': ('Point Samples', 'Surface samples, with optional assay coloring'),
+        'DrillSample': ('Drill Samples', 'Downhole sample intervals, with optional assay coloring'),
+        'DrillTrace': ('Drill Traces', 'Desurveyed 2D drill hole traces'),
+        'Photo': ('Photos', 'Georeferenced field photos'),
+        'ProjectFile': ('Project Files', 'GeoTIFF / DEM rasters uploaded to geodb.io (pull only)'),
+        'FieldNote': ('Field Notes', 'Field notes and note photos (pull only)'),
+        'Structure': ('Structures', 'Structural measurements with FGDC symbology'),
+    }
+
     def __init__(self, parent=None):
         """Initialize the dialog."""
         super(GeodbModernDialog, self).__init__(parent)
@@ -215,6 +233,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Set up map capture UI
         self._setup_map_capture_ui()
+
+        # Data Sync tab: friendly model names, status/last-sync labels, theming
+        self._setup_data_sync_ui()
 
         # Connect signals
         self._connect_signals()
@@ -999,24 +1020,243 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Update context header
             self._update_context_header()
 
+            # Refresh the Data Sync last-synced line for the new project
+            self._update_last_sync_label()
+
         except Exception as e:
             self.logger.exception("Failed to select project")
             self._log_message(f"Failed to select project: {e}", "error")
 
     # ==================== MODEL SELECTION ====================
 
+    # ==================== DATA SYNC TAB SETUP / STYLING ====================
+
+    def _setup_data_sync_ui(self):
+        """Friendly model names, inline status + last-sync labels, and theming
+        for the Data Sync tab (replaces the hardcoded hex the .ui used to carry)."""
+        # Friendly display names; the real model name rides in Qt_UserRole
+        for row in range(self.modelListWidget.count()):
+            item = self.modelListWidget.item(row)
+            model_name = item.text()
+            display, description = self.MODEL_DISPLAY.get(model_name, (model_name, ''))
+            item.setData(Qt_UserRole, model_name)
+            item.setText(display)
+            if description:
+                item.setToolTip(description)
+
+        # --- New labels on the action pane ---
+        action_layout = self.selectedModelLabel.parentWidget().layout()
+        title_index = action_layout.indexOf(self.selectedModelLabel)
+
+        self.modelSubtitleLabel = QLabel("")
+        self.modelSubtitleLabel.setWordWrap(True)
+        self.modelSubtitleLabel.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 11px;")
+        action_layout.insertWidget(title_index + 1, self.modelSubtitleLabel)
+
+        self.lastSyncLabel = QLabel("")
+        self.lastSyncLabel.setWordWrap(True)
+        self.lastSyncLabel.setStyleSheet(f"color: {T.TEXT_FAINT}; font-size: 11px;")
+        action_layout.insertWidget(title_index + 2, self.lastSyncLabel)
+
+        # Inline status line under the progress bar — live progress + final
+        # result stay visible here instead of only in the Log tab
+        self.syncStatusLabel = QLabel("")
+        self.syncStatusLabel.setWordWrap(True)
+        self.syncStatusLabel.hide()
+        action_layout.addWidget(self.syncStatusLabel)
+
+        self._style_data_sync_tab()
+
+    def _style_data_sync_tab(self):
+        """Apply theme-token styling (light/dark aware) to the Data Sync tab."""
+        # Tab bar chrome for the whole dialog (was hardcoded teal in the .ui)
+        self.mainTabWidget.setStyleSheet(f"""
+            QTabBar::tab {{ padding: 10px 25px; font-weight: bold; min-width: 90px; }}
+            QTabBar::tab:selected {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
+            }}
+            QTabBar::tab:!selected {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QTabWidget::pane {{ border: 1px solid {T.BORDER_SUBTLE}; border-radius: 4px; }}
+        """)
+
+        # Group boxes on the tab get a consistent card look
+        self.dataSyncTab.setStyleSheet(f"""
+            QGroupBox {{
+                font-weight: bold;
+                color: {T.TEXT_MUTED};
+                border: 1px solid {T.BORDER_SUBTLE};
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 6px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+            }}
+        """)
+
+        self.modelListWidget.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {T.SURFACE};
+                border: none;
+                outline: none;
+            }}
+            QListWidget::item {{
+                padding: 8px 6px;
+                margin: 1px 2px;
+                border-radius: 4px;
+                color: {T.TEXT_PRIMARY};
+            }}
+            QListWidget::item:hover {{ background-color: {T.SURFACE_SUBTLE}; }}
+            QListWidget::item:selected {{
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
+            }}
+        """)
+
+        self.selectedModelLabel.setStyleSheet(
+            f"font-size: 15pt; font-weight: bold; color: {T.TEXT_STRONG};"
+        )
+        self.actionHintLabel.setStyleSheet(
+            f"color: {T.TEXT_FAINT}; font-style: italic; font-size: 11px;"
+        )
+
+        # Pull = primary action (accent fill), Push = secondary (accent outline)
+        self.pullButton.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 11pt;
+                font-weight: bold;
+                padding: 8px 16px;
+                background-color: {T.ACCENT};
+                color: {T.TEXT_ON_ACCENT};
+                border: none;
+                border-radius: 6px;
+            }}
+            QPushButton:hover {{ background-color: {T.ACCENT_HOVER}; }}
+            QPushButton:pressed {{ background-color: {T.ACCENT_ACTIVE}; }}
+            QPushButton:disabled {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_FAINT};
+            }}
+        """)
+        self.pushButton.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 11pt;
+                font-weight: bold;
+                padding: 8px 16px;
+                background-color: {T.SURFACE};
+                color: {T.ACCENT_TEXT};
+                border: 1px solid {T.ACCENT};
+                border-radius: 6px;
+            }}
+            QPushButton:hover {{ background-color: {T.SURFACE_SUBTLE}; }}
+            QPushButton:pressed {{ background-color: {T.SURFACE_SUNKEN}; }}
+            QPushButton:disabled {{
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_FAINT};
+                border-color: {T.BORDER_SUBTLE};
+            }}
+        """)
+
+        self.progressBar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.BORDER_SUBTLE};
+                border-radius: 6px;
+                background-color: {T.SURFACE_SUNKEN};
+                color: {T.TEXT_PRIMARY};
+                text-align: center;
+                min-height: 18px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.ACCENT};
+                border-radius: 5px;
+            }}
+        """)
+
+    def _set_sync_status(self, message: str, level: str = "info"):
+        """Show live sync status inline on the Data Sync tab."""
+        if not hasattr(self, 'syncStatusLabel'):
+            return
+        colors = {
+            "info": (T.TEXT_MUTED, T.SURFACE_SUBTLE, T.BORDER_SUBTLE),
+            "success": (T.SUCCESS_TEXT, T.SUCCESS_BG, T.SUCCESS),
+            "warning": (T.WARNING_TEXT, T.WARNING_BG, T.WARNING),
+            "error": (T.DANGER_TEXT, T.DANGER_BG, T.DANGER),
+        }
+        fg, bg, border = colors.get(level, colors["info"])
+        self.syncStatusLabel.setStyleSheet(f"""
+            color: {fg};
+            background-color: {bg};
+            border: 1px solid {border};
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 11px;
+        """)
+        self.syncStatusLabel.setText(message)
+        self.syncStatusLabel.show()
+
+    def _last_sync_key(self, direction: str) -> Optional[str]:
+        """QSettings key for the current project + model + direction."""
+        if not self.current_model:
+            return None
+        project = self.project_manager.active_project
+        project_id = getattr(project, 'id', None) if project else None
+        if project_id is None:
+            return None
+        return f"geodb/last_sync/{project_id}/{self.current_model}/{direction}"
+
+    def _record_sync(self, direction: str, summary: str):
+        """Persist a per-project, per-model last-sync record and refresh the label."""
+        key = self._last_sync_key(direction)
+        if not key:
+            return
+        stamp = QDateTime.currentDateTime().toString("yyyy-MM-dd hh:mm")
+        QSettings().setValue(key, f"{stamp}|{summary}")
+        self._update_last_sync_label()
+
+    def _update_last_sync_label(self):
+        """Show when this model was last pulled/pushed on this machine."""
+        if not hasattr(self, 'lastSyncLabel'):
+            return
+        settings = QSettings()
+        parts = []
+        for direction, verb in (('pull', 'Last pulled'), ('push', 'Last pushed')):
+            key = self._last_sync_key(direction)
+            value = settings.value(key, '') if key else ''
+            if value:
+                stamp, _, summary = str(value).partition('|')
+                text = f"{verb} {stamp}"
+                if summary:
+                    text += f" · {summary}"
+                parts.append(text)
+        if parts:
+            self.lastSyncLabel.setText("   |   ".join(parts))
+        else:
+            self.lastSyncLabel.setText("Not yet synced on this machine")
+
     def _on_model_selected(self, current, previous):
         """Handle model selection from list."""
         if not current:
             return
 
-        model_name = current.text()
+        model_name = current.data(Qt_UserRole) or current.text()
         self.current_model = model_name
         self.current_assay_config = None  # Reset assay config when model changes
         self.assay_config_is_none = False  # Reset "None" flag when model changes
 
-        # Update title
-        self.selectedModelLabel.setText(f"{model_name}")
+        # Update title + subtitle + last-sync info
+        display, description = self.MODEL_DISPLAY.get(model_name, (model_name, ''))
+        self.selectedModelLabel.setText(display)
+        if hasattr(self, 'modelSubtitleLabel'):
+            self.modelSubtitleLabel.setText(description)
+        if hasattr(self, 'syncStatusLabel'):
+            self.syncStatusLabel.hide()
+        self._update_last_sync_label()
 
         # Show/hide options based on model
         # First hide all model-specific option groups
@@ -1317,19 +1557,20 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 pulled = result.get('pulled', 0)
                 added = result.get('added', 0)
                 updated = result.get('updated', 0)
-                self._log_message(
-                    f"✓ Pull complete: {pulled} records ({added} added, {updated} updated)",
-                    "success"
-                )
+                summary = f"{pulled} records ({added} added, {updated} updated)"
+                self._log_message(f"✓ Pull complete: {summary}", "success")
             else:
-                self._log_message(
-                    f"✓ Pull complete: {result.records_created} created, "
-                    f"{result.records_updated} updated",
-                    "success"
+                summary = (
+                    f"{result.records_created} created, "
+                    f"{result.records_updated} updated"
                 )
+                self._log_message(f"✓ Pull complete: {summary}", "success")
 
                 if result.layer:
                     self._log_message(f"Layer '{result.layer.name()}' added to QGIS", "success")
+
+            self._set_sync_status(f"✓ Pull complete: {summary}", "success")
+            self._record_sync('pull', summary)
 
             # Apply styling for PointSample/DrillSample
             if self.current_model in ["PointSample", "DrillSample"]:
@@ -1358,13 +1599,16 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 self._apply_structure_styling(result)
 
         except APIPermissionError as e:
+            self._set_sync_status(f"Permission denied: {e}", "error")
             self._log_message(f"Permission denied: {e}", "error")
             QMessageBox.critical(self, "Permission Denied", str(e))
         except NetworkError as e:
+            self._set_sync_status(f"Network error: {e}", "error")
             self._log_message(f"Network error: {e}", "error")
             QMessageBox.critical(self, "Network Error", str(e))
         except Exception as e:
             self.logger.exception("Pull failed")
+            self._set_sync_status(f"Pull failed: {e}", "error")
             self._log_message(f"Pull failed: {e}", "error")
             QMessageBox.critical(self, "Error", f"Pull failed: {e}")
         finally:
@@ -1422,17 +1666,22 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                         f"Raster layer '{layer_name}' added to QGIS",
                         "success"
                     )
+                self._set_sync_status(f"✓ Layer '{layer_name}' added to QGIS", "success")
             elif result['errors']:
                 for error in result['errors']:
                     self._log_message(f"Error: {error}", "error")
+                self._set_sync_status("Download finished with errors — see the Log tab", "error")
             else:
                 self._log_message("File skipped or not loaded", "warning")
+                self._set_sync_status("File skipped or not loaded", "warning")
 
         except NetworkError as e:
+            self._set_sync_status(f"Network error: {e}", "error")
             self._log_message(f"Network error: {e}", "error")
             QMessageBox.critical(self, "Network Error", str(e))
         except Exception as e:
             self.logger.exception("Raster pull failed")
+            self._set_sync_status(f"Download failed: {e}", "error")
             self._log_message(f"Download failed: {e}", "error")
             QMessageBox.critical(self, "Error", f"Download failed: {e}")
         finally:
@@ -1694,27 +1943,29 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 if skipped > 0:
                     message_parts.append(f"{skipped} unchanged (skipped)")
 
-                if message_parts:
-                    message = f"✓ Push complete: {', '.join(message_parts)}"
-                else:
-                    message = "✓ Push complete: no changes"
-
-                self._log_message(message, "success")
+                summary = ', '.join(message_parts) if message_parts else "no changes"
+                self._log_message(f"✓ Push complete: {summary}", "success")
             else:
-                self._log_message(
-                    f"✓ Push complete: {result.records_created} created, "
-                    f"{result.records_updated} updated, {result.records_deleted} deleted",
-                    "success"
+                summary = (
+                    f"{result.records_created} created, "
+                    f"{result.records_updated} updated, {result.records_deleted} deleted"
                 )
+                self._log_message(f"✓ Push complete: {summary}", "success")
+
+            self._set_sync_status(f"✓ Push complete: {summary}", "success")
+            self._record_sync('push', summary)
 
         except APIPermissionError as e:
+            self._set_sync_status(f"Permission denied: {e}", "error")
             self._log_message(f"Permission denied: {e}", "error")
             QMessageBox.critical(self, "Permission Denied", str(e))
         except ValidationError as e:
+            self._set_sync_status(f"Validation error: {e}", "error")
             self._log_message(f"Validation error: {e}", "error")
             QMessageBox.critical(self, "Validation Error", str(e))
         except Exception as e:
             self.logger.exception("Push failed")
+            self._set_sync_status(f"Push failed: {e}", "error")
             self._log_message(f"Push failed: {e}", "error")
             QMessageBox.critical(self, "Error", f"Push failed: {e}")
         finally:
@@ -1743,6 +1994,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     def _on_progress(self, percent: int, message: str):
         """Handle progress updates."""
         self.progressBar.setValue(percent)
+        self._set_sync_status(message, "info")
         self._log_message(f"[{percent}%] {message}", "info")
 
     # ==================== MESSAGES ====================

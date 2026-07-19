@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.25.0
+version=2.26.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,25 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.26.0 - Stay signed in + Data Sync tab refresh
+        - Login credentials now actually persist. Previously a failed session
+          restore for ANY reason (offline at QGIS startup, a transient network
+          error) deleted the stored token, username and password; now only a
+          server-rejected password clears the saved password, and transient
+          errors keep everything. If the saved token has expired the plugin
+          silently re-authenticates with the saved password instead of
+          prompting again.
+        - "Remember my email" and "Save password" now default to ON, and your
+          choice is remembered between sessions. Two-factor accounts can save
+          their password too. Re-logging in with the save box unticked no
+          longer silently wipes a previously saved password mid-session.
+        - Data Sync tab restyled: friendly data type names with descriptions
+          (Land Holdings, Drill Collars, ...), a live inline status line while
+          a pull or push runs plus a color-coded result summary right in the
+          tab (no more digging through the Log tab), and a per-project "last
+          pulled / last pushed" line for the selected data type. Fully
+          theme-aware in light and dark mode, consistent with the login and
+          claims styling.
     2.25.0 - Number & Rename fix: server ordering restored, simple offline fallback
         - "Number & Rename Claims" silently numbered nothing on the server
           path: the request sent sort_direction where the endpoint reads

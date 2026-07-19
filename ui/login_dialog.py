@@ -119,13 +119,15 @@ class LoginDialog(QDialog):
 
         layout.addSpacing(8)
 
-        # Remember me checkbox
+        # Remember me checkbox (defaults on; actual state loaded from prefs)
         self.remember_checkbox = QCheckBox("Remember my email")
+        self.remember_checkbox.setChecked(True)
         self.remember_checkbox.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layout.addWidget(self.remember_checkbox)
 
-        # Save password checkbox
+        # Save password checkbox (defaults on; actual state loaded from prefs)
         self.save_password_checkbox = QCheckBox("Save password (stored securely in QGIS)")
+        self.save_password_checkbox.setChecked(True)
         self.save_password_checkbox.setStyleSheet(f"color: {T.TEXT_MUTED};")
         layout.addWidget(self.save_password_checkbox)
 
@@ -265,11 +267,18 @@ class LoginDialog(QDialog):
     def _load_saved_credentials(self):
         """Load saved email and password from settings if available."""
         if self.auth_manager:
-            # Load saved email
+            # Restore the user's last checkbox choices (default: both on)
+            remember, save_pw = self.auth_manager.get_login_prefs()
+            self.remember_checkbox.setChecked(remember)
+            self.save_password_checkbox.setChecked(save_pw)
+
+            # Load saved email; fall back to the username in the stored auth
+            # config (covers users who logged in before the email was remembered)
             saved_email = self.auth_manager.get_saved_email()
+            if not saved_email:
+                saved_email = self.auth_manager.get_saved_username()
             if saved_email:
                 self.email_input.setText(saved_email)
-                self.remember_checkbox.setChecked(True)
 
             # Load saved password (from QGIS Auth Manager)
             saved_password = self.auth_manager.get_saved_password()
@@ -361,6 +370,12 @@ class LoginDialog(QDialog):
 
         try:
             if self.auth_manager:
+                # Persist the checkbox choices so they survive as defaults
+                self.auth_manager.save_login_prefs(
+                    self.remember_checkbox.isChecked(),
+                    self.save_password_checkbox.isChecked()
+                )
+
                 # Save email if remember me is checked
                 if self.remember_checkbox.isChecked():
                     self.auth_manager.save_email(email)
@@ -418,6 +433,7 @@ class LoginDialog(QDialog):
         user_id = login_result.get('user_id', 0)
         has_recovery_email = login_result.get('has_recovery_email', False)
         username = login_result.get('username', '')
+        password = login_result.get('password')
         save_password = login_result.get('save_password', False)
 
         # Get API client from auth manager
@@ -437,7 +453,8 @@ class LoginDialog(QDialog):
             success, result = self.auth_manager.complete_2fa_login(
                 token=token,
                 username=username,
-                save_password=save_password
+                save_password=save_password,
+                password=password
             )
 
             if success:
