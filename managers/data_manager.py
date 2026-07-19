@@ -13,7 +13,7 @@ from .project_manager import ProjectManager
 from .sync_manager import SyncManager
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
-from ..models.schemas import is_raster_model
+from ..models.schemas import is_raster_model, is_layer_container_model
 
 
 # Supported models for sync operations
@@ -34,6 +34,7 @@ SUPPORTED_MODELS = [
     'ProjectFile',  # GeoTIFFs, DEMs, and other raster files
     'FieldNote',  # Field notes with attached photos
     'Structure',  # Surface geological structures (bedding, faults, etc.)
+    'VectorLayer',  # Uploaded GIS layers — layer-grained, uses pull_vector_layer/push
 ]
 
 
@@ -150,6 +151,13 @@ class DataManager:
         # Special handling for raster models (ProjectFile)
         if is_raster_model(model_name):
             return self._pull_raster_model(model_name, project, progress_callback)
+
+        # Layer-container models sync whole named layers, not project rows —
+        # the generic endpoint would return layer summaries, not features
+        if is_layer_container_model(model_name):
+            raise ValueError(
+                f"{model_name} is layer-grained — use pull_vector_layer(layer_summary)"
+            )
 
         # Special handling for FieldNote (creates two layers: notes + photos)
         if model_name == 'FieldNote':
@@ -370,6 +378,181 @@ class DataManager:
             self.logger.error(f"Pull failed for {model_name}: {e}")
             raise
 
+    # =========================================================================
+    # Vector layers (layer-grained: pull one named layer / push whole as draft)
+    # =========================================================================
+
+    def pull_vector_layer(
+        self,
+        layer_summary: Dict[str, Any],
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Pull one server vector layer into a styled QGIS layer.
+
+        Always full-resolution geometry (never ?simplify=) so a later
+        edit→push round trip cannot degrade untouched features.
+
+        Args:
+            layer_summary: A layer dict from APIClient.get_vector_layers()
+            progress_callback: Optional callback(progress_percent, message)
+
+        Returns:
+            Dict with 'pulled', 'added', 'layer' (the QgsVectorLayer)
+        """
+        project = self.project_manager.get_active_project()
+        if not project:
+            raise ValueError("No project selected")
+        if not self.project_manager.can_view():
+            raise APIPermissionError("No permission to view data")
+
+        layer_id = layer_summary.get('id')
+        display = layer_summary.get('display_name') or layer_summary.get('name')
+        self.logger.info(f"Pulling vector layer {layer_id} ({display})")
+
+        if progress_callback:
+            progress_callback(5, f"Fetching features for '{display}'...")
+
+        features = self.api_client.get_vector_layer_features(
+            layer_id,
+            progress_callback=(
+                (lambda p: progress_callback(
+                    5 + int(p * 0.55), f"Downloading features ({p}%)..."
+                )) if progress_callback else None
+            ),
+        )
+
+        if progress_callback:
+            progress_callback(
+                65, f"Building QGIS layer ({len(features)} features)..."
+            )
+
+        layer, added = self.sync_manager.sync_vector_layer_pull(
+            layer_summary, features, project_name=project.name
+        )
+
+        if progress_callback:
+            progress_callback(95, "Finalizing layer...")
+
+        return {'pulled': len(features), 'added': added, 'layer': layer}
+
+    def push_vector_layer_draft(
+        self,
+        layer_summary: Dict[str, Any],
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Push the pulled (and possibly edited) QGIS copy of a vector layer back
+        to the server as a NEW DRAFT layer in the source layer's set.
+
+        The snapshot diff decides WHETHER to push: an unchanged layer returns
+        {'no_changes': True} without touching the server. The upload is always
+        the whole layer (never per-feature CRUD); promotion to active stays on
+        the web manage surface. The layer's current QGIS symbology travels as
+        QML and is translated server-side; if the server can't translate it,
+        the draft is retried without style rather than failing the push.
+
+        Args:
+            layer_summary: The layer dict from APIClient.get_vector_layers()
+            progress_callback: Optional callback(progress_percent, message)
+
+        Returns:
+            Dict with server response fields (layer, imported, failed, status)
+            plus 'changes' — or {'no_changes': True, 'changes': ...}
+        """
+        project = self.project_manager.get_active_project()
+        if not project:
+            raise ValueError("No project selected")
+        if not self.project_manager.can_edit():
+            raise APIPermissionError("No permission to edit data")
+
+        server_layer_id = layer_summary.get('id')
+        display = layer_summary.get('display_name') or layer_summary.get('name')
+
+        qgis_layer = self.sync_manager.find_vector_layer(server_layer_id)
+        if not qgis_layer:
+            raise ValueError(
+                f"Pull '{display}' first — push uploads your edited local copy "
+                "back to the server as a new draft."
+            )
+
+        if progress_callback:
+            progress_callback(10, "Checking for local changes...")
+
+        changes = self.sync_manager.vector_layer_changes(
+            server_layer_id, qgis_layer
+        )
+        if not any(changes.values()):
+            self.logger.info(f"Vector layer {server_layer_id}: no local changes")
+            if progress_callback:
+                progress_callback(100, "No local changes — nothing to push")
+            return {'no_changes': True, 'changes': changes}
+
+        if progress_callback:
+            progress_callback(30, "Serializing layer for upload...")
+
+        rows = self.sync_manager.build_vector_layer_push_rows(qgis_layer)
+        if not rows:
+            raise ValueError("Layer has no features with geometry to push")
+
+        layer_crs = qgis_layer.crs()
+        epsg = layer_crs.postgisSrid() if layer_crs.isValid() else 4326
+
+        payload = {
+            'name': layer_summary.get('name') or display,
+            'display_name': display,
+            'source_layer_id': server_layer_id,
+            'epsg': epsg,
+            'features': rows,
+        }
+
+        style_qml = self._export_layer_qml(qgis_layer)
+        if style_qml:
+            payload['style_qml'] = style_qml
+
+        if progress_callback:
+            progress_callback(
+                60, f"Uploading {len(rows)} features as a new draft..."
+            )
+
+        try:
+            response = self.api_client.push_vector_layer(payload)
+        except Exception as e:
+            # The server 400s when the QML can't be translated to its style
+            # spec (e.g. rule-based renderers). The geometry+attributes are
+            # still good — retry once without style rather than failing.
+            if style_qml and 'style' in str(e).lower():
+                self.logger.warning(
+                    f"Server rejected layer style, retrying without it: {e}"
+                )
+                payload.pop('style_qml', None)
+                response = self.api_client.push_vector_layer(payload)
+                response['style_dropped'] = True
+            else:
+                raise
+
+        # Re-baseline the snapshot so an immediate re-push reports no changes
+        self.sync_manager.store_vector_layer_snapshot(server_layer_id, qgis_layer)
+
+        if progress_callback:
+            progress_callback(100, "Draft created on server")
+
+        result = dict(response) if isinstance(response, dict) else {}
+        result['changes'] = changes
+        return result
+
+    def _export_layer_qml(self, layer) -> Optional[str]:
+        """Export a layer's current symbology as a QML document string."""
+        try:
+            from qgis.PyQt.QtXml import QDomDocument
+            document = QDomDocument()
+            layer.exportNamedStyle(document)
+            qml = document.toString()
+            return qml if qml and qml.strip() else None
+        except Exception as e:
+            self.logger.warning(f"Could not export layer style as QML: {e}")
+            return None
+
     def push_model_data(
         self,
         model_name: str,
@@ -403,6 +586,12 @@ class DataManager:
         # Validate model name
         if model_name not in SUPPORTED_MODELS:
             raise ValueError(f"Unsupported model: {model_name}")
+
+        # Layer-container models push whole layers as drafts, never per-feature
+        if is_layer_container_model(model_name):
+            raise ValueError(
+                f"{model_name} is layer-grained — use push_vector_layer_draft(...)"
+            )
 
         try:
             if progress_callback:

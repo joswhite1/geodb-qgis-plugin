@@ -1211,6 +1211,101 @@ class APIClient:
         return response.get('results', [])
 
     # =========================================================================
+    # Vector Layers (uploaded GIS layers with server-resolved styling)
+    # =========================================================================
+
+    def get_vector_layers(self) -> List[Dict[str, Any]]:
+        """
+        Get the active vector layers for the current active project.
+
+        The endpoint scopes to the server-side active project (set via
+        set_active_project) and only returns ACTIVE layers in the resolved
+        vintage — drafts and archived layers never appear.
+
+        Returns:
+            List of layer-summary dicts: id, name, display_name, kind,
+            kind_label, geometry_type ('point'|'line'|'polygon'),
+            feature_count, extent, style_mode ('frozen'|'catalog'),
+            style (the spec dict), has_patterns, catalog_legend (catalog mode).
+        """
+        url = f"{self.config.endpoints['vector_layers']}?limit=500"
+        results: List[Dict[str, Any]] = []
+
+        while url:
+            response = self._make_request('GET', url)
+            if isinstance(response, list):
+                results.extend(response)
+                break
+            results.extend(response.get('results', []))
+            next_url = response.get('next')
+            if next_url and self._validate_pagination_url(next_url):
+                url = next_url
+            else:
+                if next_url:
+                    self.logger.warning("Rejected pagination URL from different origin")
+                url = None
+
+        return results
+
+    def get_vector_layer_features(
+        self,
+        layer_id: int,
+        progress_callback: Optional[Callable[[int], None]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get ALL features of a vector layer, following pagination.
+
+        Always fetches FULL-RESOLUTION geometry (never passes ?simplify=) —
+        simplified geometry must never enter a pull→edit→push round trip.
+
+        Each feature dict: id, label, properties (verbatim source attributes),
+        epsg (source SRID), geometry (WGS84 GeoJSON dict), style
+        (server-resolved symbol JSON — the client does zero style logic).
+        """
+        base = self.config.endpoints['vector_layers']
+        url = f"{base}{layer_id}/features/?limit=500"
+        features: List[Dict[str, Any]] = []
+        total = None
+
+        while url:
+            response = self._make_request('GET', url)
+            if isinstance(response, list):
+                features.extend(response)
+                break
+            features.extend(response.get('results', []))
+            if total is None:
+                total = response.get('count')
+            next_url = response.get('next')
+            if next_url and self._validate_pagination_url(next_url):
+                url = next_url
+            else:
+                if next_url:
+                    self.logger.warning("Rejected pagination URL from different origin")
+                url = None
+
+            if progress_callback and total:
+                progress_callback(int(len(features) / total * 100))
+
+        return features
+
+    def push_vector_layer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Push a whole layer to the server as a NEW DRAFT vector layer.
+
+        Payload: name, display_name?, kind?, source_layer_id?, epsg?,
+        style_qml? (raw QGIS .qml XML, translated server-side), attribution?,
+        features[] (each: ewkt OR wkt+epsg, label?, properties?).
+
+        The result always lands status='draft' in the source layer's set (or
+        the project default set); promotion happens on the web manage surface.
+
+        Returns:
+            Dict: {success, layer: <summary>, status: 'draft', imported, failed}
+        """
+        url = self.config.endpoints['vector_layers_push']
+        return self._make_request('POST', url, data=payload)
+
+    # =========================================================================
     # Assay Range Configurations
     # =========================================================================
 

@@ -2837,3 +2837,297 @@ class SyncManager:
 
         self.logger.info(f"Cleared {len(feature_ids)} features from {model_name}")
         return True
+
+    # =========================================================================
+    # VECTOR LAYERS (layer-grained sync)
+    # =========================================================================
+    # A VectorLayer syncs as a whole named layer: pull creates one QGIS layer
+    # per server layer (source attributes flattened to fields verbatim, the
+    # sync envelope in geodb_* fields), the snapshot records the pulled state,
+    # and push (Q2) uploads the WHOLE layer back as a new server-side draft
+    # when the snapshot diff shows changes. Never per-feature CRUD.
+
+    # Custom-property keys stamped on pulled vector layers
+    VECTOR_LAYER_ID_PROP = 'geodb/vector_layer_id'
+    VECTOR_LAYER_NAME_PROP = 'geodb/vector_layer_name'
+    VECTOR_LAYER_STYLE_MODE_PROP = 'geodb/vector_layer_style_mode'
+
+    # Envelope fields added alongside the source attributes
+    VECTOR_ENVELOPE_FIELDS = ('geodb_id', 'geodb_label', 'geodb_style')
+
+    @staticmethod
+    def vector_snapshot_key(server_layer_id) -> str:
+        """Snapshot key for one server vector layer (string feature keys)."""
+        return f"VectorLayer_{server_layer_id}"
+
+    @staticmethod
+    def vector_effective_model_name(layer_summary: Dict[str, Any]) -> str:
+        """The per-layer 'model name' used for QGIS layer naming/lookup."""
+        name = (
+            layer_summary.get('display_name')
+            or layer_summary.get('name')
+            or f"layer_{layer_summary.get('id')}"
+        )
+        return f"VectorLayer_{name}"
+
+    def sync_vector_layer_pull(
+        self,
+        layer_summary: Dict[str, Any],
+        features: List[Dict[str, Any]],
+        project_name: Optional[str] = None
+    ):
+        """
+        Create/replace the QGIS layer for one pulled server vector layer.
+
+        Args:
+            layer_summary: The layer-summary dict from GET /vector-layers/
+            features: Feature dicts from GET /vector-layers/<id>/features/
+            project_name: Active project name (layer-name prefix)
+
+        Returns:
+            Tuple of (QgsVectorLayer, added_count)
+        """
+        from qgis.PyQt.QtCore import QVariant
+        from qgis.core import QgsFields, QgsField
+
+        geometry_map = {
+            'point': 'MultiPoint',
+            'line': 'MultiLineString',
+            'polygon': 'MultiPolygon',
+        }
+        geometry_type = geometry_map.get(
+            layer_summary.get('geometry_type'), 'MultiPolygon'
+        )
+
+        # Union of source attribute keys (first-seen order), type from the
+        # first non-null value. Source names are kept verbatim so the style
+        # spec's categorized `attribute` matches a real field.
+        property_keys: List[str] = []
+        property_types: Dict[str, Any] = {}
+        for feature in features:
+            for key, value in (feature.get('properties') or {}).items():
+                if key in self.VECTOR_ENVELOPE_FIELDS or key == 'fid':
+                    continue
+                if key not in property_types:
+                    property_keys.append(key)
+                    property_types[key] = None
+                if property_types[key] is None and value is not None:
+                    property_types[key] = type(value)
+
+        def field_type_for(py_type):
+            if py_type is bool:
+                return QVariant.Bool
+            if py_type is int:
+                return QVariant.LongLong
+            if py_type is float:
+                return QVariant.Double
+            return QVariant.String
+
+        fields = QgsFields()
+        fields.append(QgsField('geodb_id', QVariant.LongLong))
+        fields.append(QgsField('geodb_label', QVariant.String))
+        for key in property_keys:
+            fields.append(QgsField(key, field_type_for(property_types.get(key))))
+        fields.append(QgsField('geodb_style', QVariant.String))
+
+        effective_name = self.vector_effective_model_name(layer_summary)
+        layer = self.layer_processor.remove_and_recreate_layer(
+            effective_name, geometry_type, fields, 'EPSG:4326', project_name
+        )
+
+        # Flatten API features for the shared add path
+        flat_features = []
+        for feature in features:
+            row = {
+                'geometry': feature.get('geometry'),
+                'geodb_id': feature.get('id'),
+                'geodb_label': feature.get('label') or '',
+                'geodb_style': json.dumps(
+                    feature.get('style') or {}, sort_keys=True
+                ),
+            }
+            properties = feature.get('properties') or {}
+            for key in property_keys:
+                value = properties.get(key)
+                if isinstance(value, (dict, list)):
+                    value = json.dumps(value, sort_keys=True)
+                row[key] = value
+            flat_features.append(row)
+
+        added = self.layer_processor.add_features(
+            layer, flat_features, force_multi=True
+        )
+
+        # Identity for styling + Q2 push
+        layer.setCustomProperty(self.VECTOR_LAYER_ID_PROP, layer_summary.get('id'))
+        layer.setCustomProperty(
+            self.VECTOR_LAYER_NAME_PROP, layer_summary.get('name') or ''
+        )
+        layer.setCustomProperty(
+            self.VECTOR_LAYER_STYLE_MODE_PROP,
+            layer_summary.get('style_mode') or 'frozen',
+        )
+
+        # Snapshot the as-stored state so push can decide "anything changed?"
+        self.store_vector_layer_snapshot(layer_summary.get('id'), layer)
+
+        return layer, added
+
+    def find_vector_layer(self, server_layer_id):
+        """Find the pulled QGIS layer for a server vector layer id."""
+        for layer in QgsProject.instance().mapLayers().values():
+            try:
+                if layer.customProperty(self.VECTOR_LAYER_ID_PROP) in (
+                    server_layer_id, str(server_layer_id)
+                ):
+                    return layer
+            except AttributeError:
+                continue
+        return None
+
+    def _vector_jsonable(self, value):
+        """QGIS attribute value → clean JSON value (NULL-safe)."""
+        if value is None:
+            return None
+        try:
+            from qgis.PyQt.QtCore import QVariant
+            if isinstance(value, QVariant):
+                return None if value.isNull() else value.value()
+        except ImportError:
+            pass
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        # QDate/QDateTime and friends
+        if hasattr(value, 'toString'):
+            try:
+                return value.toString('yyyy-MM-dd hh:mm:ss')
+            except TypeError:
+                pass
+        return str(value)
+
+    def build_vector_layer_push_rows(self, layer) -> List[Dict[str, Any]]:
+        """
+        Serialize a pulled vector layer into push-endpoint feature dicts.
+
+        Each row: {'ewkt', 'label', 'properties'}. EWKT at precision 12 —
+        push feeds a NEW DRAFT, and untouched geometry must survive the
+        round trip without degradation. Features without geometry are skipped
+        (the endpoint requires geometry per feature).
+        """
+        property_fields = [
+            f.name() for f in layer.fields()
+            if f.name() not in self.VECTOR_ENVELOPE_FIELDS and f.name() != 'fid'
+        ]
+        layer_crs = layer.crs()
+        epsg = layer_crs.postgisSrid() if layer_crs.isValid() else 4326
+
+        rows = []
+        for feature in layer.getFeatures():
+            geometry = feature.geometry()
+            if geometry is None or geometry.isNull():
+                continue
+            properties = {}
+            for field_name in property_fields:
+                properties[field_name] = self._vector_jsonable(
+                    feature.attribute(field_name)
+                )
+            label = self._vector_jsonable(feature.attribute('geodb_label'))
+            rows.append({
+                'ewkt': self.geometry_processor.qgs_to_ewkt(
+                    geometry, srid=epsg, precision=12
+                ),
+                'label': str(label) if label else '',
+                'properties': properties,
+            })
+        return rows
+
+    def _vector_rows_with_keys(self, layer) -> List:
+        """[(key, row)] — key is the server feature id, or 'local_<fid>' for
+        features added in QGIS (string keys throughout)."""
+        keyed = []
+        property_fields = [
+            f.name() for f in layer.fields()
+            if f.name() not in self.VECTOR_ENVELOPE_FIELDS and f.name() != 'fid'
+        ]
+        layer_crs = layer.crs()
+        epsg = layer_crs.postgisSrid() if layer_crs.isValid() else 4326
+
+        for feature in layer.getFeatures():
+            server_id = self._vector_jsonable(feature.attribute('geodb_id'))
+            key = str(server_id) if server_id else f"local_{feature.id()}"
+
+            geometry = feature.geometry()
+            ewkt = ''
+            if geometry is not None and not geometry.isNull():
+                ewkt = self.geometry_processor.qgs_to_ewkt(
+                    geometry, srid=epsg, precision=12
+                )
+            properties = {
+                name: self._vector_jsonable(feature.attribute(name))
+                for name in property_fields
+            }
+            label = self._vector_jsonable(feature.attribute('geodb_label'))
+            keyed.append((key, {
+                'ewkt': ewkt,
+                'label': str(label) if label else '',
+                'properties': properties,
+            }))
+        return keyed
+
+    @staticmethod
+    def _vector_row_hash(row: Dict[str, Any]) -> str:
+        return hashlib.sha256(
+            json.dumps(row, sort_keys=True, default=str).encode('utf-8')
+        ).hexdigest()
+
+    def store_vector_layer_snapshot(self, server_layer_id, layer):
+        """Snapshot the layer's current state (basis for the push diff)."""
+        key = self.vector_snapshot_key(server_layer_id)
+        snapshot = {
+            feature_key: self._vector_row_hash(row)
+            for feature_key, row in self._vector_rows_with_keys(layer)
+        }
+        self._server_snapshots[key] = snapshot
+        self._save_snapshot_to_project(key, snapshot)
+        self.logger.info(
+            f"Stored vector snapshot {key}: {len(snapshot)} features"
+        )
+
+    def _get_vector_snapshot(self, server_layer_id) -> Dict[str, str]:
+        """String-keyed snapshot loader (the generic loader int-converts keys,
+        which would silently drop 'local_<fid>' entries)."""
+        key = self.vector_snapshot_key(server_layer_id)
+        if key not in self._server_snapshots:
+            snapshot_json = QgsProject.instance().readEntry(
+                self.SYNC_VAR_SECTION, f"{key}_snapshot", ""
+            )[0]
+            snapshot = {}
+            if snapshot_json:
+                try:
+                    snapshot = {
+                        str(k): v for k, v in json.loads(snapshot_json).items()
+                    }
+                except (json.JSONDecodeError, ValueError):
+                    snapshot = {}
+            self._server_snapshots[key] = snapshot
+        return self._server_snapshots.get(key, {})
+
+    def vector_layer_changes(self, server_layer_id, layer) -> Dict[str, int]:
+        """
+        Diff the layer against its pull snapshot.
+
+        Returns:
+            {'added': n, 'modified': n, 'removed': n} — all zero means the
+            layer is unchanged and there is nothing to push.
+        """
+        stored = self._get_vector_snapshot(server_layer_id)
+        current = {
+            feature_key: self._vector_row_hash(row)
+            for feature_key, row in self._vector_rows_with_keys(layer)
+        }
+        added = sum(1 for k in current if k not in stored)
+        removed = sum(1 for k in stored if k not in current)
+        modified = sum(
+            1 for k, h in current.items() if k in stored and stored[k] != h
+        )
+        return {'added': added, 'modified': modified, 'removed': removed}

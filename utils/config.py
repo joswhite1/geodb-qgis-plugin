@@ -283,6 +283,11 @@ class Config:
             # same derivation as the 2FA endpoints above.
             'plotted_claims': f"{base.replace('/v2', '/v1')}/plotted-claims/",
             'qq_tristate': f"{base.replace('/v2', '/v1')}/qq-tristate/",
+
+            # Vector layers (uploaded GIS layers with server-resolved styling).
+            # v2-only surface; list/detail + /<id>/features/ + /push/.
+            'vector_layers': f"{base}/vector-layers/",
+            'vector_layers_push': f"{base}/vector-layers/push/",
         }
 
     def get_model_endpoint(self, model_name: str) -> str:
@@ -314,6 +319,7 @@ class Config:
             'ProjectFile': 'project_files',
             'FieldNote': 'field_notes',
             'Structure': 'structures',
+            'VectorLayer': 'vector_layers',
         }
 
         endpoint_key = model_map.get(model_name)

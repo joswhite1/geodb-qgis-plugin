@@ -484,7 +484,8 @@ class LayerProcessor:
         self,
         layer: QgsVectorLayer,
         features_data: List[Dict[str, Any]],
-        geometry_field: str = 'geometry'
+        geometry_field: str = 'geometry',
+        force_multi: bool = False
     ) -> int:
         """
         Add features to layer.
@@ -493,6 +494,9 @@ class LayerProcessor:
             layer: Target layer
             features_data: List of feature dictionaries
             geometry_field: Name of geometry field in data
+            force_multi: Convert parsed geometries to their Multi* type — use
+                when the target layer is Multi-typed but the source mixes
+                single and multi geometries (e.g. vector layer pulls)
 
         Returns:
             Number of features added
@@ -576,6 +580,8 @@ class LayerProcessor:
                             geometry = point_geom
 
             if geometry and not geometry.isNull():
+                if force_multi:
+                    geometry.convertToMultiType()
                 feature.setGeometry(geometry)
                 geom_success += 1
             elif geom_data or feature_data.get('location'):

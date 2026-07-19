@@ -464,6 +464,15 @@
             <normaloff>../icons/crosshair2.svg</normaloff>../icons/crosshair2.svg</iconset>
           </property>
          </item>
+         <item>
+          <property name="text">
+           <string>VectorLayer</string>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>../icons/database-fill-check.svg</normaloff>../icons/database-fill-check.svg</iconset>
+          </property>
+         </item>
         </widget>
        </item>
       </layout>

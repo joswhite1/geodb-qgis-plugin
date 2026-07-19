@@ -905,6 +905,33 @@ STRUCTURE_SCHEMA = ModelSchema(
 
 
 # =============================================================================
+# VECTOR LAYER (uploaded GIS layers — layer-grained, not row-grained)
+# =============================================================================
+
+# VectorLayer is a LAYER CONTAINER: the unit of sync is a whole named layer
+# (geology units, faults, ...) with server-resolved styling, not a per-row
+# model. Pull fetches one selected layer's features; push uploads the whole
+# layer back as a NEW DRAFT (never per-feature CRUD). The schema below
+# describes the per-feature envelope; source attributes ride in `properties`
+# and are flattened into QGIS fields dynamically at pull time.
+VECTOR_LAYER_SCHEMA = ModelSchema(
+    name='VectorLayer',
+    api_endpoint='vector_layers',
+    geometry_type=GeometryType.MULTIPOLYGON,  # actual type comes from the layer summary
+    display_name='Vector Layers',
+    description='Uploaded GIS layers (geology, faults, targets, ...) with server styling',
+    supports_push=True,
+    supports_pull=True,
+    natural_key_fields=[],
+    fields=[
+        FieldSchema('id', FieldType.INTEGER, readonly=True),
+        FieldSchema('label', FieldType.STRING, length=255),
+        FieldSchema('epsg', FieldType.INTEGER, readonly=True),
+    ],
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -929,6 +956,7 @@ MODEL_SCHEMAS: Dict[str, ModelSchema] = {
     'FieldNote': FIELDNOTE_SCHEMA,
     'FieldNotePhoto': FIELDNOTE_PHOTO_SCHEMA,
     'Structure': STRUCTURE_SCHEMA,
+    'VectorLayer': VECTOR_LAYER_SCHEMA,
 }
 
 
@@ -936,9 +964,20 @@ MODEL_SCHEMAS: Dict[str, ModelSchema] = {
 RASTER_MODELS = ['ProjectFile']
 
 
+# Models where the sync unit is a whole named LAYER picked from a server list
+# (not the project's single per-model layer). These bypass the generic
+# pull/push path — the UI routes them through their dedicated flow.
+LAYER_CONTAINER_MODELS = ['VectorLayer']
+
+
 def is_raster_model(model_name: str) -> bool:
     """Check if a model is raster-based (requires file download, not vector layer)."""
     return model_name in RASTER_MODELS
+
+
+def is_layer_container_model(model_name: str) -> bool:
+    """Check if a model syncs whole named layers (e.g. VectorLayer)."""
+    return model_name in LAYER_CONTAINER_MODELS
 
 
 def get_schema(model_name: str) -> Optional[ModelSchema]:

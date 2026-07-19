@@ -274,7 +274,8 @@ class StorageManager:
                 geodb_models = [
                     'DrillCollar', 'DrillSample', 'DrillPad', 'DrillLithology',
                     'DrillAlteration', 'DrillStructure', 'DrillMineralization',
-                    'DrillSurvey', 'DrillPhoto', 'LandHolding', 'PointSample', 'Photo'
+                    'DrillSurvey', 'DrillPhoto', 'LandHolding', 'PointSample', 'Photo',
+                    'VectorLayer'
                 ]
                 if layer_name in geodb_models and layer.featureCount() > 0:
                     return True
@@ -294,7 +295,8 @@ class StorageManager:
         geodb_models = [
             'DrillCollar', 'DrillSample', 'DrillPad', 'DrillLithology',
             'DrillAlteration', 'DrillStructure', 'DrillMineralization',
-            'DrillSurvey', 'DrillPhoto', 'LandHolding', 'PointSample', 'Photo'
+            'DrillSurvey', 'DrillPhoto', 'LandHolding', 'PointSample', 'Photo',
+            'VectorLayer'
         ]
 
         for layer in QgsProject.instance().mapLayers().values():

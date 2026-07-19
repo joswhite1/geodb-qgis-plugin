@@ -261,6 +261,230 @@ class StyleProcessor:
 
         return symbol
 
+    # ==================== VECTOR LAYER STYLE-SPEC TRANSLATOR ====================
+    # Translates the server's neutral style spec (vector_layers_master.md §3.2,
+    # SPEC_VERSION 1) into native QGIS renderers. Lossy-to-nearest by design —
+    # exact colors/labels/attributes, nearest match for patterns and widths.
+
+    # Web px → QGIS mm (96 dpi)
+    _PX_TO_MM = 0.2646
+
+    # Server pattern flavors → QGIS simple-fill brush styles. Nearest-match
+    # inverse of the server's _QGIS_FILL_TO_FLAVOR (vector_style_extraction.py).
+    VECTOR_FLAVOR_TO_QGIS_FILL = {
+        'diag-stripe': 'f_diagonal',
+        'diag-cross': 'diagonal_x',
+        'horiz-stripe': 'horizontal',
+        'vert-stripe': 'vertical',
+        'grid': 'cross',
+        'checker': 'dense2',
+        'dots-coarse': 'dense3',
+        'dots-fine': 'dense6',
+    }
+
+    # Server dashArray strings → QGIS line styles (inverse of _QGIS_LINE_TO_DASH)
+    VECTOR_DASH_TO_QGIS_LINE = {
+        '8 6': 'dash',
+        '2 6': 'dot',
+        '8 6 2 6': 'dash dot',
+        '8 6 2 6 2 6': 'dash dot dot',
+    }
+
+    VECTOR_MARKER_SHAPES = ('circle', 'square', 'triangle', 'diamond', 'star')
+
+    def apply_vector_layer_style(
+        self,
+        layer: QgsVectorLayer,
+        layer_summary: Dict[str, Any]
+    ) -> bool:
+        """
+        Apply a pulled vector layer's server style to the QGIS layer.
+
+        frozen single/categorized/graduated specs become native QGIS renderers
+        on the source attribute; catalog-mode layers (styled by the geoDB
+        lithology/alteration/formation catalogs) categorize on the per-feature
+        resolved style JSON (`geodb_style`) with legend labels from
+        catalog_legend — the catalog itself is never exposed client-side.
+
+        Returns:
+            True if a renderer was applied
+        """
+        if not layer or not layer.isValid():
+            return False
+
+        spec = layer_summary.get('style') or {}
+        style_mode = layer_summary.get('style_mode') or 'frozen'
+
+        try:
+            if style_mode == 'catalog':
+                return self._apply_vector_catalog_style(layer, layer_summary)
+
+            renderer_type = spec.get('renderer', 'single')
+            if renderer_type == 'categorized' and spec.get('attribute'):
+                return self._apply_vector_categorized_style(layer, spec)
+            if renderer_type == 'graduated' and spec.get('attribute'):
+                return self._apply_vector_graduated_style(layer, spec)
+            return self._apply_vector_single_style(layer, spec)
+        except Exception as e:
+            self.logger.exception(f"Failed to apply vector layer style: {e}")
+            return False
+
+    def _apply_vector_single_style(self, layer, spec: Dict[str, Any]) -> bool:
+        symbol = self._vector_symbol_from_spec(layer, spec.get('default') or {})
+        from qgis.core import QgsSingleSymbolRenderer
+        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        layer.triggerRepaint()
+        return True
+
+    def _apply_vector_categorized_style(self, layer, spec: Dict[str, Any]) -> bool:
+        attribute = spec['attribute']
+        if layer.fields().indexFromName(attribute) < 0:
+            self.logger.warning(
+                f"Vector style attribute '{attribute}' not on layer — using single symbol"
+            )
+            return self._apply_vector_single_style(layer, spec)
+
+        categories = []
+        for category in spec.get('categories', []):
+            symbol = self._vector_symbol_from_spec(layer, category)
+            value = category.get('value')
+            label = str(category.get('label') or value or '')
+            categories.append(QgsRendererCategory(value, symbol, label))
+
+        # Catch-all for values not in the spec (server falls back to default)
+        default_symbol = self._vector_symbol_from_spec(layer, spec.get('default') or {})
+        categories.append(QgsRendererCategory(None, default_symbol, 'Other'))
+
+        layer.setRenderer(QgsCategorizedSymbolRenderer(attribute, categories))
+        layer.triggerRepaint()
+        return True
+
+    def _apply_vector_graduated_style(self, layer, spec: Dict[str, Any]) -> bool:
+        attribute = spec['attribute']
+        if layer.fields().indexFromName(attribute) < 0:
+            self.logger.warning(
+                f"Vector style attribute '{attribute}' not on layer — using single symbol"
+            )
+            return self._apply_vector_single_style(layer, spec)
+
+        ranges = []
+        for category in spec.get('categories', []):
+            bounds = str(category.get('value', ''))
+            if '..' not in bounds:
+                continue
+            try:
+                lower_str, upper_str = bounds.split('..', 1)
+                lower, upper = float(lower_str), float(upper_str)
+            except ValueError:
+                continue
+            symbol = self._vector_symbol_from_spec(layer, category)
+            label = str(category.get('label') or f"{lower} - {upper}")
+            ranges.append(QgsRendererRange(lower, upper, symbol, label))
+
+        if not ranges:
+            return self._apply_vector_single_style(layer, spec)
+
+        renderer = QgsGraduatedSymbolRenderer(attribute, ranges)
+        default_symbol = self._vector_symbol_from_spec(layer, spec.get('default') or {})
+        renderer.setSourceSymbol(default_symbol)
+        layer.setRenderer(renderer)
+        layer.triggerRepaint()
+        return True
+
+    def _apply_vector_catalog_style(self, layer, layer_summary: Dict[str, Any]) -> bool:
+        """Categorize on the per-feature resolved style JSON (geodb_style)."""
+        import json as _json
+
+        if layer.fields().indexFromName('geodb_style') < 0:
+            return self._apply_vector_single_style(layer, layer_summary.get('style') or {})
+
+        legend_by_color = {}
+        for entry in layer_summary.get('catalog_legend') or []:
+            color = (entry.get('color') or '').lower()
+            if color and color not in legend_by_color:
+                legend_by_color[color] = entry.get('label')
+
+        distinct_styles = []
+        for feature in layer.getFeatures():
+            value = feature.attribute('geodb_style')
+            if value and value not in distinct_styles:
+                distinct_styles.append(value)
+
+        categories = []
+        for style_json in distinct_styles:
+            try:
+                symbol_spec = _json.loads(style_json)
+            except (ValueError, TypeError):
+                continue
+            symbol = self._vector_symbol_from_spec(layer, symbol_spec)
+            color = (symbol_spec.get('color') or '').lower()
+            label = legend_by_color.get(color) or color or 'Unstyled'
+            categories.append(QgsRendererCategory(style_json, symbol, str(label)))
+
+        spec = layer_summary.get('style') or {}
+        default_symbol = self._vector_symbol_from_spec(layer, spec.get('default') or {})
+        categories.append(QgsRendererCategory(None, default_symbol, 'Uncatalogued'))
+
+        layer.setRenderer(QgsCategorizedSymbolRenderer('geodb_style', categories))
+        layer.triggerRepaint()
+        return True
+
+    def _vector_symbol_from_spec(self, layer, symbol_spec: Dict[str, Any]) -> QgsSymbol:
+        """One spec <symbol> dict → a QGIS symbol matching the layer's geometry."""
+        geometry_type = layer.geometryType()
+        color = symbol_spec.get('color') or '#808080'
+        outline = symbol_spec.get('outline')
+        weight = symbol_spec.get('weight')
+        dash = symbol_spec.get('dashArray')
+        pattern = symbol_spec.get('pattern')
+        fill_opacity = symbol_spec.get('fillOpacity')
+
+        if geometry_type == QgsWkbTypes.PointGeometry:
+            shape = symbol_spec.get('shape')
+            props = {
+                'name': shape if shape in self.VECTOR_MARKER_SHAPES else 'circle',
+                'color': color,
+                'outline_color': outline or '#333333',
+            }
+            size = symbol_spec.get('size')
+            if size:
+                props['size'] = str(round(float(size) * self._PX_TO_MM, 2))
+            return QgsMarkerSymbol.createSimple(props)
+
+        if geometry_type == QgsWkbTypes.LineGeometry:
+            props = {'color': color}
+            if weight:
+                props['width'] = str(round(float(weight) * self._PX_TO_MM, 2))
+            if dash:
+                props['line_style'] = self.VECTOR_DASH_TO_QGIS_LINE.get(str(dash), 'dash')
+            return QgsLineSymbol.createSimple(props)
+
+        # Polygon (and fallback)
+        props = {
+            'color': self._vector_fill_color(color, fill_opacity),
+            'outline_color': outline or '#333333',
+        }
+        if weight:
+            props['outline_width'] = str(round(float(weight) * self._PX_TO_MM, 2))
+        if isinstance(pattern, str) and pattern in self.VECTOR_FLAVOR_TO_QGIS_FILL:
+            props['style'] = self.VECTOR_FLAVOR_TO_QGIS_FILL[pattern]
+        elif pattern is not None and not isinstance(pattern, str):
+            # FGDC pattern id (int) — no client-side atlas; nearest is solid
+            self.logger.debug(f"FGDC pattern id {pattern} rendered as solid fill")
+        return QgsFillSymbol.createSimple(props)
+
+    @staticmethod
+    def _vector_fill_color(hex_color: str, fill_opacity) -> str:
+        """'#rrggbb' + opacity 0..1 → QGIS 'r,g,b,a' color string."""
+        try:
+            q_color = QColor(hex_color)
+            alpha = 255
+            if fill_opacity is not None:
+                alpha = max(0, min(255, int(round(float(fill_opacity) * 255))))
+            return f"{q_color.red()},{q_color.green()},{q_color.blue()},{alpha}"
+        except Exception:
+            return hex_color
+
     def get_color_for_value(
         self,
         value: Optional[float],

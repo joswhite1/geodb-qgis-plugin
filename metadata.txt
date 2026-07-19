@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.26.0
+version=2.27.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,23 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.27.0 - Vector Layers: styled pull + push-as-draft
+        - New "Vector Layers" entry in the Data Sync tab. Pick any vector
+          layer uploaded to geodb.io (geology units, faults, targets, ...)
+          and pull it into QGIS with its styling translated to a native
+          QGIS renderer - single, categorized and graduated styles map to
+          the matching QGIS renderer on the original attributes; fill
+          patterns translate to the nearest QGIS fill style. Layers styled
+          by the geoDB lithology/alteration/formation catalogs render with
+          their catalog colors and legend labels.
+        - Pull is always full resolution - geometry is never simplified,
+          so an edit round trip cannot degrade untouched features.
+        - Push uploads your edited copy back as a NEW DRAFT layer on the
+          server (the published layer is never modified from QGIS); review
+          and promote the draft on the web. A snapshot diff detects whether
+          anything actually changed - unchanged layers report "nothing to
+          push" without touching the server. Your current QGIS symbology
+          travels with the draft.
     2.26.0 - Stay signed in + Data Sync tab refresh
         - Login credentials now actually persist. Previously a failed session
           restore for ANY reason (offline at QGIS startup, a transient network

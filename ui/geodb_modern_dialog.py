@@ -139,6 +139,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         'ProjectFile': ('Project Files', 'GeoTIFF / DEM rasters uploaded to geodb.io (pull only)'),
         'FieldNote': ('Field Notes', 'Field notes and note photos (pull only)'),
         'Structure': ('Structures', 'Structural measurements with FGDC symbology'),
+        'VectorLayer': ('Vector Layers', 'Uploaded GIS layers (geology, faults, targets, ...) with server styling'),
     }
 
     def __init__(self, parent=None):
@@ -212,6 +213,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.merge_settings_map: Dict[int, Dict[str, Any]] = {}  # Map of merge_settings_id -> settings
         self.project_files: List[Dict[str, Any]] = []  # Loaded ProjectFile records
         self.selected_project_file: Optional[Dict[str, Any]] = None  # Currently selected file
+        self.vector_layers: List[Dict[str, Any]] = []  # Loaded VectorLayer summaries
+        self.selected_vector_layer: Optional[Dict[str, Any]] = None  # Currently selected vector layer
 
         # Add storage button dynamically (since not in .ui file)
         self._add_storage_button()
@@ -224,6 +227,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Add ProjectFile options UI
         self._add_projectfile_options_ui()
+
+        # Add VectorLayer options UI (layer picker)
+        self._add_vectorlayer_options_ui()
 
         # Add Claims to model list and set up claims UI
         self._setup_claims_ui()
@@ -1264,6 +1270,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.assayOptionsGroupBox.setVisible(False)
         if hasattr(self, 'projectFileGroupBox'):
             self.projectFileGroupBox.setVisible(False)
+        if hasattr(self, 'vectorLayerGroupBox'):
+            self.vectorLayerGroupBox.setVisible(False)
 
         # Note: Claims is now in a separate tab, not in the model list
 
@@ -1291,6 +1299,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         elif model_name == "FieldNote":
             # FieldNote is pull-only (no push from QGIS)
             self.pushButton.setEnabled(False)
+        elif model_name == "VectorLayer":
+            # Layer-grained: pick a named layer, pull it styled, push as draft
+            if hasattr(self, 'vectorLayerGroupBox'):
+                self.vectorLayerGroupBox.setVisible(True)
+                self._load_vector_layers()
+            self.pushButton.setEnabled(self.project_manager.can_edit())
         else:
             self.pushButton.setEnabled(self.project_manager.can_edit())
 
@@ -1503,6 +1517,21 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 return
             # Use special raster pull
             self._execute_raster_pull()
+            return
+
+        # For VectorLayer, check that a layer is selected and use the
+        # layer-grained pull
+        if self.current_model == "VectorLayer":
+            if not self.selected_vector_layer:
+                QMessageBox.warning(
+                    self,
+                    "No Layer Selected",
+                    "Please select a vector layer from the dropdown before pulling.\n\n"
+                    "If none are available, upload shapefiles, GeoPackages or KML "
+                    "on geodb.io first."
+                )
+                return
+            self._execute_vectorlayer_pull()
             return
 
         # Execute pull for vector models
@@ -1901,6 +1930,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
 
+        # VectorLayer pushes the whole layer as a new server draft
+        if self.current_model == "VectorLayer":
+            self._execute_vectorlayer_push()
+            return
+
         # Confirm
         reply = QMessageBox.question(
             self,
@@ -2235,6 +2269,264 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         options_layout = self.optionsLayout
         # Insert at position 2 (after includeCompanyLandCheckBox and assayOptionsGroupBox)
         options_layout.insertWidget(2, self.projectFileGroupBox)
+
+    def _add_vectorlayer_options_ui(self):
+        """Create UI for VectorLayer selection (layer-grained pull/push)."""
+        from qgis.PyQt.QtWidgets import QGroupBox, QFormLayout
+
+        self.vectorLayerGroupBox = QGroupBox("Vector Layer Selection")
+        self.vectorLayerGroupBox.setVisible(False)  # Hidden by default
+
+        vl_layout = QFormLayout()
+        self.vectorLayerGroupBox.setLayout(vl_layout)
+
+        layer_label = QLabel("Available Layers:")
+        self.vectorLayerComboBox = QComboBox()
+        self.vectorLayerComboBox.setToolTip(
+            "Select an uploaded vector layer to pull into QGIS with its styling"
+        )
+        self.vectorLayerComboBox.currentIndexChanged.connect(self._on_vector_layer_selected)
+        vl_layout.addRow(layer_label, self.vectorLayerComboBox)
+
+        self.reloadVectorLayersButton = QPushButton("Reload Layers")
+        self.reloadVectorLayersButton.setToolTip("Reload available vector layers from server")
+        self.reloadVectorLayersButton.clicked.connect(self._load_vector_layers)
+        vl_layout.addRow("", self.reloadVectorLayersButton)
+
+        # Layer info line (kind, features, styling mode)
+        self.vectorLayerInfoLabel = QLabel("Select a layer to see its details")
+        self.vectorLayerInfoLabel.setWordWrap(True)
+        self.vectorLayerInfoLabel.setStyleSheet(
+            f"color: {T.TEXT_MUTED}; font-size: 11px; padding: 4px;"
+        )
+        vl_layout.addRow(self.vectorLayerInfoLabel)
+
+        options_layout = self.optionsLayout
+        options_layout.insertWidget(3, self.vectorLayerGroupBox)
+
+    def _load_vector_layers(self):
+        """Load available vector layers from API (active vintage only)."""
+        project = self.project_manager.active_project
+        if not project:
+            self._log_message("Please select a project first.", "warning")
+            return
+
+        self.vectorLayerComboBox.clear()
+        self.vector_layers = []
+        self.selected_vector_layer = None
+        self.vectorLayerInfoLabel.setText("Select a layer to see its details")
+
+        try:
+            self._log_message("Loading vector layers...", "info")
+            layers = self.api_client.get_vector_layers()
+            self.vector_layers = layers
+
+            if not layers:
+                self._log_message("No vector layers found for this project.", "warning")
+                self.vectorLayerComboBox.addItem("No vector layers available", None)
+                return
+
+            self.vectorLayerComboBox.addItem(
+                f"-- Select a layer ({len(layers)} available) --", None
+            )
+            for vl in layers:
+                name = vl.get('display_name') or vl.get('name') or 'Unnamed'
+                kind = vl.get('kind_label') or vl.get('kind') or ''
+                count = vl.get('feature_count') or 0
+                display_text = f"{name} [{kind}] ({count:,} features)"
+                self.vectorLayerComboBox.addItem(display_text, vl.get('id'))
+
+            self._log_message(f"Loaded {len(layers)} vector layer(s)", "success")
+
+        except Exception as e:
+            self.logger.exception("Failed to load vector layers")
+            self._log_message(f"Failed to load vector layers: {e}", "error")
+
+    def _on_vector_layer_selected(self, index):
+        """Handle vector layer selection from dropdown."""
+        if index < 0:
+            return
+
+        layer_id = self.vectorLayerComboBox.currentData()
+        if not layer_id:
+            self.selected_vector_layer = None
+            self.vectorLayerInfoLabel.setText("Select a layer to see its details")
+            return
+
+        selected = None
+        for vl in self.vector_layers:
+            if vl.get('id') == layer_id:
+                selected = vl
+                break
+
+        self.selected_vector_layer = selected
+        if not selected:
+            return
+
+        geometry = (selected.get('geometry_type') or '?').capitalize()
+        style_mode = selected.get('style_mode') or 'frozen'
+        if style_mode == 'catalog':
+            style_text = (
+                "Styled by the geoDB catalog — colors are managed in "
+                "Display settings on the web"
+            )
+        else:
+            renderer = (selected.get('style') or {}).get('renderer', 'single')
+            style_text = f"Imported cartography ({renderer} renderer)"
+        count = selected.get('feature_count') or 0
+        self.vectorLayerInfoLabel.setText(
+            f"{geometry} layer · {count:,} features · {style_text}"
+        )
+
+    def _execute_vectorlayer_pull(self):
+        """Pull the selected vector layer into a styled QGIS layer."""
+        vl = self.selected_vector_layer
+        if not vl:
+            return
+
+        display = vl.get('display_name') or vl.get('name') or 'vector layer'
+
+        try:
+            self._log_message(f"Starting PULL for vector layer '{display}'...", "info")
+            self.pullButton.setEnabled(False)
+            self.progressBar.setVisible(True)
+            self.progressBar.setValue(0)
+
+            result = self.data_manager.pull_vector_layer(
+                vl, progress_callback=self._on_progress
+            )
+
+            layer = result.get('layer')
+            summary = f"{result.get('pulled', 0):,} features"
+            self._log_message(f"✓ Pull complete: {summary}", "success")
+
+            # Apply the server style spec as a native QGIS renderer
+            if layer is not None:
+                styled = self.style_processor.apply_vector_layer_style(layer, vl)
+                if styled:
+                    self._log_message(
+                        f"✓ Applied server styling to '{layer.name()}'", "success"
+                    )
+                else:
+                    self._log_message(
+                        "Could not translate server styling - using default symbols",
+                        "warning"
+                    )
+
+            self._set_sync_status(f"✓ Pull complete: {summary}", "success")
+            self._record_sync('pull', f"{display}: {summary}")
+
+        except APIPermissionError as e:
+            self._set_sync_status(f"Permission denied: {e}", "error")
+            self._log_message(f"Permission denied: {e}", "error")
+            QMessageBox.critical(self, "Permission Denied", str(e))
+        except NetworkError as e:
+            self._set_sync_status(f"Network error: {e}", "error")
+            self._log_message(f"Network error: {e}", "error")
+            QMessageBox.critical(self, "Network Error", str(e))
+        except Exception as e:
+            self.logger.exception("Vector layer pull failed")
+            self._set_sync_status(f"Pull failed: {e}", "error")
+            self._log_message(f"Pull failed: {e}", "error")
+            QMessageBox.critical(self, "Error", f"Pull failed: {e}")
+        finally:
+            self.pullButton.setEnabled(True)
+            self.progressBar.setVisible(False)
+
+    def _execute_vectorlayer_push(self):
+        """Push the pulled (edited) vector layer back as a new server draft."""
+        vl = self.selected_vector_layer
+        if not vl:
+            QMessageBox.warning(
+                self,
+                "No Layer Selected",
+                "Please select the vector layer you pulled from the dropdown first."
+            )
+            return
+
+        display = vl.get('display_name') or vl.get('name') or 'vector layer'
+
+        message = (
+            f"Push your local copy of '{display}' to the server?\n\n"
+            "This creates a NEW DRAFT layer on geodb.io — the published layer "
+            "is not modified. Review and promote the draft on the web."
+        )
+        if (vl.get('style_mode') or 'frozen') == 'catalog':
+            message += (
+                "\n\nNote: this layer is styled by the geoDB catalog. The draft "
+                "will carry frozen styling — to change catalog colors, use "
+                "Display settings on the web."
+            )
+
+        reply = QMessageBox.question(
+            self,
+            "Push as Draft",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self._log_message(f"Starting PUSH for vector layer '{display}'...", "info")
+            self.pushButton.setEnabled(False)
+            self.progressBar.setVisible(True)
+            self.progressBar.setValue(0)
+
+            result = self.data_manager.push_vector_layer_draft(
+                vl, progress_callback=self._on_progress
+            )
+
+            if result.get('no_changes'):
+                self._log_message("No local changes — nothing to push.", "info")
+                self._set_sync_status("No local changes — nothing to push", "info")
+                return
+
+            changes = result.get('changes') or {}
+            change_bits = ", ".join(
+                f"{count} {kind}" for kind, count in changes.items() if count
+            )
+            imported = result.get('imported', 0)
+            draft_name = (result.get('layer') or {}).get('name') or display
+            summary = f"draft '{draft_name}' created ({imported:,} features)"
+
+            self._log_message(f"✓ Push complete: {summary} — {change_bits}", "success")
+            if result.get('style_dropped'):
+                self._log_message(
+                    "Layer style could not be translated by the server — the "
+                    "draft was created without styling.",
+                    "warning"
+                )
+            if result.get('failed'):
+                self._log_message(
+                    f"{result['failed']} feature(s) failed to import server-side",
+                    "warning"
+                )
+            self._log_message(
+                "Review and promote the draft under Display settings → Map data "
+                "on geodb.io.",
+                "info"
+            )
+            self._set_sync_status(f"✓ Push complete: {summary}", "success")
+            self._record_sync('push', summary)
+
+        except APIPermissionError as e:
+            self._set_sync_status(f"Permission denied: {e}", "error")
+            self._log_message(f"Permission denied: {e}", "error")
+            QMessageBox.critical(self, "Permission Denied", str(e))
+        except ValidationError as e:
+            self._set_sync_status(f"Validation error: {e}", "error")
+            self._log_message(f"Validation error: {e}", "error")
+            QMessageBox.critical(self, "Validation Error", str(e))
+        except Exception as e:
+            self.logger.exception("Vector layer push failed")
+            self._set_sync_status(f"Push failed: {e}", "error")
+            self._log_message(f"Push failed: {e}", "error")
+            QMessageBox.critical(self, "Error", f"Push failed: {e}")
+        finally:
+            self.pushButton.setEnabled(True)
+            self.progressBar.setVisible(False)
 
     def _load_project_files(self):
         """Load available ProjectFile records from API."""
