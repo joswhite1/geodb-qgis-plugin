@@ -456,7 +456,10 @@ class StyleProcessor:
             if weight:
                 props['width'] = str(round(float(weight) * self._PX_TO_MM, 2))
             if dash:
-                props['line_style'] = self.VECTOR_DASH_TO_QGIS_LINE.get(str(dash), 'dash')
+                # Specs carry dash arrays both space- and comma-separated
+                # ("8 6" / "8,6") — normalize before the lookup
+                dash_key = ' '.join(str(dash).replace(',', ' ').split())
+                props['line_style'] = self.VECTOR_DASH_TO_QGIS_LINE.get(dash_key, 'dash')
             return QgsLineSymbol.createSimple(props)
 
         # Polygon (and fallback)

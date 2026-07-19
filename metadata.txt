@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.27.0
+version=2.27.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,11 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.27.1 - Vector layer dash-pattern fidelity
+        - Dash arrays in server styles are recognized in both separator
+          conventions ("8 6" and "8,6"), so dashed/dotted line styles map to
+          the matching QGIS line style instead of a generic dash. Found by
+          the headless QGIS 3.34 integration drive (16/16 scenarios passed).
     2.27.0 - Vector Layers: styled pull + push-as-draft
         - New "Vector Layers" entry in the Data Sync tab. Pick any vector
           layer uploaded to geodb.io (geology units, faults, targets, ...)
