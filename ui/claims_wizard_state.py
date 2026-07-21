@@ -308,6 +308,62 @@ class ClaimsWizardState:
             logger.error(f"Error saving to GeoPackage: {e}")
             return False
 
+    def ensure_geopackage(self) -> Optional[str]:
+        """
+        Guarantee a claims GeoPackage path exists, auto-creating one if the
+        user never explicitly created/selected one in Step 1.
+
+        Persistence of the generated claim layers (Lode Claims, Corner Points,
+        LM Corners, Monuments, ...) is gated on ``geopackage_path`` being set:
+        when it is, the layer generator writes them into the GeoPackage
+        (OGR-backed, survives a crash / reopen); when it is None every layer
+        falls back to a "memory" provider and is lost the moment QGIS closes or
+        crashes. Making the GeoPackage optional was the silent cause of "I moved
+        the LM corners around, QGIS crashed, and lost all my work."
+
+        This creates the file in the user's default GeodbData directory using
+        the claim-name prefix, writes the metadata table (which materialises the
+        file on disk), and records the path on the state. It is idempotent: if a
+        path is already set it is returned unchanged.
+
+        Returns:
+            The GeoPackage path (existing or newly created), or None if creation
+            failed (in which case the caller falls back to memory layers).
+        """
+        if self.geopackage_path:
+            return self.geopackage_path
+
+        try:
+            from ..managers.storage_manager import StorageManager
+
+            directory = StorageManager().get_default_directory()
+            prefix = (self.grid_name_prefix or "GE").strip() or "GE"
+            safe_prefix = "".join(
+                c if c.isalnum() or c in '-_' else '_' for c in prefix
+            )
+            gpkg_path = str(Path(directory) / f"{safe_prefix}_claims.gpkg")
+
+            self.geopackage_path = gpkg_path
+            # save_to_geopackage() opens the file via sqlite3.connect, which
+            # creates it and writes the claims_metadata table. The file is a
+            # bare SQLite DB at this point; the first generated layer upgrades
+            # it to a valid GeoPackage (ClaimsStorageManager.create_or_update_layer
+            # uses CreateOrOverwriteFile when the file is not yet a valid gpkg).
+            if not self.save_to_geopackage():
+                logger.error(
+                    "ensure_geopackage: save_to_geopackage failed for %s", gpkg_path
+                )
+                self.geopackage_path = None
+                return None
+
+            logger.info("ensure_geopackage: auto-created claims GeoPackage at %s", gpkg_path)
+            return gpkg_path
+
+        except Exception as e:
+            logger.error(f"ensure_geopackage: failed to auto-create GeoPackage: {e}")
+            self.geopackage_path = None
+            return None
+
     def _extract_prefix_from_claims(self, path: str) -> Optional[str]:
         """
         Extract the common prefix from claim names in the lode_claims layer.

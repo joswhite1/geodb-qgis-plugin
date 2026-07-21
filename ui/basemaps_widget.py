@@ -1603,6 +1603,65 @@ class BasemapsWidget(QWidget):
             'extent_km': max_dimension
         }
 
+    # ==================== Streaming toggle persistence ====================
+    #
+    # Streaming base layers (PLSS, Federal Lands, AK State Lands, ...) are
+    # memory-only "Live" layers by design — they re-fetch from the server on
+    # pan/zoom and are never written to a GeoPackage. That means QGIS cannot
+    # restore them from a saved .qgs project: on reopen (or after a crash) they
+    # vanish and the user has to remove + re-toggle them.
+    #
+    # To make them auto-restore, we persist each toggle's on/off state in the
+    # QGIS project file and re-check the box when the manager is (re-)wired,
+    # which re-creates the layer and resumes streaming. State lives in the
+    # project — no memory snapshot, no gpkg bloat, always current from server.
+    #
+    # ONE helper pair drives every toggle (keyed by name) so the six near-
+    # identical streaming toggles don't each grow their own copy of the
+    # read/write logic — per the workspace "no duplicate paths" rule.
+
+    _STREAM_TOGGLE_ENTRY_SCOPE = 'geodb'
+
+    def _persist_stream_toggle(self, key: str, enabled: bool):
+        """Record a streaming toggle's on/off state in the QGIS project.
+
+        Args:
+            key: Stable identifier for the toggle (e.g. 'plss', 'federal_lands')
+            enabled: Whether the toggle is currently on
+        """
+        try:
+            # Store as '1'/'0' string via the same writeEntry/readEntry API the
+            # rest of the plugin uses (claims_wizard_state, sync_manager), rather
+            # than the bool overload — one proven persistence idiom, no surprises.
+            QgsProject.instance().writeEntry(
+                self._STREAM_TOGGLE_ENTRY_SCOPE, f'stream/{key}', '1' if enabled else '0'
+            )
+        except Exception as e:
+            self.logger.warning(f"Could not persist stream toggle '{key}': {e}")
+
+    def _restore_stream_toggle(self, key: str, toggle):
+        """Re-check a streaming toggle if it was on when the project was saved.
+
+        Called from each ``set_*_manager`` after access is confirmed and the
+        toggle is enabled. Checking the box fires the normal toggle handler,
+        which calls ``manager.enable()`` — re-creating the memory layer and
+        resuming streaming. No-op if nothing was persisted or the toggle is
+        already in the desired state.
+
+        Args:
+            key: Stable identifier matching the one used in _persist_stream_toggle
+            toggle: The QCheckBox to restore
+        """
+        try:
+            value, _ok = QgsProject.instance().readEntry(
+                self._STREAM_TOGGLE_ENTRY_SCOPE, f'stream/{key}', '0'
+            )
+            was_enabled = value == '1'
+            if was_enabled and toggle.isEnabled() and not toggle.isChecked():
+                toggle.setChecked(True)  # fires the toggle handler -> manager.enable()
+        except Exception as e:
+            self.logger.warning(f"Could not restore stream toggle '{key}': {e}")
+
     # ==================== BLM Claims Methods ====================
 
     def set_blm_manager(self, blm_manager, has_access: bool):
@@ -1738,6 +1797,10 @@ class BasemapsWidget(QWidget):
         plss_manager.loading_changed.connect(self._on_plss_stream_loading_changed)
         plss_manager.access_denied.connect(self._on_plss_stream_access_denied)
 
+        # Auto-restore: if PLSS streaming was on when the project was saved,
+        # re-check the box now (resumes streaming) so it survives reopen/crash.
+        self._restore_stream_toggle('plss', self.plss_stream_toggle)
+
     def _on_plss_stream_toggle_changed(self, state):
         """Handle PLSS streaming toggle checkbox."""
         if not self._plss_stream_manager:
@@ -1748,6 +1811,7 @@ class BasemapsWidget(QWidget):
         else:
             self._plss_stream_manager.disable()
             self.plss_stream_status_label.setText("")
+        self._persist_stream_toggle('plss', state == Qt_Checked)
 
     def _on_plss_stream_status_changed(self, status: str):
         """Update PLSS streaming status label."""
@@ -1796,6 +1860,10 @@ class BasemapsWidget(QWidget):
         manager.loading_changed.connect(self._on_federal_lands_loading_changed)
         manager.access_denied.connect(self._on_federal_lands_access_denied)
 
+        # Auto-restore: if Federal Lands streaming was on when the project was
+        # saved, re-check the box now (resumes streaming) so it survives reopen.
+        self._restore_stream_toggle('federal_lands', self.federal_lands_toggle)
+
     def _on_federal_lands_toggle_changed(self, state):
         """Handle Federal Lands streaming toggle checkbox."""
         if not self._federal_lands_manager:
@@ -1806,6 +1874,7 @@ class BasemapsWidget(QWidget):
         else:
             self._federal_lands_manager.disable()
             self.federal_lands_status_label.setText("")
+        self._persist_stream_toggle('federal_lands', state == Qt_Checked)
 
     def _on_federal_lands_status_changed(self, status: str):
         """Update Federal Lands streaming status label."""
@@ -1855,6 +1924,9 @@ class BasemapsWidget(QWidget):
         manager.loading_changed.connect(self._on_state_lands_loading_changed)
         manager.access_denied.connect(self._on_state_lands_access_denied)
 
+        # Auto-restore: resume AK State Lands streaming if it was on at save.
+        self._restore_stream_toggle('state_lands', self.state_lands_toggle)
+
     def _on_state_lands_toggle_changed(self, state):
         if not self._state_lands_manager:
             return
@@ -1863,6 +1935,7 @@ class BasemapsWidget(QWidget):
         else:
             self._state_lands_manager.disable()
             self.state_lands_status_label.setText("")
+        self._persist_stream_toggle('state_lands', state == Qt_Checked)
 
     def _on_state_lands_status_changed(self, status: str):
         self.state_lands_status_label.setText(status)

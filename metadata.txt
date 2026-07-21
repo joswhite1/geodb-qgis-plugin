@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.27.1
+version=2.28.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,17 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.28.0 - Claim layers persist to GeoPackage; base layers survive reopen
+        - Generated claim layers (Lode Claims, Corner Points, LM Corners,
+          Monuments, Center Lines) are now always written to a GeoPackage.
+          Previously, if no GeoPackage was created in Step 1 they were held in
+          memory only and were lost if QGIS crashed or closed while adjusting
+          LM corners. A GeoPackage is now auto-created in your GeodbData folder
+          when one wasn't selected, so this work always survives a crash/reopen.
+        - Streaming base layers (PLSS Grid, Federal Lands, AK State Lands) now
+          remember their on/off state in the project. When you reopen a project
+          (or after a crash) they re-add and resume streaming automatically
+          instead of having to be removed and re-toggled.
     2.27.1 - Vector layer dash-pattern fidelity
         - Dash arrays in server styles are recognized in both separator
           conventions ("8 6" and "8,6"), so dashed/dotted line styles map to

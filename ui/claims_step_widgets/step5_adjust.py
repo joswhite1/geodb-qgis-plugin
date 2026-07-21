@@ -651,8 +651,20 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         self.layer_generator.set_auto_lm_cluster(self.state.auto_lm_cluster)
         self.layer_generator.set_claims_manager(self.claims_manager)
 
-        if self.state.geopackage_path:
-            self.layer_generator.set_geopackage_path(self.state.geopackage_path)
+        # Guarantee a GeoPackage backs the generated layers so they persist
+        # across a crash / reopen. If the user never created one in Step 1 this
+        # auto-creates one in the default GeodbData directory; otherwise the
+        # existing path is used unchanged. Without a path the generator falls
+        # back to memory layers, which are lost on close — the exact data-loss
+        # this guards against (moving LM corners, QGIS crashes, work gone).
+        gpkg_path = self.state.ensure_geopackage()
+        if gpkg_path:
+            self.layer_generator.set_geopackage_path(gpkg_path)
+        else:
+            self.logger.warning(
+                "[CLAIMS] No GeoPackage available; generated layers will be "
+                "memory-only and will not survive a crash or reopen."
+            )
 
         # Extract project name from claims layer for layer naming
         project_name = None
