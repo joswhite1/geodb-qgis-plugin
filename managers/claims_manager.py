@@ -644,7 +644,15 @@ class ClaimsManager:
             if input_epsg:
                 data['input_epsg'] = input_epsg
 
-            result = self.api._make_request('POST', url, data=data)
+            # Big blocks (hundreds of claims) take minutes to generate and blow
+            # past Cloudflare's ~100s proxy timeout on a plain synchronous POST.
+            # Route through the shared async rail: send X-Async-Capable, and if
+            # the server replies 202+session_id, poll the status endpoint behind
+            # a progress dialog. Same helper every other heavy claims call uses.
+            result = self.api.post_async_capable(
+                url, data,
+                progress_title="Generating Claim Documents",
+            )
 
             doc_count = len(result.get('documents', []))
             saved_info = " (saved to project)" if project_id and save_to_project else ""

@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.28.0
+version=2.29.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.29.0 - Location Notices: no more timeouts on large claim blocks
+        - Generating Location Notices for large blocks (hundreds of claims) no
+          longer times out. Document generation now runs as a background job
+          with a live progress dialog and polls until finished, instead of
+          holding one long request open (which could be cut off at ~100s on
+          big blocks even though the server kept working). Same reliable
+          mechanism already used by Process Claims and Update LM Corners.
+        - The "Generate Location Notices" button is now the primary blue style,
+          matching the "Process Claims" button, with its own progress bar.
     2.28.0 - Claim layers persist to GeoPackage; base layers survive reopen
         - Generated claim layers (Lode Claims, Corner Points, LM Corners,
           Monuments, Center Lines) are now always written to a GeoPackage.

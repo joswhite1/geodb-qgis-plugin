@@ -297,7 +297,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
         btn_layout = QHBoxLayout()
 
         self.generate_docs_btn = QPushButton("Generate Location Notices")
-        self.generate_docs_btn.setStyleSheet(self._get_secondary_button_style())
+        self.generate_docs_btn.setStyleSheet(self._get_primary_button_style())
         self.generate_docs_btn.clicked.connect(self._generate_documents)
         self.generate_docs_btn.setEnabled(False)
         btn_layout.addWidget(self.generate_docs_btn)
@@ -305,6 +305,23 @@ class ClaimsStep6Widget(ClaimsStepBase):
         btn_layout.addStretch()
 
         layout.addLayout(btn_layout)
+
+        # Progress bar
+        self.docs_progress_bar = QProgressBar()
+        self.docs_progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {T.BORDER};
+                border-radius: 4px;
+                text-align: center;
+                height: 20px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {T.ACCENT};
+                border-radius: 3px;
+            }}
+        """)
+        self.docs_progress_bar.hide()
+        layout.addWidget(self.docs_progress_bar)
 
         # Documents status
         self.docs_status_label = QLabel("")
@@ -1213,13 +1230,13 @@ class ClaimsStep6Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
 
-        self.progress_bar.show()
-        self.progress_bar.setValue(0)
+        self.docs_progress_bar.show()
+        self.docs_progress_bar.setValue(0)
         self.generate_docs_btn.setEnabled(False)
         # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
         try:
-            self.progress_bar.setValue(5)
+            self.docs_progress_bar.setValue(5)
 
             # Validate that the stored claim_package_id still exists on the server.
             # Handle three cases:
@@ -1260,13 +1277,13 @@ class ClaimsStep6Widget(ClaimsStepBase):
                         self.state.claim_package_id = None
                         self.state.save_to_geopackage()
 
-            self.progress_bar.setValue(10)
+            self.docs_progress_bar.setValue(10)
 
             # Read user-adjusted monument positions from QGIS layers
             # These may have been moved by the user in Step 5 (Adjust)
             adjusted_monuments = self._read_monument_positions_from_layers()
 
-            self.progress_bar.setValue(20)
+            self.docs_progress_bar.setValue(20)
 
             # Merge adjusted monument positions into processed claims
             # This preserves user adjustments for document generation AND server push.
@@ -1297,7 +1314,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             # Step 5, not the server's default calculated positions.
             self._create_result_layers()
 
-            self.progress_bar.setValue(30)
+            self.docs_progress_bar.setValue(30)
 
             # Build claimant_info from state for location notices
             claimant_info = {
@@ -1335,7 +1352,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
                 input_epsg=input_epsg  # EPSG code for CRS display in documents
             )
 
-            self.progress_bar.setValue(100)
+            self.docs_progress_bar.setValue(100)
 
             documents = result.get('documents', [])
             self.state.generated_documents = documents
@@ -1391,7 +1408,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             QMessageBox.critical(self, "Error", str(e))
 
         finally:
-            self.progress_bar.hide()
+            self.docs_progress_bar.hide()
             self.generate_docs_btn.setEnabled(True)
 
     # =========================================================================
