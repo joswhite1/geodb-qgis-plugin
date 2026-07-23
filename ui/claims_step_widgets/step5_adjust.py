@@ -716,6 +716,34 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             self._layers_generated = True
             self.status_label.setText(f"Generated {len(self.generated_layers)} layers successfully!")
 
+            # Surface any claims the server skipped for degenerate geometry
+            # (duplicate/collapsed vertices, typically from QGIS snapping during
+            # grid editing — see qgis/QGIS#62427). Naming them here turns a
+            # silent drop into an actionable "redraw these" message.
+            warnings = getattr(
+                self.layer_generator, 'last_geometry_warnings', None
+            ) or []
+            if warnings:
+                skipped_names = [str(w.get('claim')) for w in warnings]
+                shown = ', '.join(skipped_names[:20])
+                if len(skipped_names) > 20:
+                    shown += f", … (+{len(skipped_names) - 20} more)"
+                QMessageBox.warning(
+                    self,
+                    "Some claims were skipped",
+                    f"{len(skipped_names)} claim(s) had invalid geometry "
+                    "(duplicate or collapsed corner vertices, usually from "
+                    "snapping while editing the grid) and were skipped:\n\n"
+                    f"{shown}\n\n"
+                    "Redraw these claims' boundaries, then regenerate the "
+                    "layers. Tip: running Processing → \"Fix Geometries\" on the "
+                    "claims layer first can clean up duplicate vertices in bulk."
+                )
+                self.emit_status(
+                    f"{len(skipped_names)} claim(s) skipped for invalid geometry",
+                    "warning",
+                )
+
             # Update state.claims_layer to point to the new Lode Claims layer
             # This ensures subsequent steps (Step 6, validation, etc.) use the
             # generated layer with all QClaims fields, not the original Step 2 layer

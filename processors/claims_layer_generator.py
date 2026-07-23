@@ -28,6 +28,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor, QFont
 
+from .geometry_processor import closed_ring_from_corners, dedupe_ring_corners
 from ..utils.logger import PluginLogger
 from ..utils.compat import (
     FieldType_QString, FieldType_Int, FieldType_Double, QFont_Bold,
@@ -81,6 +82,10 @@ class ClaimsLayerGenerator:
         self.logger = PluginLogger.get_logger()
         self._geopackage_path: Optional[str] = None
         self._project_name: Optional[str] = None  # For layer naming suffix
+        # Per-claim geometry problems from the most recent server generation
+        # (claims skipped for degenerate geometry). Read by step 5 to warn the
+        # user by name. Reset on each generate_layers_from_server call.
+        self.last_geometry_warnings: List[Dict[str, Any]] = []
 
         # Configuration
         self.monument_inset_ft = 25.0  # Default 25 feet
@@ -216,6 +221,20 @@ class ClaimsLayerGenerator:
         if not response or 'layers' not in response:
             raise RuntimeError("Server returned empty response")
 
+        # Capture any per-claim geometry problems the server reported (claims
+        # skipped for degenerate geometry — e.g. duplicate/collapsed vertices
+        # from snapping). Stashed for the caller (step 5) to surface to the
+        # user by name, so a skipped claim is never a silent disappearance.
+        self.last_geometry_warnings = response.get('geometry_warnings') or []
+        if self.last_geometry_warnings:
+            names = ', '.join(
+                str(w.get('claim')) for w in self.last_geometry_warnings
+            )
+            self.logger.warning(
+                f"[CLAIMS] Server skipped {len(self.last_geometry_warnings)} "
+                f"claim(s) for degenerate geometry: {names}"
+            )
+
         # Create layers from server response
         layers = self._create_layers_from_server_response(response, crs)
         self.logger.info(f"[CLAIMS] Generated {len(layers)} layers from server")
@@ -292,8 +311,10 @@ class ClaimsLayerGenerator:
                                     QgsPointXY(c['easting'], c['northing'])
                                     for c in corners
                                 ]
-                                # Close the ring
-                                points.append(points[0])
+                                # Close the ring safely — corners may already
+                                # arrive closed; unconditional append would
+                                # duplicate the closing vertex → invalid geom.
+                                points = closed_ring_from_corners(points)
                                 feature.setGeometry(QgsGeometry.fromPolygonXY([points]))
                             else:
                                 self.logger.error(f"[CLAIMS DEBUG] Skipping geometry for '{claim_data.get('name')}' due to invalid corners")
@@ -936,18 +957,13 @@ class ClaimsLayerGenerator:
                 # Log first and last coordinate for verification
                 self.logger.info(f"[CLAIMS DEBUG] First coord: {coords[0]}, Last coord: {coords[-1]}")
 
-                # Remove the closing point if present (QgsGeometry handles ring closure)
-                if len(coords) > 4 and coords[0] == coords[-1]:
-                    coords = coords[:-1]
-                    self.logger.info(f"[CLAIMS DEBUG] Removed closing point, now {len(coords)} coords")
-
-                # Build polygon points from UTM coordinates
+                # Build polygon points from UTM coordinates.
                 # coords format: [[easting, northing], [easting, northing], ...]
+                # coords may arrive open or closed (and, historically, doubly
+                # closed) — the shared helper strips any trailing closing
+                # vertices and re-closes exactly once.
                 points = [QgsPointXY(c[0], c[1]) for c in coords]
-
-                # Close the ring for the polygon
-                if points[0] != points[-1]:
-                    points.append(points[0])
+                points = closed_ring_from_corners(points)
 
                 new_geom = QgsGeometry.fromPolygonXY([points])
 
@@ -1022,12 +1038,42 @@ class ClaimsLayerGenerator:
             else:
                 polygon = geom.asPolygon()[0]  # Outer ring
 
-            # Get 4 corners (excluding closing point)
-            corners = [(pt.x(), pt.y()) for pt in polygon[:-1]]
+            # Drop the closing point, then remove any duplicate/coincident
+            # vertices introduced by snapping during the copy/move/snap/delete
+            # grid-editing loop. Without this, a snapped-together corner leaves
+            # a ring like [A, A, C, D] — still 4 entries, so the old count
+            # guard passed, but the zero-length edge makes the server reject
+            # the polygon and the claim silently drops from the lode layer.
+            open_ring = list(polygon[:-1])
+            deduped_pts = dedupe_ring_corners(open_ring)
 
-            if len(corners) < 4:
-                self.logger.warning(f"[CLAIMS] Claim has {len(corners)} corners, expected 4")
+            name_for_log = ""
+            if claims_layer.fields().indexOf('name') >= 0:
+                name_for_log = feature.attribute('name') or ""
+            elif claims_layer.fields().indexOf('Name') >= 0:
+                name_for_log = feature.attribute('Name') or ""
+
+            if len(deduped_pts) < 4:
+                self.logger.warning(
+                    f"[CLAIMS] Claim '{name_for_log or feature.id()}' has "
+                    f"{len(deduped_pts)} distinct corners after de-duplicating "
+                    f"({len(open_ring)} raw) — expected 4; skipping. This claim "
+                    "has degenerate geometry (likely collapsed by snapping)."
+                )
                 continue
+
+            if len(open_ring) != len(deduped_pts):
+                self.logger.info(
+                    f"[CLAIMS] Claim '{name_for_log or feature.id()}': removed "
+                    f"{len(open_ring) - len(deduped_pts)} duplicate vertex(es) "
+                    "from snapping before sending to server."
+                )
+                # Rebuild the stored geometry from the cleaned ring so the WKT
+                # sent to the server (derived from claim['geometry']) is valid.
+                clean_ring = closed_ring_from_corners(deduped_pts)
+                geom = QgsGeometry.fromPolygonXY([clean_ring])
+
+            corners = [(pt.x(), pt.y()) for pt in deduped_pts]
 
             # Get claim name
             name = ""

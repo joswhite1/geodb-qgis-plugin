@@ -25,6 +25,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import pyqtSignal
 
 from .step_base import ClaimsStepBase
+from ...processors.geometry_processor import sanitize_polygon_geometry
 from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double, QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
 from ...utils.layer_utils import is_layer_valid
 from ...utils.theme import T
@@ -472,6 +473,11 @@ class ClaimsStep6Widget(ClaimsStepBase):
                 if idx >= 0:
                     notes = feature.attribute(idx)
                     break
+
+            # Strip any duplicate/degenerate vertices (e.g. a doubled closing
+            # vertex) before serializing — GEOS rejects such rings and the
+            # server fails to create the claim. See sanitize_polygon_geometry.
+            geom = sanitize_polygon_geometry(geom)
 
             claims.append({
                 'name': str(name),

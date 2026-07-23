@@ -23,6 +23,7 @@ from qgis.core import (
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
     QgsField, QgsFields, QgsCoordinateReferenceSystem
 )
+from .geometry_processor import closed_ring_from_corners
 from ..utils.logger import PluginLogger
 from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 
@@ -251,12 +252,14 @@ class CornerAlignmentProcessor:
             if feature.geometry() is None or feature.geometry().isNull():
                 continue
 
-            # Build new polygon from aligned corners
+            # Build new polygon from aligned corners. Close the ring safely —
+            # the server may return corners already closed, and blindly
+            # appending points[0] would duplicate the closing vertex.
             points = [
                 QgsPointXY(c['easting'], c['northing'])
                 for c in aligned_corners
             ]
-            points.append(points[0])  # Close polygon
+            points = closed_ring_from_corners(points)
 
             new_geom = QgsGeometry.fromPolygonXY([points])
             layer.changeGeometry(fid, new_geom)

@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.29.0
+version=2.29.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,23 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.29.1 - Fix: claims silently dropped from the Lode Claims layer
+        - Editing a claim block with snapping (copy / move / snap / delete a
+          grid down to the claims you want) could leave some claims with a
+          duplicated corner vertex - an invalid ring the server rejected, so
+          those claims silently vanished when the Lode Claims layer was built.
+        - Claim boundaries are now de-duplicated of coincident vertices when
+          read: a claim whose four corners are still present is repaired and
+          kept; a claim actually collapsed below four distinct corners is
+          skipped and named in the log so you know which one to redraw.
+        - Also hardened ring-closing throughout so an already-closed corner
+          list is never doubly-closed, and geometry is cleaned once more right
+          before it is sent to the server.
+        - If the server still has to skip a claim for invalid geometry, the
+          skipped claims are now listed by name after layer generation instead
+          of quietly disappearing, so you know exactly which ones to redraw.
+        - Root cause is a known, still-open QGIS bug (QGIS #62427): snapping
+          can duplicate a corner vertex during grid editing.
     2.29.0 - Location Notices: no more timeouts on large claim blocks
         - Generating Location Notices for large blocks (hundreds of claims) no
           longer times out. Document generation now runs as a background job

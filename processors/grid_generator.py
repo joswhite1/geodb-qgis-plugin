@@ -19,6 +19,7 @@ from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
     QgsPointXY, QgsCoordinateReferenceSystem, QgsField, QgsFields
 )
+from .geometry_processor import closed_ring_from_corners
 from ..utils.logger import PluginLogger
 from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 
@@ -304,7 +305,9 @@ class GridGenerator:
             corners = claim.get('corners', [])
             if corners:
                 points = [QgsPointXY(c['easting'], c['northing']) for c in corners]
-                points.append(points[0])  # Close polygon
+                # Close safely — corners may already be closed; blindly
+                # appending points[0] would duplicate the closing vertex.
+                points = closed_ring_from_corners(points)
                 feature.setGeometry(QgsGeometry.fromPolygonXY([points]))
 
             feature.setAttribute("name", claim.get('name', ''))
