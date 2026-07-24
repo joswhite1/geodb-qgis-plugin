@@ -9,7 +9,9 @@ to avoid heap corruption crashes. QEventLoop.exec() processes all Qt events
 which can cause reentrancy issues when combined with QApplication.processEvents()
 calls elsewhere in the codebase.
 """
+import configparser
 import json
+import os
 import time
 from typing import Dict, Any, Optional, Callable, List
 from urllib.parse import urlparse, urlencode
@@ -27,6 +29,30 @@ from .exceptions import (
 )
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
+
+
+# Read the packaged plugin version from metadata.txt once, at import time, and
+# reuse it. Sent as `X-Plugin-Version` on every API request so a support case
+# ("which build is this customer on?") is a one-line server-log grep instead of
+# a prod-log archaeology dig — the QGIS User-Agent carries no plugin version.
+# Falls back to 'unknown' if metadata.txt is somehow missing/unparseable so a
+# read failure can never break the request path.
+def _read_plugin_version() -> str:
+    try:
+        metadata_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'metadata.txt',
+        )
+        # Interpolation off: the changelog contains literal '%' that would
+        # otherwise raise here (same gotcha the packaging validation guards).
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(metadata_path)
+        return parser.get('general', 'version', fallback='unknown') or 'unknown'
+    except Exception:
+        return 'unknown'
+
+
+PLUGIN_VERSION = _read_plugin_version()
 
 
 class APIClient:
@@ -235,7 +261,11 @@ class APIClient:
 
         # Prepare headers
         request_headers = {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            # Stamp every request with the plugin build so support cases are a
+            # one-line server-log grep (the QGIS User-Agent has no plugin
+            # version). Cheap, always-on, never affects response handling.
+            'X-Plugin-Version': PLUGIN_VERSION,
         }
 
         # Add authentication token

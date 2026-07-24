@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.29.1
+version=2.29.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,13 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.29.2 - Stamp the plugin version on every API request
+        - Every request the plugin makes now carries an X-Plugin-Version
+          header identifying the exact build. This is purely diagnostic: it
+          lets support pinpoint which plugin version a customer is running
+          straight from the server logs (the QGIS user-agent does not include
+          the plugin version), so a "which build is this?" question is answered
+          in seconds instead of guesswork. No change to any feature behavior.
     2.29.1 - Fix: claims silently dropped from the Lode Claims layer
         - Editing a claim block with snapping (copy / move / snap / delete a
           grid down to the claims you want) could leave some claims with a
