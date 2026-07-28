@@ -1061,6 +1061,34 @@ class SyncManager:
 
         return [{name: val} for name, val in sorted(unique_values.items())]
 
+    def _configure_road_widgets(self, layer, api_client=None):
+        """Apply the SERVER's road styling to a pulled Roads layer.
+
+        Roads carry no colour column: the server derives appearance from the
+        access attributes and publishes the rules at
+        ``/api/v1/roads/style-spec/``. We fetch that once per pull and build a
+        categorized renderer on the ``access`` field (populated per feature
+        from the server's ``style.access``), so QGIS matches the web and
+        mobile maps exactly rather than re-implementing the palette.
+
+        Best-effort: an older server without the endpoint, or any network
+        hiccup, falls back to the processor's built-in palette — the same
+        table — so the layer still renders correctly.
+        """
+        from ..processors.style_processor import StyleProcessor
+
+        style_spec = None
+        if api_client is not None:
+            try:
+                style_spec = api_client.get_road_style_spec()
+            except Exception as e:
+                self.logger.warning(
+                    f"Road style-spec unavailable ({e}) — using the built-in "
+                    f"palette. Colours may lag a server-side palette change."
+                )
+
+        StyleProcessor().apply_road_style(layer, style_spec)
+
     def _configure_photo_widgets(self, layer):
         """
         Configure Photo layer with camera icon symbology and image popup action.
@@ -1776,6 +1804,10 @@ class SyncManager:
         if model_name == 'Photo':
             self._configure_photo_widgets(layer)
 
+        # Roads: apply the SERVER's access styling (2026-07-27)
+        if model_name == 'Road':
+            self._configure_road_widgets(layer, api_client=api_client)
+
         # Store snapshot by reading data back from the QGIS layer.
         # This ensures the hash matches exactly what get_changed_features() will
         # compute, including any type conversions or formatting changes QGIS makes.
@@ -2392,6 +2424,18 @@ class SyncManager:
 
         for field_name, value in feature.items():
             if field_name in skip_fields:
+                continue
+
+            # Road server-computed styling (2026-07-27): flatten `style` to an
+            # `access` field so a categorized renderer can bind to it. We keep
+            # only `access` — the colour/dash come from the style-spec, so
+            # storing per-feature colours would be a second, stale copy.
+            if field_name == 'style' and isinstance(value, dict) and 'access' in value:
+                field_definitions.append({
+                    'name': 'access',
+                    'type': 'string',
+                    'length': 20,
+                })
                 continue
 
             # Special handling for merged assay data - flatten to {element}_{units} fields

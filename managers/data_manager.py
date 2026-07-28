@@ -29,6 +29,7 @@ SUPPORTED_MODELS = [
     'DrillPhoto',
     'DrillTrace',
     'LandHolding',
+    'Road',  # Access routes — LineString; styled from access attributes
     'PointSample',
     'Photo',  # Field photos with GPS coordinates
     'ProjectFile',  # GeoTIFFs, DEMs, and other raster files

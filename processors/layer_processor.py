@@ -601,6 +601,17 @@ class LayerProcessor:
             # For polygon/line layers, features without geometry are still added (with null geometry)
             # This allows viewing attributes even when geometry is missing
 
+            # Server-computed styling arrives NESTED (Road: {"style":
+            # {"access": "gated", ...}}). Lift `access` to a top-level value so
+            # a categorized renderer can bind to it — 2026-07-27. Only the
+            # CLASSIFICATION is stored; the colour and dash come from the
+            # style-spec, so no per-feature colour copy can go stale against
+            # a server-side palette change.
+            style_data = feature_data.get('style')
+            if isinstance(style_data, dict) and 'access' in style_data:
+                feature_data = dict(feature_data)
+                feature_data['access'] = style_data.get('access')
+
             # Set attributes
             for field_name in layer.fields().names():
                 if field_name in feature_data:

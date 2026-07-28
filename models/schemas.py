@@ -932,6 +932,69 @@ VECTOR_LAYER_SCHEMA = ModelSchema(
 
 
 # =============================================================================
+# ROAD MODEL
+# =============================================================================
+
+# Access routes (2026-07-27). LineString geometry; MVUM-shaped attributes plus
+# the geoDB crew-editable additions (gate_status, max_width, condition).
+#
+# Roads carry NO colour of their own — appearance is derived server-side from
+# the access attributes and served two ways: a per-feature `style` object on
+# every row, and the whole rule set at `roads/style-spec/`. The pull applies a
+# categorized renderer built from that spec, so QGIS matches the web and
+# mobile maps exactly instead of re-implementing the palette (which is what
+# the mobile app used to do — see geodata/road_styling.py).
+ROAD_SCHEMA = ModelSchema(
+    name='Road',
+    api_endpoint='roads',
+    geometry_type=GeometryType.LINESTRING,
+    display_name='Roads',
+    description='Access roads and routes, styled by access status',
+    natural_key_fields=['name', 'project'],
+    supports_push=True,
+    supports_pull=True,
+    fields=[
+        FieldSchema('id', FieldType.INTEGER, readonly=True),
+        FieldSchema('name', FieldType.STRING, length=200, required=True),
+        FieldSchema('project', FieldType.STRING, length=0, required=True,
+                    description='Project natural key (JSON object)'),
+        FieldSchema('route_id', FieldType.STRING, length=100,
+                    description='Route identifier from the source dataset '
+                                '(MVUM id, forest road number, GlobalID)'),
+        # --- MVUM-shaped attributes (drive the styling) ---
+        FieldSchema('route_status', FieldType.STRING, length=100,
+                    description='Open / Closed / Seasonal (free text; '
+                                'substring-matched by the styling rule)'),
+        FieldSchema('seasonal', FieldType.STRING, length=100,
+                    description='Seasonal window, e.g. "Jun 1 - Oct 15". '
+                                'no/none/yearlong/year-round mean NOT seasonal'),
+        FieldSchema('surface_type', FieldType.STRING, length=100,
+                    description='Gravel / Paved / 2 Track / Native. A value '
+                                'containing "pav" renders one weight heavier'),
+        FieldSchema('maint_level', FieldType.STRING, length=100),
+        FieldSchema('jurisdiction', FieldType.STRING, length=100),
+        # --- Per-vehicle-class allowances ---
+        FieldSchema('passenger_vehicle', FieldType.STRING, length=100),
+        FieldSchema('high_clearance_vehicle', FieldType.STRING, length=100),
+        FieldSchema('truck', FieldType.STRING, length=100),
+        FieldSchema('atv', FieldType.STRING, length=100),
+        FieldSchema('motorcycle', FieldType.STRING, length=100),
+        # --- geoDB crew-editable additions ---
+        FieldSchema('gate_status', FieldType.STRING, length=20,
+                    description='open / closed / gated. An explicit gate WINS '
+                                'over route_status when colouring'),
+        FieldSchema('max_width', FieldType.DOUBLE,
+                    description='Maximum vehicle width in INCHES'),
+        FieldSchema('condition', FieldType.STRING, length=100,
+                    description='Crew-reported condition (Good, Poor, ...)'),
+        FieldSchema('notes', FieldType.STRING, length=0),
+        FieldSchema('epsg', FieldType.INTEGER,
+                    description='Source CRS of the original geometry'),
+    ],
+)
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -957,6 +1020,7 @@ MODEL_SCHEMAS: Dict[str, ModelSchema] = {
     'FieldNotePhoto': FIELDNOTE_PHOTO_SCHEMA,
     'Structure': STRUCTURE_SCHEMA,
     'VectorLayer': VECTOR_LAYER_SCHEMA,
+    'Road': ROAD_SCHEMA,
 }
 
 

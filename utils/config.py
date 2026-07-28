@@ -223,6 +223,10 @@ class Config:
             'landholdings': f"{base}/landholdings/",
             'landholding_types': f"{base}/landholding-types/",
 
+            # Roads (access routes — LineString, attribute-styled)
+            'roads': f"{base}/roads/",
+            'road_style_spec': f"{base}/roads/style-spec/",
+
             # Claim stakes (mining claim waypoints/monuments)
             'claim_stakes': f"{base}/claim-stakes/",
 
@@ -313,6 +317,7 @@ class Config:
             'DrillPhoto': 'drill_photos',
             'DrillTrace': 'drill_traces',
             'LandHolding': 'landholdings',
+            'Road': 'roads',
             'ClaimStake': 'claim_stakes',
             'PointSample': 'point_samples',
             'Photo': 'photos',

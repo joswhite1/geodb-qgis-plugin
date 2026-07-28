@@ -1186,6 +1186,21 @@ class APIClient:
             return response
         return response.get('results', [])
 
+    def get_road_style_spec(self) -> Dict[str, Any]:
+        """Get the road styling contract (colours, dashes, access rule).
+
+        Roads carry no colour of their own — the server derives appearance
+        from the access attributes and publishes the RULES here, so QGIS, the
+        web map and the mobile app render identically instead of each
+        hand-porting the palette. Project-independent, so no scoping args.
+
+        Returns the spec dict; raises on transport/auth failure, and the
+        caller falls back to the built-in palette (best-effort styling must
+        never fail a pull).
+        """
+        url = self.config.endpoints['road_style_spec']
+        return self._make_request('GET', url)
+
     def get_drill_pads(self, project_id: int) -> List[Dict[str, Any]]:
         """
         Get all drill pads for a project.

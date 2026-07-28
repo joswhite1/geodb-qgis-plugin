@@ -887,6 +887,105 @@ class StyleProcessor:
         self.logger.info(f"Applied field note style to layer: {layer.name()}")
         return True
 
+    def apply_road_style(
+        self,
+        layer: QgsVectorLayer,
+        style_spec: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Apply access-status symbology to a Roads layer (2026-07-27).
+
+        Roads carry NO colour of their own: the server derives appearance from
+        the access attributes (``geodata/road_styling.py``) and serves it two
+        ways — a per-feature ``style`` object on every row, and the whole rule
+        set at ``/api/v1/roads/style-spec/``.
+
+        We render from the SPEC rather than per-feature because QGIS renderers
+        are symbol-based: a categorized renderer on the ``access`` field gives
+        a real legend, and keeps styling correct for a road the user edits
+        locally before the next sync round-trip.
+
+        The ``access`` field is populated at pull time from each feature's
+        server-computed ``style.access`` — we never re-derive the rule here.
+        That is the point of the shared contract: the mobile app used to
+        hand-port it to TypeScript and could drift silently on any palette
+        change. ``style_spec=None`` falls back to the built-in palette (the
+        same table), kept ONLY so an older server without the style-spec
+        endpoint still renders sensibly.
+        """
+        if not layer or not layer.isValid():
+            self.logger.warning("Invalid layer for road styling")
+            return False
+
+        if layer.fields().indexFromName('access') < 0:
+            self.logger.warning(
+                "Roads layer has no 'access' field — falling back to a plain "
+                "line style. Re-pull to populate it."
+            )
+            return self.apply_simple_gray_style(layer)
+
+        spec = style_spec or {}
+        colors = spec.get('status_colors') or {
+            'open': '#2ecc71',
+            'closed': '#e74c3c',
+            'gated': '#f39c12',
+            'seasonal': '#f1c40f',
+            'unknown': '#7f8c8d',
+        }
+        dash = spec.get('dash') or {'gated': '8 6', 'seasonal': '2 6'}
+        # Server weights/dashes are Leaflet PIXELS; QGIS symbols are in mm.
+        px_to_mm = 0.25
+        base_width = float(spec.get('default_line_weight', 3)) * px_to_mm
+
+        def _dash_vector(access):
+            pattern = None
+            if access in ('gated', 'closed'):
+                pattern = dash.get('gated')
+            elif access == 'seasonal':
+                pattern = dash.get('seasonal')
+            if not pattern:
+                return None
+            try:
+                return [round(float(p) * px_to_mm, 2) for p in pattern.split()]
+            except (TypeError, ValueError):
+                return None
+
+        labels = {
+            'open': 'Open',
+            'closed': 'Closed',
+            'gated': 'Gated',
+            'seasonal': 'Seasonal',
+            'unknown': 'Unknown / not recorded',
+        }
+
+        categories = []
+        for access, color in colors.items():
+            symbol = QgsLineSymbol.createSimple({
+                'color': color,
+                'width': str(base_width),
+                'capstyle': 'round',
+            })
+            dash_vector = _dash_vector(access)
+            if dash_vector:
+                try:
+                    sym_layer = symbol.symbolLayer(0)
+                    sym_layer.setUseCustomDashPattern(True)
+                    sym_layer.setCustomDashVector(dash_vector)
+                except Exception as e:  # pragma: no cover - QGIS API guard
+                    self.logger.debug(f"Dash pattern not applied: {e}")
+            categories.append(QgsRendererCategory(
+                access, symbol, labels.get(access, str(access).title())
+            ))
+
+        renderer = QgsCategorizedSymbolRenderer('access', categories)
+        layer.setRenderer(renderer)
+        layer.triggerRepaint()
+
+        self.logger.info(
+            f"Applied road access styling ({len(categories)} categories) to "
+            f"layer: {layer.name()}"
+        )
+        return True
+
     def apply_fieldnote_photo_style(self, layer: QgsVectorLayer) -> bool:
         """
         Apply camera icon symbology to a FieldNotePhoto layer.

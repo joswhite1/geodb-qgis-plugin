@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.29.2
+version=2.30.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,22 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.30.0 - Roads layer: pull, edit and push access roads
+        - Roads now sync both ways like any other layer. Pull the project's
+          access roads into QGIS, edit their attributes (gate status, surface
+          type, condition, max width, seasonal window), and push the changes
+          back. Roads match on name within the project, so an edited road
+          updates in place rather than duplicating.
+        - Roads are styled automatically by access status - open green,
+          closed red, gated orange, seasonal amber, unrecorded grey, with
+          gated and closed drawn dashed and seasonal dotted. Paved surfaces
+          draw one weight heavier.
+        - The styling comes from the server, so the QGIS layer, the web map
+          and the mobile field app always agree. Previously each client
+          carried its own copy of the palette and they could drift apart.
+        - A road with no access attributes recorded renders grey. That is
+          expected, not an error: fill in gate status or route status and the
+          colour follows on the next pull.
     2.29.2 - Stamp the plugin version on every API request
         - Every request the plugin makes now carries an X-Plugin-Version
           header identifying the exact build. This is purely diagnostic: it
