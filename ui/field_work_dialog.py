@@ -22,6 +22,7 @@ from qgis.core import (
 )
 from qgis.gui import QgsMapLayerComboBox, QgsFieldComboBox
 
+from ..api.exceptions import AuthenticationError
 from ..utils.logger import PluginLogger
 from ..utils.compat import QFrame_HLine
 from ..utils.theme import T
@@ -612,6 +613,32 @@ class FieldWorkDialog(QDialog):
                             self._log_message(f"  - {error_msg}")
                     if len(error_details) > 5:
                         self._log_message(f"  ... and {len(error_details) - 5} more errors")
+
+        except AuthenticationError:
+            # Idle-expired token (Knox TTL is 24h). Nothing landed — hand off to
+            # the main dialog, which owns the auth manager and can renew the
+            # session or prompt for login.
+            self.logger.info("Push aborted: session expired")
+            self._log_message(
+                f"<span style='color: {T.DANGER_TEXT};'><b>Session expired.</b> "
+                f"No samples were pushed.</span>"
+            )
+            # The auth manager lives on the main dialog, which is several
+            # widgets up (FieldWorkDialog -> FieldTasksWidget -> ... -> dialog),
+            # so walk the chain rather than assuming a single parent hop.
+            owner = self.parent()
+            while owner is not None and not hasattr(owner, 'handle_expired_session'):
+                owner = owner.parent()
+            if owner is not None:
+                self._set_pushing(False)
+                self.reject()
+                owner.handle_expired_session("planned sample push")
+                return
+            QMessageBox.warning(
+                self, "Session Expired",
+                "Your session expired, so no samples were pushed.\n\n"
+                "Please log in again, then retry."
+            )
 
         except Exception as e:
             self.logger.error(f"Push failed: {e}")

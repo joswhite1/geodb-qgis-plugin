@@ -33,6 +33,7 @@ from ..utils.theme import T
 from ..api.client import APIClient
 from ..api.exceptions import (
     APIPermissionError,
+    AuthenticationError,
     NetworkError,
     ValidationError
 )
@@ -446,6 +447,58 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.logger.error(f"Failed to restore session: {e}")
 
     # ==================== AUTHENTICATION ====================
+
+    def handle_expired_session(self, operation: str = "operation") -> bool:
+        """Recover from a session the server rejected mid-operation.
+
+        Knox expires idle tokens (24h) and DELETES them on the next request, so
+        the server can only answer "Invalid token." — indistinguishable from a
+        bad one. Before this existed, a token that died between sittings turned
+        every push into row-level "errors" that still reported "Push complete";
+        the user saw a failed upload, not a logged-out session.
+
+        Reuses AuthManager.restore_session()'s recovery: silent re-login when a
+        password was saved, otherwise the login dialog with the username
+        prefilled. Returns True if the session is live again, so the caller can
+        tell the user to retry.
+
+        The retry is deliberately NOT automatic — re-sending a partially-applied
+        bulk write after re-authenticating needs the server's upsert semantics
+        verified first. Prompting is the honest v1.
+        """
+        self.logger.info(f"Session rejected during {operation}; attempting recovery")
+        self.current_session = None
+        self._update_auth_status(False)
+
+        # AuthManager clears the dead token and silently re-logs-in when it can.
+        try:
+            session = self.auth_manager.restore_session()
+        except Exception as e:
+            self.logger.warning(f"Session recovery attempt failed: {e}")
+            session = None
+
+        if session:
+            self.current_session = session
+            if session.user_context:
+                self.project_manager.load_from_user_context(session.user_context)
+            self._update_auth_status(True)
+            self._log_message("Session renewed — please try again.", "info")
+            QMessageBox.information(
+                self, "Session Renewed",
+                f"Your session had expired and has been renewed.\n\n"
+                f"Please run the {operation} again."
+            )
+            return True
+
+        # No saved password (or it was rejected): send them through login.
+        self._log_message("Session expired — please log in again.", "error")
+        QMessageBox.warning(
+            self, "Session Expired",
+            f"Your session expired, so the {operation} was not completed.\n\n"
+            "Please log in again, then retry."
+        )
+        self._on_login_clicked()
+        return self.current_session is not None
 
     def _on_login_clicked(self):
         """Handle login button click - opens the new styled login dialog."""
@@ -1989,6 +2042,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._set_sync_status(f"✓ Push complete: {summary}", "success")
             self._record_sync('push', summary)
 
+        except AuthenticationError:
+            # Session died mid-push (idle-expired token). Not a data problem —
+            # recover the session and ask for a retry rather than reporting
+            # per-row failures.
+            self._set_sync_status("Session expired", "error")
+            self.handle_expired_session(f"{self.current_model} push")
         except APIPermissionError as e:
             self._set_sync_status(f"Permission denied: {e}", "error")
             self._log_message(f"Permission denied: {e}", "error")

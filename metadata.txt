@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.30.0
+version=2.31.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.31.0 - Expired sessions now prompt you to log in instead of failing the push
+        - Sessions expire after 24 hours of inactivity. Previously, starting a
+          push with an expired session reported the upload as "complete" with
+          every row listed as an error, which looked like a data problem rather
+          than an expired login.
+        - The plugin now detects the expired session, renews it automatically
+          when your password is saved, or asks you to log in again. Nothing is
+          uploaded until the session is valid, so no partial pushes.
+        - Affects planned sample pushes and all model data pushes.
     2.30.0 - Roads layer: pull, edit and push access roads
         - Roads now sync both ways like any other layer. Pull the project's
           access roads into QGIS, edit their attributes (gate status, surface

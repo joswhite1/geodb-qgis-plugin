@@ -8,7 +8,7 @@ from typing import Optional, Callable, Dict, Any, List
 from datetime import datetime
 
 from ..api.client import APIClient
-from ..api.exceptions import APIPermissionError
+from ..api.exceptions import APIPermissionError, AuthenticationError
 from .project_manager import ProjectManager
 from .sync_manager import SyncManager
 from ..utils.config import Config
@@ -691,6 +691,10 @@ class DataManager:
                         updated += 1
                         self.logger.info(f"Updated {model_name}: {feature.get('name')}")
 
+                except AuthenticationError:
+                    # Session died mid-push: every remaining feature would fail
+                    # identically. Surface it once instead of N times.
+                    raise
                 except Exception as e:
                     errors.append({'feature': feature.get('name', 'unknown'), 'error': str(e)})
                     self.logger.error(f"Failed to push {model_name} '{feature.get('name', 'unknown')}': {e}")
@@ -1899,6 +1903,12 @@ class DataManager:
                             f"Started at {prefix}{str(start_number).zfill(padding)} "
                             f"to avoid {info.get('existing_count')} existing sample(s)"
                         )
+            except AuthenticationError:
+                # An expired/rejected token is NOT an "older server without this
+                # endpoint" — carrying on here pushes the whole batch at a dead
+                # session and reports it as row-level errors. Let it out so the
+                # UI can re-authenticate.
+                raise
             except Exception as e:
                 self.logger.warning(f"next-sequence lookup unavailable, using start as-is: {e}")
 
@@ -1994,6 +2004,10 @@ class DataManager:
                         model_name='PointSample',
                         records=samples_to_push
                     )
+                except AuthenticationError:
+                    # Same as above: never mistake a dead session for a server
+                    # that predates check-conflicts.
+                    raise
                 except Exception as e:
                     # If check-conflicts endpoint not available (older server), skip the check
                     self.logger.warning(f"Conflict check failed (server may not support it): {e}")
@@ -2045,6 +2059,11 @@ class DataManager:
                         f"errors={summary.get('errors', 0)}"
                     )
 
+                except AuthenticationError:
+                    # A dead session is not a per-row data problem. Recording it
+                    # as one made every remaining batch fail the same way and
+                    # still returned a "Push complete" summary.
+                    raise
                 except Exception as e:
                     # If bulk request fails entirely, record error for all items in batch
                     self.logger.error(f"Bulk push failed for batch {batch_start}-{batch_end}: {e}")
