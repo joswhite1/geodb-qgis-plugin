@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.31.0
+version=2.32.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,13 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.32.0 - Claim-block picker on the Proposed Claims pull
+        - Multi-block projects: a "Claim block" dropdown appears when the
+          project has more than one block, so you can pull one batch (e.g.
+          a second phase) without wading through every earlier generation.
+          Filtering happens server-side; "All blocks" keeps prior behavior.
+        - Works against older servers too: no dropdown appears until the
+          server reports blocks, and unfiltered pulls are byte-compatible.
     2.31.0 - Expired sessions now prompt you to log in instead of failing the push
         - Sessions expire after 24 hours of inactivity. Previously, starting a
           push with an expired session reported the upload as "complete" with

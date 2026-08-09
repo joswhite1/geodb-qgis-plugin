@@ -267,6 +267,28 @@ class StaffOrdersDialog(QDialog):
 
         layout.addLayout(project_layout)
 
+        # Block (claim batch) selector — hidden until a server that sends the
+        # additive `blocks` key reports 2+ blocks on the selected project.
+        # Filtering is SERVER-SIDE (?purchase_order=), so picking a block
+        # re-fetches just that batch instead of client-side hiding — the fix
+        # for multi-block projects pulling every generation of claims at once.
+        self.block_row = QWidget()
+        block_layout = QHBoxLayout(self.block_row)
+        block_layout.setContentsMargins(0, 0, 0, 0)
+        block_label = QLabel("Claim block:")
+        block_label.setStyleSheet(f"font-weight: bold; color: {T.TEXT_PRIMARY};")
+        block_layout.addWidget(block_label)
+
+        self.block_combo = QComboBox()
+        self.block_combo.setMinimumWidth(300)
+        self.block_combo.setStyleSheet(self._get_combo_style())
+        self.block_combo.currentIndexChanged.connect(self._on_block_selected)
+        block_layout.addWidget(self.block_combo)
+        block_layout.addStretch()
+
+        self.block_row.setVisible(False)
+        layout.addWidget(self.block_row)
+
         # Selection buttons row
         selection_layout = QHBoxLayout()
 
@@ -335,6 +357,11 @@ class StaffOrdersDialog(QDialog):
 
         # Store current filter
         self._current_filter = 'all'
+
+        # Block-picker state: the server's `blocks` list for the selected
+        # project, and the currently applied server-side block filter.
+        self._blocks = []
+        self._selected_block_id = None
 
     def _load_all_data(self):
         """Load both pending orders and proposed claims projects."""
@@ -462,22 +489,35 @@ class StaffOrdersDialog(QDialog):
             self.proposed_claims = []
             self.proposed_table.setRowCount(0)
             self.selected_project = None
+            self._blocks = []
+            self._selected_block_id = None
+            self.block_row.setVisible(False)
             self._update_proposed_details()
             self._update_pull_button()
             return
 
         self.selected_project = self.project_combo.itemData(index)
+        # A new project means a fresh, unfiltered pull; the block picker
+        # repopulates from that response's `blocks` key.
+        self._selected_block_id = None
         if self.selected_project:
             self._load_proposed_claims(self.selected_project['id'])
 
-    def _load_proposed_claims(self, project_id: int):
-        """Load proposed claims for a project."""
+    def _load_proposed_claims(self, project_id: int, purchase_order=None):
+        """Load proposed claims for a project (optionally one block)."""
         try:
-            result = self.claims_manager.get_proposed_claims(project_id)
+            result = self.claims_manager.get_proposed_claims(
+                project_id, purchase_order=purchase_order)
             self.proposed_claims = result.get('proposed_claims', [])
             # Store company address and default monument type for auto-population
             self._company_address = result.get('company_address')
             self._default_monument_type = result.get('default_monument_type')
+            # ADDITIVE key: absent on servers without the block filter. The
+            # server includes the full block list on filtered pulls too, so
+            # the picker never blinds itself by filtering.
+            self._blocks = result.get('blocks') or []
+            self._selected_block_id = purchase_order
+            self._populate_block_combo()
             self._populate_proposed_table()
         except Exception as e:
             QMessageBox.warning(
@@ -485,6 +525,48 @@ class StaffOrdersDialog(QDialog):
                 "Error",
                 f"Failed to load proposed claims:\n{e}"
             )
+
+    def _populate_block_combo(self):
+        """Rebuild the block picker from the last response's block list.
+
+        Hidden when the server sent no `blocks` key (older server) or the
+        project has fewer than two non-empty blocks (nothing to pick).
+        """
+        show = len(self._blocks) >= 2
+        self.block_row.setVisible(show)
+        if not show:
+            return
+
+        self.block_combo.blockSignals(True)
+        try:
+            self.block_combo.clear()
+            total = sum(b.get('count', 0) for b in self._blocks)
+            self.block_combo.addItem(f"All blocks ({total} claims)", None)
+            selected_index = 0
+            for i, block in enumerate(self._blocks, start=1):
+                name = block.get('name') or block.get('order_number') or f"Block #{block.get('id')}"
+                note = block.get('phase_note') or ''
+                count = block.get('count', 0)
+                approved = block.get('approved', 0)
+                display = f"{name} - {count} claims ({approved} approved)"
+                if note:
+                    display += f" [{note}]"
+                self.block_combo.addItem(display, block.get('id'))
+                if block.get('id') == self._selected_block_id:
+                    selected_index = i
+            self.block_combo.setCurrentIndex(selected_index)
+        finally:
+            self.block_combo.blockSignals(False)
+
+    def _on_block_selected(self, index: int):
+        """Re-fetch the selected project narrowed to the chosen block."""
+        if index < 0 or not self.selected_project:
+            return
+        block_id = self.block_combo.itemData(index)
+        if block_id == self._selected_block_id:
+            return
+        self._load_proposed_claims(self.selected_project['id'],
+                                   purchase_order=block_id)
 
     def _populate_proposed_table(self):
         """Populate proposed claims table."""

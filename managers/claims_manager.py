@@ -478,7 +478,8 @@ class ClaimsManager:
             self.logger.error(f"[QCLAIMS] Get projects with proposed claims failed: {e}")
             raise
 
-    def get_proposed_claims(self, project_id: int) -> Dict[str, Any]:
+    def get_proposed_claims(self, project_id: int,
+                            purchase_order: Optional[int] = None) -> Dict[str, Any]:
         """
         Get proposed claims for a specific project (staff only).
 
@@ -486,6 +487,11 @@ class ClaimsManager:
 
         Args:
             project_id: Project ID to get proposed claims for
+            purchase_order: Optional claim-block id (ClaimPurchaseOrder pk)
+                obtained from this response's `blocks` key. When given, the
+                server narrows the pull to that block — the fix for "all
+                proposed claims come in together" on multi-block projects.
+                Only pass ids the server itself listed in `blocks`.
 
         Returns:
             Dict with:
@@ -496,6 +502,10 @@ class ClaimsManager:
                     - properties: dict with claim_name, claim_type, acreage, etc.
                     - geometry: GeoJSON geometry
                 - counts: dict with total, approved, pending
+                - blocks: ADDITIVE (servers >= 2026-08): list of claim blocks
+                    {id, name, phase_note, order_number, status, count,
+                     approved, pending}. Absent on older servers - the UI
+                    must degrade gracefully when the key is missing.
 
         Raises:
             PermissionError: If user is not staff and doesn't have project access
@@ -508,6 +518,8 @@ class ClaimsManager:
             if not base_url:
                 base_url = "https://api.geodb.io/api/v2"
             url = f"{base_url.rstrip('/')}/proposed-claims/project/{project_id}/"
+            if purchase_order:
+                url += f"?purchase_order={purchase_order}"
             self.logger.info(f"[QCLAIMS] Fetching proposed claims for project {project_id} from: {url}")
 
             result = self.api._make_request('GET', url)
