@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.33.0
+version=2.33.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,16 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.33.1 - Fix rasters loading as blank layers
+        - Tiled rasters (GeoTIFFs, DEMs) could load as a layer that showed the
+          correct name, CRS and extent but drew nothing at all. The tile
+          requests were being redirected, and QGIS does not follow redirects
+          for tile layers, so no image data ever arrived.
+        - The plugin now checks that tiles actually load before using the
+          tile-streaming path, and downloads the full raster file instead when
+          they do not. Previously this fallback existed but never ran, because
+          a layer with no working tiles still reports itself as valid.
+        - Needs the matching geodb.io server update to take full effect.
     2.33.0 - Type-to-search on the company, project and claim-block dropdowns
         - Account tab: the Company and Project dropdowns now filter as you
           type instead of forcing you to scroll a long list.

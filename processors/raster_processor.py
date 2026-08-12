@@ -213,20 +213,43 @@ class RasterProcessor:
                         f"using tile streaming instead of download"
                     )
 
-                    layer = self.process_tiled_raster(
-                        project_file=pf,
-                        project_name=project_name,
+                    # Probe ONE tile before committing to the tile path.
+                    # isValid() below is not evidence that tiles arrive — a
+                    # layer whose every tile fails is still "valid" and simply
+                    # renders nothing, which is what made this fallback dead
+                    # code and the failure invisible.
+                    tile_template = pf.get('tile_url_template')
+                    tiles_reachable = bool(tile_template) and self.tiles_are_reachable(
+                        tile_url_template=tile_template,
+                        min_zoom=pf.get('tile_min_zoom', 0) or 0,
                         auth_token=auth_token
                     )
 
-                    if layer and layer.isValid():
+                    layer = None
+                    if tiles_reachable:
+                        layer = self.process_tiled_raster(
+                            project_file=pf,
+                            project_name=project_name,
+                            auth_token=auth_token
+                        )
+
+                    if tiles_reachable and layer and layer.isValid():
                         tiled += 1
                         layer_names.append(layer.name())
                         self.logger.info(f"Loaded XYZ tile layer: {layer.name()}")
                     else:
-                        # Fall back to downloading the full file if tile layer fails
+                        # Fall back to downloading the full file if tile layer
+                        # fails OR its tiles are unreachable. Remove the layer
+                        # first so the canvas never keeps a blank one alongside
+                        # the downloaded raster.
+                        if layer is not None:
+                            try:
+                                QgsProject.instance().removeMapLayer(layer.id())
+                            except Exception:
+                                pass
                         self.logger.warning(
-                            f"Failed to create XYZ tile layer for '{pf.get('name')}', "
+                            f"XYZ tiles unusable for '{pf.get('name')}' "
+                            f"(reachable={tiles_reachable}), "
                             f"falling back to file download"
                         )
                         # Continue to file download logic below
@@ -669,6 +692,95 @@ class RasterProcessor:
             crs=crs,
             auth_token=auth_token
         )
+
+    def tiles_are_reachable(
+        self,
+        tile_url_template: str,
+        min_zoom: int = 0,
+        auth_token: Optional[str] = None
+    ) -> bool:
+        """
+        Fetch ONE tile to check the tile endpoint actually delivers image bytes.
+
+        This exists because ``QgsRasterLayer.isValid()`` is NOT evidence that
+        tiles arrive. For an XYZ layer, validity reflects only that the URI
+        parsed — a layer whose every tile 404s, 301s or times out is still
+        "valid", has the right CRS and the right extent, and draws nothing.
+        That made the tile path fail silently and made the download fallback
+        in process_project_files() unreachable (2026-08-12, QGIS/Beaver Creek).
+
+        A redirect counts as UNREACHABLE on purpose: QGIS's XYZ provider does
+        not follow redirects, so a 3xx here means blank tiles in practice even
+        though curl would happily follow it.
+
+        Args:
+            tile_url_template: URL template containing {z}/{x}/{y} placeholders
+            min_zoom: Zoom level to probe (uses the layer's lowest — one tile
+                      covers the whole extent, so it exists whenever any do)
+            auth_token: Optional token appended as api_key
+
+        Returns:
+            True if the probe returned image bytes, False otherwise.
+        """
+        # Zoom 0 has exactly one tile (0/0); above that just take the first
+        # tile of the row, which exists for any pyramid covering the extent.
+        probe_url = (
+            tile_url_template
+            .replace('{z}', str(min_zoom))
+            .replace('{x}', '0')
+            .replace('{y}', '0')
+        )
+        if auth_token:
+            sep = '&' if '?' in probe_url else '?'
+            probe_url = f"{probe_url}{sep}api_key={auth_token}"
+
+        try:
+            request = QNetworkRequest(QUrl(probe_url))
+            # Do NOT follow redirects — QGIS's tile provider won't either, so
+            # following one here would report "reachable" for a layer that
+            # renders empty. Reproducing the client's real behaviour is the
+            # whole point of the probe.
+            request.setAttribute(
+                QNetworkRequest.Attribute.RedirectPolicyAttribute,
+                QNetworkRequest.RedirectPolicy.ManualRedirectPolicy
+            )
+
+            blocking_request = QgsBlockingNetworkRequest()
+            error_code = blocking_request.get(request, forceRefresh=True)
+
+            if error_code != QgsBlockingNetworkRequest.NoError:
+                self.logger.warning(
+                    f"Tile probe failed: {blocking_request.errorMessage()}"
+                )
+                return False
+
+            reply = blocking_request.reply()
+            status = reply.attribute(
+                QNetworkRequest.Attribute.HttpStatusCodeAttribute
+            )
+
+            if status is not None and int(status) >= 300:
+                self.logger.warning(
+                    f"Tile probe returned HTTP {status} (redirects count as "
+                    f"unreachable — the XYZ provider does not follow them). "
+                    f"Tiles will not render; falling back to file download."
+                )
+                return False
+
+            content = reply.content()
+            if content is None or len(content) == 0:
+                self.logger.warning(
+                    "Tile probe returned an empty body; tiles will not render."
+                )
+                return False
+
+            return True
+
+        except Exception as e:
+            # A probe failure must never be worse than no probe — fall back to
+            # downloading the file, which is the safe path.
+            self.logger.warning(f"Tile probe raised, assuming unreachable: {e}")
+            return False
 
     def _apply_raster_style(
         self,
