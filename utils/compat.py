@@ -308,6 +308,79 @@ QAbstractItemView_NoSelection = _qabstractitemview('NoSelection', 'SelectionMode
 # --- QSizePolicy (additional) ---
 QSizePolicy_Ignored = _qpolicy('Ignored')
 
+# --- QComboBox / QCompleter ---
+from qgis.PyQt.QtWidgets import QComboBox, QCompleter
+QComboBox_NoInsert = _qenum(QComboBox, 'NoInsert', 'InsertPolicy.NoInsert')
+QCompleter_PopupCompletion = _qenum(
+    QCompleter, 'PopupCompletion', 'CompletionMode.PopupCompletion')
+# MatchContains is a Qt.MatchFlag, not a QCompleter enum.
+Qt_MatchContains = _qt('MatchContains', 'MatchFlag.MatchContains')
+Qt_CaseInsensitive = _qt('CaseInsensitive', 'CaseSensitivity.CaseInsensitive')
+
+
+def make_combo_searchable(combo, placeholder=None):
+    """Add type-ahead filtering to a QComboBox, in place.
+
+    The combo becomes editable so the user can type to narrow a long list,
+    but inserting is disabled (NoInsert) — every caller in this plugin reads
+    the selection back via itemData(index), and a user-inserted entry would
+    carry None data and silently break that contract.
+
+    Matching is substring + case-insensitive so "sunshine" finds
+    "Sunshine Mine (Silver Opportunity) - 42 claims".
+
+    Order does not matter: the completer wraps the combo's live model, so
+    items added after this call are matched too.
+    """
+    combo.setEditable(True)
+    combo.setInsertPolicy(QComboBox_NoInsert)
+
+    completer = QCompleter(combo.model(), combo)
+    completer.setCompletionMode(QCompleter_PopupCompletion)
+    completer.setFilterMode(Qt_MatchContains)
+    completer.setCaseSensitivity(Qt_CaseInsensitive)
+    combo.setCompleter(completer)
+
+    line_edit = combo.lineEdit()
+    if line_edit is not None:
+        if placeholder:
+            line_edit.setPlaceholderText(placeholder)
+
+        # Qt only auto-selects an item when the typed text matches its label
+        # EXACTLY, so committing a substring ("sunshine") would leave the
+        # selection untouched while the box displayed the typed fragment.
+        # On commit: resolve the text to the single item that contains it and
+        # select that; if it resolves to nothing (or is ambiguous), snap the
+        # text back to the current item so the box never displays one project
+        # while holding another.
+        def _resync_text():
+            typed = line_edit.text().strip()
+            index = combo.currentIndex()
+
+            if typed and typed != combo.itemText(index):
+                matches = [i for i in range(combo.count())
+                           if typed.lower() in combo.itemText(i).lower()]
+                # An exact hit wins over a substring hit, so typing the full
+                # label of one item never resolves to a longer one.
+                exact = [i for i in matches
+                         if combo.itemText(i).lower() == typed.lower()]
+                if exact:
+                    combo.setCurrentIndex(exact[0])
+                    return
+                if len(matches) == 1:
+                    combo.setCurrentIndex(matches[0])
+                    return
+
+            if index >= 0 and line_edit.text() != combo.itemText(index):
+                line_edit.setText(combo.itemText(index))
+
+        line_edit.editingFinished.connect(_resync_text)
+        # Keep a reference — a bare local would be garbage collected and the
+        # connection silently dropped.
+        combo._geodb_resync_text = _resync_text
+    return combo
+
+
 # --- QStandardPaths ---
 # Qt6 moved these under QStandardPaths.StandardLocation.*
 from qgis.PyQt.QtCore import QStandardPaths

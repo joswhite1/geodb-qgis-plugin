@@ -26,7 +26,8 @@ except ImportError:
 from ..utils.format_helpers import format_merge_settings_html
 from ..utils.config import Config, DEV_MODE
 from ..utils.compat import (
-    QAbstractItemView_NoEditTriggers, QTextCursor_End, QDialog_Accepted, Qt_UserRole
+    QAbstractItemView_NoEditTriggers, QTextCursor_End, QDialog_Accepted, Qt_UserRole,
+    make_combo_searchable
 )
 from ..utils.logger import PluginLogger
 from ..utils.theme import T
@@ -264,6 +265,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.localModeCheckBox.stateChanged.connect(self._on_local_mode_changed)
 
         # Project selection
+        # Type-ahead search: these lists run long for multi-project companies,
+        # and scrolling was the only way to reach an entry.
+        make_combo_searchable(self.companyComboBox, "Type to search companies...")
+        make_combo_searchable(self.projectComboBox, "Type to search projects...")
         self.companyComboBox.currentIndexChanged.connect(self._on_company_changed)
         self.projectComboBox.currentIndexChanged.connect(self._on_project_changed)
         self.refreshProjectsButton.clicked.connect(self._on_refresh_projects_clicked)
@@ -908,6 +913,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """Clear project selection."""
         self.companyComboBox.clear()
         self.projectComboBox.clear()
+        # Editable combos keep whatever the user typed after clear(); wipe it
+        # so a logged-out dialog doesn't show a stale company name.
+        for combo in (self.companyComboBox, self.projectComboBox):
+            if combo.lineEdit() is not None:
+                combo.lineEdit().clear()
         self.permissionValue.setText("-")
 
     def _on_refresh_projects_clicked(self):
@@ -1003,6 +1013,13 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.projectComboBox.clear()
         for project in updated_company.projects:
             self.projectComboBox.addItem(project.name, project)
+
+        # Pin the editable combo to the first project so its text box shows a
+        # project rather than an empty filter field. The addItem loop above
+        # already lands on index 0, so this fires no extra signal — it just
+        # makes the intent explicit now that the combo is editable.
+        if updated_company.projects:
+            self.projectComboBox.setCurrentIndex(0)
 
         self.projectComboBox.setEnabled(len(updated_company.projects) > 0)
 

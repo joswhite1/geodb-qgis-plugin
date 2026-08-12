@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.32.0
+version=2.33.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,16 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.33.0 - Type-to-search on the company, project and claim-block dropdowns
+        - Account tab: the Company and Project dropdowns now filter as you
+          type instead of forcing you to scroll a long list.
+        - Proposed Claims tab: the Project dropdown filters the same way, and
+          because each entry reads "Project (Company) - N claims" you can type
+          a company name to find its projects.
+        - Matching is anywhere in the entry and ignores case, so "sunshine"
+          finds "Sunshine Mine" and "nevada king" finds that company's work.
+        - Typing something that matches nothing leaves your current selection
+          untouched; the box snaps back rather than showing a stale entry.
     2.32.0 - Claim-block picker on the Proposed Claims pull
         - Multi-block projects: a "Claim block" dropdown appears when the
           project has more than one block, so you can pull one batch (e.g.

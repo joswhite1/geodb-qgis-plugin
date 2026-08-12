@@ -22,6 +22,7 @@ from ..utils.compat import (
     QAbstractItemView_NoEditTriggers, QAbstractItemView_SelectRows,
     QAbstractItemView_SingleSelection, QAbstractItemView_ExtendedSelection,
     QHeaderView_Stretch, QHeaderView_ResizeToContents,
+    make_combo_searchable,
 )
 from ..utils.theme import T
 
@@ -248,6 +249,10 @@ class StaffOrdersDialog(QDialog):
         self.project_combo = QComboBox()
         self.project_combo.setMinimumWidth(300)
         self.project_combo.setStyleSheet(self._get_combo_style())
+        # Type-ahead search. Each entry reads "Project (Company) - N claims",
+        # so substring matching lets staff find by company name too — there is
+        # no separate company dropdown on this tab.
+        make_combo_searchable(self.project_combo, "Type to search projects or companies...")
         self.project_combo.currentIndexChanged.connect(self._on_project_selected)
         project_layout.addWidget(self.project_combo)
 
@@ -282,6 +287,7 @@ class StaffOrdersDialog(QDialog):
         self.block_combo = QComboBox()
         self.block_combo.setMinimumWidth(300)
         self.block_combo.setStyleSheet(self._get_combo_style())
+        make_combo_searchable(self.block_combo, "Type to search claim blocks...")
         self.block_combo.currentIndexChanged.connect(self._on_block_selected)
         block_layout.addWidget(self.block_combo)
         block_layout.addStretch()
@@ -479,6 +485,10 @@ class StaffOrdersDialog(QDialog):
 
             display = f"{name} ({company}) - {claim_count} claims"
             self.project_combo.addItem(display, project)
+
+        # clear() blanks the editable combo's text; land on the sentinel so
+        # the box reads "-- Select a project --" rather than an empty field.
+        self.project_combo.setCurrentIndex(0)
 
         # Update tab title with total
         self.tab_widget.setTabText(1, f"Proposed Claims ({total_claims})")
@@ -930,6 +940,13 @@ class StaffOrdersDialog(QDialog):
             QComboBox::drop-down {{
                 border: none;
                 padding-right: 8px;
+            }}
+            QComboBox QLineEdit {{
+                border: none;
+                background-color: transparent;
+                color: {T.TEXT_PRIMARY};
+                selection-background-color: {T.ACCENT};
+                selection-color: {T.TEXT_ON_ACCENT};
             }}
             QComboBox QAbstractItemView {{
                 background-color: {T.INPUT_BG};
