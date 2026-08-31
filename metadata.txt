@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.33.1
+version=2.34.0
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,21 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.34.0 - Pushed claims keep their claim type
+        - The claims wizard has always known whether each claim is a lode
+          claim, a placer claim, a mill site or a tunnel site, and the push to
+          the server never sent it. Every pushed claim therefore landed with
+          the server's default land status of "Lode Claim", whatever it
+          actually was.
+        - The push now sends the matching land holding type for each claim.
+          The type is matched against your company's own list, so a company
+          that has renamed its types keeps its own wording.
+        - If a claim's type cannot be matched to one of your existing land
+          holding types, the push simply leaves the land status to the server
+          as before, rather than guessing. Nothing about the push can fail
+          because of this.
+        - The claim type now also survives processing in Step 6, where it was
+          previously dropped on the way back from the server.
     2.33.1 - Fix rasters loading as blank layers
         - Tiled rasters (GeoTIFFs, DEMs) could load as a layer that showed the
           correct name, CRS and extent but drew nothing at all. The tile

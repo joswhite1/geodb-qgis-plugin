@@ -80,6 +80,11 @@ class ClaimsManager:
         self._last_access_check: float = 0  # Timestamp of last access check
         self._access_check_cooldown: float = 2.0  # Minimum seconds between checks
 
+        # (company_id) -> {kind_or_name: {'name': ..., 'company': ...}}
+        # Populated once per push from the server's OWN land-holding-type
+        # list, so we never invent a natural key that does not exist.
+        self._landholding_type_cache: Dict[int, Dict[str, Dict[str, str]]] = {}
+
     # =========================================================================
     # License & Access
     # =========================================================================
@@ -731,6 +736,7 @@ class ClaimsManager:
         claim_package_id: int = None,
         document_ids: Optional[List[int]] = None,
         progress_parent=None,
+        company_id: int = None,
     ) -> Dict[str, Any]:
         """
         Push processed claims to server as LandHoldings + ClaimStakes.
@@ -754,6 +760,10 @@ class ClaimsManager:
             document_ids: Optional list of Document IDs to link to LandHoldings
                 in the same async job (saves a follow-up round-trip).
             progress_parent: Optional Qt parent for the ClaimsProgressDialog.
+            company_id: Company owning the project. Used to resolve each
+                claim's `claim_type` to a LandHoldingType natural key so the
+                claim lands with the right land_status. When absent, the key
+                is omitted and the server applies its own default.
 
         Returns:
             Dict with:
@@ -774,7 +784,8 @@ class ClaimsManager:
 
             # Format claims as LandHolding records
             landholding_records = [
-                self._format_landholding(claim, project_id, epsg, claim_package_id)
+                self._format_landholding(claim, project_id, epsg,
+                                         claim_package_id, company_id)
                 for claim in claims
             ]
 
@@ -1121,12 +1132,93 @@ class ClaimsManager:
 
         return kept
 
+    # Every spelling a claim_type can arrive in, mapped to the SEEDED display
+    # name the server creates for every company. Mirrors the server's
+    # `geodata.logic.landholding_kinds.CLAIM_TYPE_TO_KIND` — the wizard says
+    # 'lode', the grid layer says 'lode'/'placer', and older paths spell mill
+    # and tunnel sites both ways.
+    _CLAIM_TYPE_TO_TYPE_NAME = {
+        'lode': 'Lode Claim',
+        'placer': 'Placer Claim',
+        'mill': 'Mill Site',
+        'mill_site': 'Mill Site',
+        'millsite': 'Mill Site',
+        'tunnel': 'Tunnel Site',
+        'tunnel_site': 'Tunnel Site',
+    }
+
+    def _landholding_type_key(
+        self,
+        claim_type: Optional[str],
+        company_id: Optional[int],
+    ) -> Optional[Dict[str, str]]:
+        """Resolve a layer ``claim_type`` to a LandHolding natural key dict.
+
+        The server field (`NaturalKeyLandHoldingTypeField`) requires a dict
+        carrying BOTH `name` and `company`, rejects a bare string with a 400,
+        and does NOT auto-create. So we only ever send a name the server has
+        already told us exists: the type list is fetched for the company and
+        matched by name, and anything we cannot match returns None.
+
+        Returning None is the correct, safe answer — the server's own
+        serializer default then resolves the company's lode type by kind.
+        Sending a guess would 400 the whole push; omitting the key costs
+        nothing and preserves the behaviour the plugin has always had.
+        """
+        if not claim_type or not company_id:
+            return None
+
+        wanted = self._CLAIM_TYPE_TO_TYPE_NAME.get(
+            str(claim_type).strip().lower())
+        if not wanted:
+            self.logger.info(
+                f"[QCLAIMS] claim_type={claim_type!r} is not a type we can "
+                f"map — omitting land_status so the server default applies."
+            )
+            return None
+
+        cache = self._landholding_type_cache.get(company_id)
+        if cache is None:
+            cache = {}
+            try:
+                for lt in (self.api.get_landholding_types(company_id) or []):
+                    name = lt.get('name')
+                    if not name:
+                        continue
+                    company = lt.get('company')
+                    if isinstance(company, dict):
+                        company = company.get('name')
+                    if not company:
+                        continue
+                    cache[name.strip().lower()] = {
+                        'name': name, 'company': company}
+            except Exception as exc:
+                # A types lookup failure must never fail the push. Cache the
+                # empty result so we do not retry per claim on a 700-claim
+                # block, and let the server default do its job.
+                self.logger.warning(
+                    f"[QCLAIMS] Could not fetch land holding types for "
+                    f"company {company_id} ({exc}) — omitting land_status; "
+                    f"the server will apply its own default."
+                )
+            self._landholding_type_cache[company_id] = cache
+
+        resolved = cache.get(wanted.lower())
+        if resolved is None and cache:
+            self.logger.info(
+                f"[QCLAIMS] No land holding type named {wanted!r} for company "
+                f"{company_id} — omitting land_status for a {claim_type!r} "
+                f"claim so the server default applies."
+            )
+        return resolved
+
     def _format_landholding(
         self,
         claim: Dict[str, Any],
         project_id: int,
         epsg: int = None,
-        claim_package_id: int = None
+        claim_package_id: int = None,
+        company_id: int = None
     ) -> Dict[str, Any]:
         """Format processed claim for LandHolding bulk upsert.
 
@@ -1135,6 +1227,9 @@ class ClaimsManager:
             project_id: Target project ID
             epsg: EPSG code for UTM coordinates (e.g., 26911 for UTM Zone 11N)
             claim_package_id: Optional ClaimPackage ID to link this claim to
+            company_id: Company owning the project. Needed to resolve the
+                claim's `claim_type` to a LandHoldingType natural key; when
+                absent, `land_status` is omitted and the server defaults it.
         """
         # Get WGS84 geometry for the geometry field (stored in DB as WGS84)
         geometry = claim.get('geometry') or claim.get('rotated_geometry')
@@ -1196,6 +1291,16 @@ class ClaimsManager:
             'county': claim.get('county'),
             'qclaims_data': qclaims_data
         }
+
+        # The claim type the wizard already knows, sent as the LandHoldingType
+        # natural key the server requires (a dict with `name` + `company`; a
+        # bare string 400s). Omitted whenever it cannot be resolved against a
+        # type the server confirmed exists — the server's own default then
+        # applies, which is exactly the behaviour before this change.
+        land_status = self._landholding_type_key(
+            claim.get('claim_type'), company_id)
+        if land_status:
+            payload['land_status'] = land_status
 
         # Filter through schema to ensure only expected fields are sent
         from ..models.schemas import get_schema

@@ -517,7 +517,24 @@ class ClaimsStep6Widget(ClaimsStepBase):
             # Note: Removed QApplication.processEvents() to prevent heap corruption crashes
 
             # Store results
-            self.state.processed_claims = result.get('claims', [])
+            processed = result.get('claims', [])
+            # Carry the claim_type back onto each processed claim. We SENT it
+            # (see _collect_claims below) and the processor does not echo it,
+            # so without this it is lost between here and the Step-7 push —
+            # which is why every pushed claim used to land on the server's
+            # lode default regardless of what it actually was. Matched by
+            # name; a claim we cannot match simply keeps no type and the
+            # server default applies, as before.
+            sent_types = {
+                str(c.get('name')): c.get('claim_type')
+                for c in (claims or []) if c.get('claim_type')
+            }
+            for pc in processed:
+                if not pc.get('claim_type'):
+                    found = sent_types.get(str(pc.get('name')))
+                    if found:
+                        pc['claim_type'] = found
+            self.state.processed_claims = processed
             self.state.processed_waypoints = result.get('waypoints', [])
 
             # NOTE: Waypoints layer is NOT created here. It is created after

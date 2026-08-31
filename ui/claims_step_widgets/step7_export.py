@@ -1347,6 +1347,10 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 self.state.claim_package_id,  # Link claims to existing package from document generation
                 document_ids=doc_ids,
                 progress_parent=self,
+                # Lets the push resolve each claim's claim_type to a real
+                # LandHoldingType natural key instead of leaving land_status
+                # to the server's lode default.
+                company_id=self.state.company_id,
             )
 
             self.progress_bar.setValue(50)

@@ -745,6 +745,16 @@ class ClaimsWizardState:
                 'endline_monuments': endlines.get(name, []),
                 'plss': {},  # Server preserves existing qclaims_data.plss on upsert.
                 'notes': _attr(feat, 'Notes', '') or '',
+                # The Lode Claims layer carries no claim_type column today
+                # (see claims_layer_generator._create_polygon_layer), so this
+                # is normally empty and the Step-7 push omits land_status,
+                # leaving the server default — the behaviour rehydration has
+                # always had. Read defensively so that when the column does
+                # exist (a GeoPackage from a newer layer build, a
+                # user-added field) the type survives the round trip
+                # instead of being silently discarded here.
+                'claim_type': (_attr(feat, 'claim_type', '')
+                               or _attr(feat, 'Claim Type', '') or ''),
             })
 
         # --- Build processed_waypoints from the Waypoints layer if present
