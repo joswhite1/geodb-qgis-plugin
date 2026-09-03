@@ -176,14 +176,24 @@ class ClaimsStep3Widget(ClaimsStepBase):
             logger.warning("[Step3] reference_widget not available")
             return
 
-        if not self.state.geopackage_path:
-            logger.warning("[Step3] No geopackage_path in state")
+        # Resolve the claims GeoPackage the same way Step 5 does: reuse the
+        # Step-1 file, recovering it from the claims layer if the in-memory path
+        # was lost on reopen/reload. This keeps Reference Points in the SAME
+        # GeoPackage as the claim layout. If the user never created one in
+        # Step 1 there is no file to use, so the reference layer stays in
+        # memory (pre-v2.28.0 behavior) — we do NOT mint a new file here.
+        gpkg_path = self.state.resolve_existing_geopackage()
+        if not gpkg_path:
+            logger.warning(
+                "[Step3] No GeoPackage for this claim block; reference points "
+                "will be memory-only. Create a GeoPackage in Step 1 to persist them."
+            )
             return
 
         try:
             from ...managers.claims_storage_manager import ClaimsStorageManager
             storage_manager = ClaimsStorageManager()
-            storage_manager.set_current_geopackage(self.state.geopackage_path)
+            storage_manager.set_current_geopackage(gpkg_path)
 
             # Get project name from the claims layer name (e.g., "Initial Layout [GE1 Lode Claims]")
             # This is more reliable than metadata which might not be set
@@ -198,18 +208,18 @@ class ClaimsStep3Widget(ClaimsStepBase):
 
             # Fall back to metadata if no layer name available
             if not project_name:
-                metadata = storage_manager.load_metadata(self.state.geopackage_path)
+                metadata = storage_manager.load_metadata(gpkg_path)
                 project_name = metadata.get('project_name', None)
 
             logger.info(
-                f"[Step3] Setting up reference storage: path={self.state.geopackage_path}, "
+                f"[Step3] Setting up reference storage: path={gpkg_path}, "
                 f"project_name={project_name}, epsg={self.state.project_epsg}"
             )
 
             # Configure widget to use GeoPackage storage (auto-loads layer)
             self.reference_widget.set_storage(
                 storage_manager,
-                self.state.geopackage_path,
+                gpkg_path,
                 project_name=project_name
             )
 

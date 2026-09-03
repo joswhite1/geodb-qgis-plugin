@@ -651,19 +651,23 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         self.layer_generator.set_auto_lm_cluster(self.state.auto_lm_cluster)
         self.layer_generator.set_claims_manager(self.claims_manager)
 
-        # Guarantee a GeoPackage backs the generated layers so they persist
-        # across a crash / reopen. If the user never created one in Step 1 this
-        # auto-creates one in the default GeodbData directory; otherwise the
-        # existing path is used unchanged. Without a path the generator falls
-        # back to memory layers, which are lost on close — the exact data-loss
-        # this guards against (moving LM corners, QGIS crashes, work gone).
-        gpkg_path = self.state.ensure_geopackage()
+        # Persist generated layers into the GeoPackage the user created in
+        # Step 1 (holds the Initial Layout). If the in-memory path was lost on
+        # a wizard reopen / plugin reload, recover it from the claims layer's
+        # own data source rather than starting a NEW file — that recovery is
+        # what keeps every layer in ONE GeoPackage. If there is genuinely no
+        # GeoPackage (the user never created one in Step 1), the generator
+        # falls back to memory layers, exactly as before v2.28.0. We do NOT
+        # auto-create a file here: silently minting one split the claim package
+        # across two GeoPackages.
+        gpkg_path = self.state.resolve_existing_geopackage()
         if gpkg_path:
             self.layer_generator.set_geopackage_path(gpkg_path)
         else:
             self.logger.warning(
-                "[CLAIMS] No GeoPackage available; generated layers will be "
-                "memory-only and will not survive a crash or reopen."
+                "[CLAIMS] No GeoPackage created for this claim block; generated "
+                "layers will be memory-only. Create a GeoPackage in Step 1 to "
+                "persist them across a crash or reopen."
             )
 
         # Extract project name from claims layer for layer naming

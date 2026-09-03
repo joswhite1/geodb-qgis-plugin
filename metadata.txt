@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.34.0
+version=2.34.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,20 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.34.1 - Fix: claim layers split across two GeoPackages
+        - The claims workflow now keeps ALL generated layers (Lode Claims,
+          Corner Points, LM Corners, Monuments, Center Lines) AND the Reference
+          Points layer in the SAME GeoPackage as your Initial Layout, the way
+          it did before 2.28.0. Since 2.28.0, reopening the wizard (or reloading
+          the plugin) could leave the workflow without the GeoPackage path in
+          memory, which caused it to create a SECOND file in the GeodbData
+          folder and write the generated layers there — splitting one claim
+          package across two GeoPackages, with the Reference Points layer
+          falling back to a non-persistent memory layer. The workflow no longer
+          auto-creates a GeoPackage; it uses the one you created in Step 1
+          (recovering its path from your claim layout if needed). If you did
+          not create a GeoPackage in Step 1, layers are held in memory as they
+          were before 2.28.0 — create one in Step 1 to persist your work.
     2.34.0 - Pushed claims keep their claim type
         - The claims wizard has always known whether each claim is a lode
           claim, a placer claim, a mill site or a tunnel site, and the push to

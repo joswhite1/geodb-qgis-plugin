@@ -308,61 +308,73 @@ class ClaimsWizardState:
             logger.error(f"Error saving to GeoPackage: {e}")
             return False
 
-    def ensure_geopackage(self) -> Optional[str]:
+    def resolve_existing_geopackage(self) -> Optional[str]:
         """
-        Guarantee a claims GeoPackage path exists, auto-creating one if the
-        user never explicitly created/selected one in Step 1.
+        Return the path of the claim block's EXISTING GeoPackage, or None.
 
         Persistence of the generated claim layers (Lode Claims, Corner Points,
-        LM Corners, Monuments, ...) is gated on ``geopackage_path`` being set:
-        when it is, the layer generator writes them into the GeoPackage
-        (OGR-backed, survives a crash / reopen); when it is None every layer
-        falls back to a "memory" provider and is lost the moment QGIS closes or
-        crashes. Making the GeoPackage optional was the silent cause of "I moved
-        the LM corners around, QGIS crashed, and lost all my work."
+        LM Corners, Monuments, ...) and the Reference Points layer is gated on a
+        GeoPackage path being available: when one is, the layer generator writes
+        them into it (OGR-backed, survives a crash / reopen); when there is none
+        the layers fall back to a "memory" provider — the pre-v2.28.0 behavior.
 
-        This creates the file in the user's default GeodbData directory using
-        the claim-name prefix, writes the metadata table (which materialises the
-        file on disk), and records the path on the state. It is idempotent: if a
-        path is already set it is returned unchanged.
+        This resolves an EXISTING file only; it never creates one. That is
+        deliberate: v2.28.0 auto-created a GeoPackage in the default folder when
+        the in-memory path was empty, but the path is often empty on a wizard
+        reopen / plugin reload even though the Step-1 GeoPackage holding the
+        layout is right there on disk — so the generated layers were written
+        into a SECOND file, splitting one claim package across two GeoPackages.
+
+        Resolution order:
+          1. ``geopackage_path`` already set in state — use it.
+          2. Otherwise recover it from the claims layer's own data source (the
+             Initial Layout / Lode Claims layer is OGR-backed at
+             ``<path>.gpkg|layername=…``). This recovers the correct file after
+             a reopen instead of losing it.
+          3. Neither — return None; the caller uses memory layers. The user is
+             expected to have created a GeoPackage in Step 1 to get persistence.
 
         Returns:
-            The GeoPackage path (existing or newly created), or None if creation
-            failed (in which case the caller falls back to memory layers).
+            The existing GeoPackage path, or None if the claim block has no
+            GeoPackage on disk.
         """
         if self.geopackage_path:
             return self.geopackage_path
 
-        try:
-            from ..managers.storage_manager import StorageManager
+        recovered = self._geopackage_from_claims_layer()
+        if recovered:
+            self.geopackage_path = recovered
+            logger.info("resolve_existing_geopackage: recovered claims GeoPackage %s", recovered)
+            return recovered
 
-            directory = StorageManager().get_default_directory()
-            prefix = (self.grid_name_prefix or "GE").strip() or "GE"
-            safe_prefix = "".join(
-                c if c.isalnum() or c in '-_' else '_' for c in prefix
-            )
-            gpkg_path = str(Path(directory) / f"{safe_prefix}_claims.gpkg")
+        return None
 
-            self.geopackage_path = gpkg_path
-            # save_to_geopackage() opens the file via sqlite3.connect, which
-            # creates it and writes the claims_metadata table. The file is a
-            # bare SQLite DB at this point; the first generated layer upgrades
-            # it to a valid GeoPackage (ClaimsStorageManager.create_or_update_layer
-            # uses CreateOrOverwriteFile when the file is not yet a valid gpkg).
-            if not self.save_to_geopackage():
-                logger.error(
-                    "ensure_geopackage: save_to_geopackage failed for %s", gpkg_path
-                )
-                self.geopackage_path = None
-                return None
+    def _geopackage_from_claims_layer(self) -> Optional[str]:
+        """
+        Derive the GeoPackage path from the existing claims layer's data source.
 
-            logger.info("ensure_geopackage: auto-created claims GeoPackage at %s", gpkg_path)
-            return gpkg_path
-
-        except Exception as e:
-            logger.error(f"ensure_geopackage: failed to auto-create GeoPackage: {e}")
-            self.geopackage_path = None
+        The claims layout layer (Initial Layout / Lode Claims), when created in
+        Step 1, is OGR-backed and its ``source()`` is ``<path>.gpkg|layername=…``.
+        That path is the authoritative one-file home for the whole claim package.
+        This lets ``resolve_existing_geopackage`` recover it after a reopen/reload
+        instead of losing the file. Returns the .gpkg path if the claims layer is
+        GeoPackage-backed and the file still exists, else None (memory-backed
+        layer, non-gpkg source, or missing file).
+        """
+        layer = self.claims_layer
+        if layer is None:
             return None
+        try:
+            source = layer.source() or ''
+        except Exception:
+            return None
+        # OGR gpkg sources look like "/path/to/file.gpkg|layername=initial_layout"
+        path = source.split('|', 1)[0].strip()
+        if not path.lower().endswith('.gpkg'):
+            return None
+        if not Path(path).exists():
+            return None
+        return path
 
     def _extract_prefix_from_claims(self, path: str) -> Optional[str]:
         """
