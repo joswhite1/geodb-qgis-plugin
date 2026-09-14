@@ -55,7 +55,18 @@ class ClaimsLayerGenerator:
     - State-specific monuments (sideline/endline)
     """
 
-    # Standard lode claim dimensions
+    # ⚠️ DEAD, and deliberately left in place with this note (v2.35.0).
+    # These three are DECLARED AND NEVER READ — verified by grep across the
+    # plugin: this class generates its layers from the SERVER's processed
+    # claims, and never measures a rectangle itself. They read like a sixth
+    # copy of the claim geometry the server now publishes as one contract
+    # (``services/claims/grid_generator.geometry_contract()``), which is
+    # exactly why the next reader deserves to be told they are inert rather
+    # than find them and assume this file draws claims.
+    # ⛔ Do not start USING them. If this class ever needs a dimension, it
+    # must ask the server, like everything else does since the offline grid
+    # fallback was deleted. Removing them outright is a separate, trivial
+    # cleanup nobody has needed yet.
     LODE_WIDTH_FT = 600
     LODE_LENGTH_FT = 1500
     FEET_TO_METERS = 0.3048
