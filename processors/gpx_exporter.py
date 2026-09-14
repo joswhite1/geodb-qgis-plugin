@@ -11,6 +11,9 @@ from datetime import datetime
 import xml.etree.ElementTree as ET
 
 from ..utils.logger import PluginLogger
+# The ONE home for the ID/NM predicate — mirror of the server's
+# services/claims/state_constants.py. Never re-type {'ID', 'NM'}.
+from .state_constants import lm_at_corner
 
 
 class GPXExporter:
@@ -294,7 +297,7 @@ class GPXExporter:
             # Skip for Idaho (ID) and New Mexico (NM) - these states use "monument-as-corner"
             # system where the location monument IS one of the corners, not a separate point
             # on the centerline
-            if include_discovery and state not in ['ID', 'NM']:
+            if include_discovery and not lm_at_corner(state):
                 discovery = claim.get('discovery_monument')
                 if discovery:
                     waypoints.append({

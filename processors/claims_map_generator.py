@@ -59,6 +59,9 @@ from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtXml import QDomDocument
 
 from ..utils.compat import FieldType_QString, FieldType_Double, FieldType_Int
+# The ONE home for the ID/NM predicate — mirror of the server's
+# services/claims/state_constants.py. Never re-type {'ID', 'NM'}.
+from .state_constants import LM_AT_CORNER_STATES, lm_at_corner
 
 if TYPE_CHECKING:
     from ..ui.claims_wizard_state import ClaimsWizardState
@@ -1885,8 +1888,10 @@ class ClaimsMapGenerator:
         return None
 
     # States where the LM is just a corner designation (no separate discovery
-    # monument), so LM points should NOT be shown on the map.
-    _NO_LM_DISPLAY_STATES = {'ID', 'NM'}
+    # monument), so LM points should NOT be shown on the map. The set lives in
+    # ``processors/state_constants.py`` (one home, mirrored from the server);
+    # this attribute is an ALIAS so existing readers keep working.
+    _NO_LM_DISPLAY_STATES = LM_AT_CORNER_STATES
 
     def _build_layer_list(
         self,
@@ -1926,7 +1931,7 @@ class ClaimsMapGenerator:
         """
         result = []
         state_code = self._get_claims_state()
-        show_lm = state_code not in self._NO_LM_DISPLAY_STATES
+        show_lm = not lm_at_corner(state_code)
 
         # Annotation layers on top so labels aren't obscured
         if include_ref_point and layers.get('ref_point'):

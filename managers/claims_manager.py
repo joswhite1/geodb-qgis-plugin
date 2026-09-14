@@ -18,6 +18,9 @@ from ..api.client import APIClient
 from ..api.exceptions import APIException, APIPermissionError
 from ..utils.config import Config
 from ..utils.logger import PluginLogger
+# The ONE home for the ID/NM predicate — mirror of the server's
+# services/claims/state_constants.py. Never re-type {'ID', 'NM'}.
+from ..processors.state_constants import LM_AT_CORNER_STATES, lm_at_corner
 
 
 # Fallback only: access_types that imply data-layer access on older servers that
@@ -1041,7 +1044,10 @@ class ClaimsManager:
 
     # States where statute requires the LM at a corner (no separate
     # discovery monument). Idaho Code 47-602; NMSA 69-3-1.
-    _LM_AT_CORNER_STATES = frozenset({'ID', 'NM'})
+    # The set lives in ``processors/state_constants.py`` (one home, mirrored
+    # from the server); this attribute is an ALIAS kept so any caller or test
+    # reading ``manager._LM_AT_CORNER_STATES`` keeps working.
+    _LM_AT_CORNER_STATES = LM_AT_CORNER_STATES
 
     def _filter_id_nm_lm_waypoints(
         self,
@@ -1107,10 +1113,10 @@ class ClaimsManager:
             # it (the server will still validate per-link).
             id_nm_states = [
                 state_by_name.get(n) for n in claim_names
-                if state_by_name.get(n) in self._LM_AT_CORNER_STATES
+                if lm_at_corner(state_by_name.get(n))
             ]
             non_id_nm_present = any(
-                state_by_name.get(n) and state_by_name.get(n) not in self._LM_AT_CORNER_STATES
+                state_by_name.get(n) and not lm_at_corner(state_by_name.get(n))
                 for n in claim_names
             )
             if id_nm_states and not non_id_nm_present:

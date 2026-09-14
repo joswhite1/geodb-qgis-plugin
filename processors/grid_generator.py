@@ -11,6 +11,12 @@ The server-side implementation handles:
 - Claim dimension calculations (600x1500 ft for lode, variable for placer)
 - Corner coordinate generation
 - Polygon geometry creation
+
+⛔ There is NO local fallback. It was deleted 2026-09-14 (claims-petra P6):
+it was a second copy of the claim rectangle — with its own truncated
+4046.86 acre constant — and it fired on ANY server exception, not only
+offline, so a transient 500 silently produced client-drawn claims. Offline
+now refuses with a message the user can act on.
 """
 from typing import Optional
 from enum import Enum
@@ -34,9 +40,12 @@ class GridGenerator:
     """
     Client-side wrapper for server-side grid generation.
 
-    All grid generation logic is on the server. This class:
+    All grid generation logic is on the server — genuinely all of it, since
+    2026-09-14: the local offline fallback was deleted rather than left to
+    drift from the server's published geometry contract. This class:
     1. Calls the server API with grid parameters
     2. Converts the response to a QGIS layer (GeoPackage or memory)
+    3. Offline (or without an api_client), REFUSES with a readable message
 
     The server handles:
     - Standard lode claim dimensions (600 ft wide x 1500 ft long)
@@ -50,8 +59,9 @@ class GridGenerator:
         Initialize grid generator.
 
         Args:
-            api_client: Optional APIClient instance. If not provided,
-                       falls back to local generation for offline use.
+            api_client: APIClient instance. Without one the generator
+                       REFUSES — there is no local fallback; claim geometry
+                       comes from the server's one contract.
             claims_storage_manager: Optional ClaimsStorageManager for
                        GeoPackage persistence. If provided with a GeoPackage
                        path, layers are saved to the GeoPackage instead of
@@ -121,20 +131,12 @@ class GridGenerator:
         # Get EPSG code
         epsg = self._get_epsg_code(project_crs)
 
-        # Try server-side generation first
-        if self.api_client and not self._offline_mode:
-            try:
-                return self._generate_lode_grid_server(
-                    start_point, rows, cols, name_prefix, azimuth, epsg, project_crs
-                )
-            except Exception as e:
-                self.logger.warning(
-                    f"[GRID] Server-side generation failed, falling back to local: {e}"
-                )
-
-        # Fallback to local generation (offline mode)
-        return self._generate_lode_grid_local(
-            start_point, rows, cols, name_prefix, azimuth, project_crs
+        # The server is the ONE geometry. There is no local fallback: a
+        # server error must SURFACE, not quietly become client-drawn claims.
+        if not (self.api_client and not self._offline_mode):
+            self._refuse_offline("Generating a lode claim grid")
+        return self._generate_lode_grid_server(
+            start_point, rows, cols, name_prefix, azimuth, epsg, project_crs
         )
 
     def _generate_lode_grid_server(
@@ -206,20 +208,11 @@ class GridGenerator:
         # Get EPSG code
         epsg = self._get_epsg_code(project_crs)
 
-        # Try server-side generation first
-        if self.api_client and not self._offline_mode:
-            try:
-                return self._generate_placer_grid_server(
-                    start_point, rows, cols, claim_size_acres, name_prefix, epsg, project_crs
-                )
-            except Exception as e:
-                self.logger.warning(
-                    f"[GRID] Server-side generation failed, falling back to local: {e}"
-                )
-
-        # Fallback to local generation (offline mode)
-        return self._generate_placer_grid_local(
-            start_point, rows, cols, claim_size_acres, name_prefix, project_crs
+        # Same rule as the lode path: the server is the ONE geometry.
+        if not (self.api_client and not self._offline_mode):
+            self._refuse_offline("Generating a placer claim grid")
+        return self._generate_placer_grid_server(
+            start_point, rows, cols, claim_size_acres, name_prefix, epsg, project_crs
         )
 
     def _generate_placer_grid_server(
@@ -337,212 +330,47 @@ class GridGenerator:
         return 4326  # Default to WGS84
 
     # =========================================================================
-    # Local fallback methods (for offline mode)
+    # ⛔ THE OFFLINE LOCAL FALLBACK WAS DELETED (claims-petra P6, 2026-09-14)
     # =========================================================================
+    #
+    # ``_generate_lode_grid_local`` / ``_generate_placer_grid_local`` and their
+    # four helpers (``_create_claims_layer``, ``_create_claim_polygon``,
+    # ``_create_claim_feature``, ``_rotate_point``) drew claim rectangles HERE,
+    # in the browser-side plugin, from its own copy of the 600 x 1500 ft
+    # dimensions and its own rotation. That made the plugin the FIFTH copy of a
+    # geometry the server now publishes as ONE contract
+    # (``services/claims/grid_generator.geometry_contract()``), and it carried a
+    # truncated ``4046.86`` sq-m-per-acre constant of its own.
+    #
+    # Two reasons it had to go, and the second is the one that mattered:
+    #
+    # 1. **Drift arrives in ONE commit, not gradually.** The first placer,
+    #    state-variant or AK-MTRSC claim moves the server's rule and this copy
+    #    keeps silently drawing 600 x 1500. The failure shape is a customer
+    #    signing a document that describes ground they did not see.
+    # 2. **It was not only an OFFLINE path.** The dispatch caught ANY exception
+    #    from the server call — a 500, a timeout, an auth failure — logged a
+    #    warning, and drew local geometry instead. A user with a working
+    #    connection and a transient server error got client-drawn claims and no
+    #    indication anything had changed. That is silent divergence from the
+    #    geometry of record.
+    #
+    # Offline now REFUSES, loudly (see ``_refuse_offline``). Both callers
+    # already wrap generation in try/except and show the message in a dialog.
+    # ⛔ Do not restore a local generator "just for offline". If offline grid
+    # drawing is ever wanted, it must consume the SAME published contract, not
+    # a second set of constants.
 
-    # Standard claim dimensions in feet
-    LODE_WIDTH_FT = 600
-    LODE_LENGTH_FT = 1500
-    FEET_TO_METERS = 0.3048
+    def _refuse_offline(self, what: str) -> None:
+        """Raise the honest refusal. Claim geometry is the server's ONE
+        contract; the plugin never draws its own."""
+        raise RuntimeError(
+            f"{what} needs a connection to geodb.io. Claim geometry is "
+            f"generated on the server so that every claim — here, on the web "
+            f"map, and in the filed documents — comes from one set of "
+            f"dimensions. Reconnect and try again."
+        )
 
-    def _generate_lode_grid_local(
-        self,
-        start_point: QgsPointXY,
-        rows: int,
-        cols: int,
-        name_prefix: str,
-        azimuth: float,
-        project_crs: QgsCoordinateReferenceSystem
-    ) -> QgsVectorLayer:
-        """
-        Local fallback for lode grid generation (offline mode).
-
-        Note: This is a simplified implementation for offline use only.
-        For production use, the server-side implementation is preferred.
-        """
-
-        # Convert dimensions to meters
-        width_m = self.LODE_WIDTH_FT * self.FEET_TO_METERS
-        length_m = self.LODE_LENGTH_FT * self.FEET_TO_METERS
-
-        # Create layer
-        layer_name = f"Initial Layout [{name_prefix} Lode Claims]"
-        layer = self._create_claims_layer(layer_name, project_crs)
-
-        # Generate claims
-        claim_num = 1
-        for row in range(rows):
-            for col in range(cols):
-                # Calculate position
-                local_x = col * width_m
-                local_y = -row * length_m  # Negative because we go south
-
-                # Apply rotation
-                if azimuth != 0:
-                    rotated_x, rotated_y = self._rotate_point(local_x, local_y, azimuth)
-                else:
-                    rotated_x, rotated_y = local_x, local_y
-
-                # Create claim polygon
-                claim_origin = QgsPointXY(
-                    start_point.x() + rotated_x,
-                    start_point.y() + rotated_y
-                )
-
-                polygon = self._create_claim_polygon(
-                    claim_origin, width_m, length_m, azimuth
-                )
-
-                # Create feature
-                name = f"{name_prefix} {claim_num}"
-                feature = self._create_claim_feature(
-                    layer.fields(), name, polygon, ClaimType.LODE.value
-                )
-
-                layer.dataProvider().addFeature(feature)
-                claim_num += 1
-
-        layer.updateExtents()
-        self.logger.info(f"[GRID] Generated {claim_num - 1} lode claims (local)")
-
-        return layer
-
-    def _generate_placer_grid_local(
-        self,
-        start_point: QgsPointXY,
-        rows: int,
-        cols: int,
-        claim_size_acres: float,
-        name_prefix: str,
-        project_crs: QgsCoordinateReferenceSystem
-    ) -> QgsVectorLayer:
-        """
-        Local fallback for placer grid generation (offline mode).
-
-        Note: This is a simplified implementation for offline use only.
-        For production use, the server-side implementation is preferred.
-        """
-        import math
-
-        # Calculate dimensions from acres (1 acre = 4046.86 sq m)
-        area_sq_m = claim_size_acres * 4046.86
-        side_m = math.sqrt(area_sq_m)
-
-        # Create layer
-        layer_name = f"Initial Layout [{name_prefix} Placer Claims]"
-        layer = self._create_claims_layer(layer_name, project_crs)
-
-        # Generate claims
-        claim_num = 1
-        for row in range(rows):
-            for col in range(cols):
-                x = start_point.x() + col * side_m
-                y = start_point.y() - row * side_m
-
-                claim_origin = QgsPointXY(x, y)
-                polygon = self._create_claim_polygon(claim_origin, side_m, side_m, 0.0)
-
-                name = f"{name_prefix} {claim_num}"
-                feature = self._create_claim_feature(
-                    layer.fields(), name, polygon, ClaimType.PLACER.value
-                )
-
-                layer.dataProvider().addFeature(feature)
-                claim_num += 1
-
-        layer.updateExtents()
-        self.logger.info(f"[GRID] Generated {claim_num - 1} placer claims (local)")
-
-        return layer
-
-    def _create_claims_layer(
-        self,
-        name: str,
-        crs: QgsCoordinateReferenceSystem
-    ) -> QgsVectorLayer:
-        """Create a layer for claims (GeoPackage or memory)."""
-        # Define fields
-        fields = QgsFields()
-        fields.append(QgsField("name", FieldType_QString, len=100))
-        fields.append(QgsField("claim_type", FieldType_QString, len=20))
-        fields.append(QgsField("status", FieldType_QString, len=20))
-        fields.append(QgsField("notes", FieldType_QString, len=500))
-
-        # Use GeoPackage if configured, otherwise memory layer
-        if self._geopackage_path and self.claims_storage_manager:
-            from ..managers.claims_storage_manager import ClaimsStorageManager
-            layer = self.claims_storage_manager.create_or_update_layer(
-                table_name=ClaimsStorageManager.INITIAL_LAYOUT_TABLE,
-                layer_display_name=name,
-                geometry_type='Polygon',
-                fields=fields,
-                crs=crs,
-                gpkg_path=self._geopackage_path
-            )
-        else:
-            # Fallback to memory layer
-            layer = QgsVectorLayer(f"Polygon?crs={crs.authid()}", name, "memory")
-            layer.dataProvider().addAttributes(fields.toList())
-            layer.updateFields()
-
-        return layer
-
-    def _create_claim_polygon(
-        self,
-        origin: QgsPointXY,
-        width: float,
-        length: float,
-        azimuth: float
-    ) -> QgsGeometry:
-        """Create a claim polygon."""
-        # Create corners in local coordinates (origin at NW)
-        corners_local = [
-            (0, 0),              # NW
-            (width, 0),          # NE
-            (width, -length),    # SE
-            (0, -length),        # SW
-            (0, 0),              # NW (close polygon)
-        ]
-
-        corners = []
-        for local_x, local_y in corners_local:
-            if azimuth != 0:
-                rotated_x, rotated_y = self._rotate_point(local_x, local_y, azimuth)
-            else:
-                rotated_x, rotated_y = local_x, local_y
-
-            corners.append(QgsPointXY(
-                origin.x() + rotated_x,
-                origin.y() + rotated_y
-            ))
-
-        return QgsGeometry.fromPolygonXY([corners])
-
-    def _create_claim_feature(
-        self,
-        fields: QgsFields,
-        name: str,
-        geometry: QgsGeometry,
-        claim_type: str
-    ) -> QgsFeature:
-        """Create a feature for a claim."""
-        feature = QgsFeature(fields)
-        feature.setGeometry(geometry)
-        feature.setAttribute("name", name)
-        feature.setAttribute("claim_type", claim_type)
-        feature.setAttribute("status", "planned")
-        feature.setAttribute("notes", "")
-        return feature
-
-    def _rotate_point(self, x: float, y: float, angle_degrees: float):
-        """Rotate a point around the origin."""
-        import math
-        angle_rad = -math.radians(angle_degrees)
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-        new_x = x * cos_a - y * sin_a
-        new_y = x * sin_a + y * cos_a
-        return new_x, new_y
 
     def add_layer_to_project(
         self,

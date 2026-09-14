@@ -21,6 +21,10 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
+# The ONE home for the ID/NM predicate — mirror of the server's
+# services/claims/state_constants.py. Never re-type {'ID', 'NM'}.
+from .state_constants import LM_AT_CORNER_STATES, lm_at_corner  # noqa: F401
+
 try:
     from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
 except ImportError:  # pragma: no cover — non-QGIS test contexts
@@ -52,7 +56,11 @@ def _build_transform_fn(source_crs) -> Optional[Callable[[float, float], tuple]]
 # what Idaho and New Mexico regs forbid. Sending an override for an
 # ID/NM claim resurrects the regulatorily-invalid Phase-3 placement
 # the server-side rip-out (2026-05-06) was designed to prevent.
-LM_AT_CORNER_STATES = {'ID', 'NM'}
+#
+# The set itself lives in ONE place now — ``processors/state_constants.py``
+# (imported at the top of this module), the mirror of the server's
+# ``services/claims/state_constants.py``. ``LM_AT_CORNER_STATES`` is
+# re-exported from here so existing call sites read unchanged.
 
 
 def _build_claim_state_lookup(state: Any) -> Dict[str, str]:
@@ -187,7 +195,7 @@ def read_monument_overrides_from_state(
         # statute). Stale features for these claims must not be replayed
         # to the server as user moves.
         claim_state = claim_state_by_name.get(claim_name)
-        if claim_state in LM_AT_CORNER_STATES:
+        if lm_at_corner(claim_state):
             skipped_id_nm += 1
             continue
         geom = feature.geometry()

@@ -26,6 +26,9 @@ from qgis.core import QgsProject, QgsVectorLayer
 from .step_base import ClaimsStepBase
 from ...processors.claims_layer_generator import ClaimsLayerGenerator
 from ...processors.monument_overrides import read_monument_overrides_from_state
+# The ONE home for the ID/NM predicate — mirror of the server's
+# services/claims/state_constants.py. Never re-type {'ID', 'NM'}.
+from ...processors.state_constants import lm_at_corner
 from ...utils.logger import PluginLogger
 from ...utils.layer_utils import is_layer_valid
 from ...utils.compat import (
@@ -500,9 +503,8 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
     def _update_instructions(self, state: Optional[str] = None):
         """Update instructions based on detected state."""
-        # Normalize state to uppercase for comparison
-        normalized_state = state.upper().strip() if state else None
-        if normalized_state in ['ID', 'NM']:
+        # ``lm_at_corner`` normalises case + whitespace + None itself.
+        if lm_at_corner(state):
             self.instructions_label.setText(
                 "Idaho and New Mexico use the 'Monument-as-Corner' system:\n\n"
                 "1. The discovery monument IS one of the numbered corners (Corner 1)\n"
