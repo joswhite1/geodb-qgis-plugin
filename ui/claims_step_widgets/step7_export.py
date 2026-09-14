@@ -26,6 +26,7 @@ from ...utils.logger import PluginLogger
 from ...utils.layer_utils import is_layer_valid
 from ...utils.compat import QFrame_NoFrame, QHeaderView_Stretch, QHeaderView_ResizeToContents
 from ...utils.theme import T
+from ...managers.claims_manager import looks_like_missing_endpoint
 
 
 class ClaimsStep7Widget(ClaimsStepBase):
@@ -1273,7 +1274,24 @@ class ClaimsStep7Widget(ClaimsStepBase):
     # =========================================================================
 
     def _push_to_server(self):
-        """Push claims and waypoints to server."""
+        """Write the claims to the server — by materialising the block when
+        there is one, otherwise by the legacy claims+stakes push.
+
+        ⭐ BOTH paths land the same rows through the same server-side writer
+        (``services.claims.plss.persistence.land_proposal``): LandHolding +
+        ClaimStake + ClaimStakeLink + the ClaimPackage. The difference is
+        WHOSE NUMBERS they are built from.
+
+        * **materialise** (this run is tied to a block the server has
+          processed): the server writes from the processing IT stored and the
+          operator reviewed in Steps 5-6. Nothing re-uploads geometry, so
+          there is no window in which the plugin's copy and the server's can
+          disagree, and the write is idempotent on the proposal — a re-run
+          skips what already landed and says so.
+        * **the legacy push** (no block behind this run — a plain wizard
+          layout): unchanged, and still the right answer. There is no block to
+          materialise, so the claims must travel.
+        """
         if not self.state.processed_claims:
             QMessageBox.warning(self, "No Claims", "Process claims first before pushing to server.")
             return
@@ -1282,6 +1300,19 @@ class ClaimsStep7Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
 
+        if self.state.fulfillment_order_id and self.state.block_is_processed:
+            self._materialise_block()
+            return
+
+        self._legacy_push_to_server()
+
+    def _legacy_push_to_server(self):
+        """The claims+stakes push — unchanged.
+
+        Still the right path for a run with no block behind it, and the
+        fallback when a server has not got the block routes yet. Callers have
+        already validated `processed_claims` and `project_id`.
+        """
         # Stronger warning if already pushed (server uses create-or-update so
         # it's safe, but the user should know they're re-pushing)
         if self.state.claims_pushed:
@@ -1369,49 +1400,10 @@ class ClaimsStep7Widget(ClaimsStepBase):
                 self.state.save_to_geopackage()
 
             # --- GeoPackage upload + link ---
-            gpkg_uploaded = False
-            if self.state.geopackage_path and self.state.claim_package_id and self.data_manager:
-                try:
-                    self.push_status_label.setText("Saving layer styles to GeoPackage...")
-                    self.progress_bar.setValue(70)
-
-                    from ...utils.gpkg_utils import save_styles_to_geopackage
-                    styles_saved = save_styles_to_geopackage(self.state.geopackage_path)
-                    logger.info(f"[PUSH] Saved {styles_saved} style(s) to GeoPackage")
-
-                    self.push_status_label.setText("Uploading GeoPackage to server...")
-                    self.progress_bar.setValue(80)
-
-                    gpkg_name = Path(self.state.geopackage_path).name
-                    upload_result = self.data_manager.upload_project_file(
-                        file_path=self.state.geopackage_path,
-                        name=gpkg_name,
-                        category='GP',
-                        description=f"Claims GeoPackage for {self.state.grid_name_prefix or 'claims'}",
-                        is_raster=False,
-                        epsg=self.state.project_epsg,
-                    )
-
-                    self.push_status_label.setText("Linking GeoPackage to claim package...")
-                    self.progress_bar.setValue(90)
-
-                    project_file_id = upload_result.get('id')
-                    if project_file_id:
-                        self.claims_manager.link_geopackage(
-                            self.state.claim_package_id, project_file_id
-                        )
-                        gpkg_uploaded = True
-                        logger.info(
-                            f"[PUSH] GeoPackage uploaded (ProjectFile {project_file_id}) "
-                            f"and linked to ClaimPackage {self.state.claim_package_id}"
-                        )
-
-                except Exception as gpkg_err:
-                    # Non-fatal — claims push already succeeded
-                    logger.warning(f"[PUSH] GeoPackage upload/link failed: {gpkg_err}")
-                    self.emit_status(
-                        f"Warning: GeoPackage upload failed: {gpkg_err}", "warning"
-                    )
+            # ONE implementation, shared with the materialise path — a second
+            # copy here is exactly how the two would drift.
+            self.progress_bar.setValue(80)
+            gpkg_uploaded = self._upload_geopackage_if_any(logger)
 
             self.progress_bar.setValue(100)
 
@@ -1456,6 +1448,157 @@ class ClaimsStep7Widget(ClaimsStepBase):
         finally:
             self.progress_bar.hide()
             self.push_btn.setEnabled(True)
+
+    def _materialise_block(self):
+        """Ask the server to write the block's claims as the geometry of record.
+
+        Reached only when this run is tied to a block the server has PROCESSED
+        (see `_push_to_server`). The request carries no geometry — the server
+        already holds it — so this is a decision, not a transfer, and the
+        confirmation says what will be created rather than what will be sent.
+
+        ⚠️ Degrades to the legacy push if the server does not have the route
+        (an older deployment): the wizard must keep working across the upgrade
+        in either order. Any OTHER failure — 403 not staff, 409 not processed,
+        500 — surfaces, because those are real answers.
+        """
+        from ...utils.logger import PluginLogger
+        logger = PluginLogger.get_logger()
+
+        label = self.state.fulfillment_order_number or "this block"
+        already = self.state.block_stage in ('materialised', 'documented')
+        if already:
+            reply = QMessageBox.question(
+                self, "Already Materialised",
+                f"{label} is already the geometry of record.\n\n"
+                "Re-running is safe — the server skips every claim that already "
+                "has a landholding and reports what it skipped — but nothing "
+                "new will be created unless a claim failed the first time.\n\n"
+                "Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+        else:
+            reply = QMessageBox.question(
+                self, "Write claims to the server",
+                f"Write {len(self.state.processed_claims)} claim(s) from {label} "
+                f"as LandHoldings with their stakes?\n\n"
+                "The server writes them from the processing you reviewed — no "
+                "geometry is re-sent. Afterwards the block is the geometry of "
+                "record and its layout can no longer be re-laid.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.progress_bar.show()
+        self.progress_bar.setValue(0)
+        self.push_btn.setEnabled(False)
+        try:
+            self.progress_bar.setValue(30)
+            self.push_status_label.setText("Writing claims on the server...")
+            result = self.claims_manager.materialise_block(
+                self.state.fulfillment_order_id,
+                claim_package_id=self.state.claim_package_id,
+            )
+            self.progress_bar.setValue(60)
+
+            lh_count = result.get('landholding_count', len(result.get('landholdings') or []))
+            st_count = result.get('claim_stake_count', len(result.get('claim_stakes') or []))
+            skipped = result.get('skipped') or []
+            package_id = result.get('package_id')
+            package_number = result.get('package_number') or ''
+
+            self.state.claims_pushed = True
+            self.state.block_stage = result.get('stage') or self.state.block_stage
+            self.state.block_stage_label = (result.get('stage_label')
+                                            or self.state.block_stage_label)
+            # The server created-or-linked the package; adopt its id so the
+            # GeoPackage upload below and any later document link land on the
+            # SAME package rather than minting a second one.
+            if package_id and not self.state.claim_package_id:
+                self.state.claim_package_id = package_id
+            self.state.save_to_qgis_project()
+            if self.state.geopackage_path:
+                self.state.save_to_geopackage()
+
+            self.progress_bar.setValue(75)
+            gpkg_uploaded = self._upload_geopackage_if_any(logger)
+            self.progress_bar.setValue(100)
+
+            skip_msg = ""
+            if skipped:
+                lines = "\n".join(f"  • claim {pid}: {why}" for pid, why in skipped[:10])
+                more = f"\n  … and {len(skipped) - 10} more" if len(skipped) > 10 else ""
+                skip_msg = f"\n\nSkipped {len(skipped)}:\n{lines}{more}"
+            gpkg_info = "\nGeoPackage: uploaded and linked" if gpkg_uploaded else ""
+
+            self.push_status_label.setText(
+                f"Materialised: {lh_count} LandHoldings, {st_count} ClaimStakes"
+                + (f" (package {package_number})" if package_number else ""))
+            self.push_status_label.setStyleSheet(self._get_success_label_style())
+            QMessageBox.information(
+                self, "Claims written",
+                f"LandHoldings: {lh_count} created\n"
+                f"ClaimStakes: {st_count} created\n"
+                f"Package: {package_number or package_id or '-'}{gpkg_info}{skip_msg}\n\n"
+                "These claims are the geometry of record now — they are on "
+                "geodb.io, the web map and the mobile app.")
+            self.emit_status("Block materialised on the server", "success")
+
+        except Exception as e:  # noqa: BLE001
+            if looks_like_missing_endpoint(e):
+                logger.info("[PUSH] Materialise endpoint unavailable; "
+                            "falling back to the legacy claims+stakes push.")
+                self.progress_bar.hide()
+                self.push_btn.setEnabled(True)
+                self._legacy_push_to_server()
+                return
+            self.push_status_label.setText(f"Materialise failed: {e}")
+            self.push_status_label.setStyleSheet(self._get_error_label_style())
+            QMessageBox.critical(self, "Error", str(e))
+        finally:
+            self.progress_bar.hide()
+            self.push_btn.setEnabled(True)
+
+    def _upload_geopackage_if_any(self, logger) -> bool:
+        """Upload + link the claim GeoPackage, if there is one.
+
+        Extracted so the materialise path and the legacy push share ONE copy
+        rather than growing a second. Non-fatal by design: the claims are
+        already written when this runs, and a failed upload must not read as a
+        failed push.
+        """
+        if not (self.state.geopackage_path and self.state.claim_package_id
+                and self.data_manager):
+            return False
+        try:
+            self.push_status_label.setText("Saving layer styles to GeoPackage...")
+            from ...utils.gpkg_utils import save_styles_to_geopackage
+            styles_saved = save_styles_to_geopackage(self.state.geopackage_path)
+            logger.info(f"[PUSH] Saved {styles_saved} style(s) to GeoPackage")
+
+            self.push_status_label.setText("Uploading GeoPackage to server...")
+            gpkg_name = Path(self.state.geopackage_path).name
+            upload_result = self.data_manager.upload_project_file(
+                file_path=self.state.geopackage_path,
+                name=gpkg_name,
+                category='GP',
+                description=f"Claims GeoPackage for {self.state.grid_name_prefix or 'claims'}",
+                is_raster=False,
+                epsg=self.state.project_epsg,
+            )
+            project_file_id = upload_result.get('id')
+            if project_file_id:
+                self.claims_manager.link_geopackage(
+                    self.state.claim_package_id, project_file_id)
+                logger.info(
+                    f"[PUSH] GeoPackage uploaded (ProjectFile {project_file_id}) "
+                    f"and linked to ClaimPackage {self.state.claim_package_id}")
+                return True
+        except Exception as gpkg_err:  # noqa: BLE001 — the claims are already written
+            logger.warning(f"[PUSH] GeoPackage upload/link failed: {gpkg_err}")
+            self.emit_status(f"Warning: GeoPackage upload failed: {gpkg_err}", "warning")
+        return False
 
     # =========================================================================
     # ClaimsStepBase Implementation

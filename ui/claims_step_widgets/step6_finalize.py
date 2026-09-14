@@ -26,6 +26,7 @@ from qgis.PyQt.QtCore import pyqtSignal
 
 from .step_base import ClaimsStepBase
 from ...processors.geometry_processor import sanitize_polygon_geometry
+from ...managers.claims_manager import looks_like_missing_endpoint as _looks_like_missing_endpoint
 from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double, QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
 from ...utils.layer_utils import is_layer_valid
 from ...utils.theme import T
@@ -491,9 +492,140 @@ class ClaimsStep6Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Valid Claims", "No valid polygon geometries found.")
             return
 
-        # Step 6 is only reached by enterprise/staff users who can process immediately.
-        # Pay-per-claim users are routed to step3_order.py instead.
-        self._execute_processing(claims)
+        # Step 6 is only reached by enterprise/staff users who can process
+        # immediately. Pay-per-claim users are routed to step3_order.py.
+        #
+        # ⭐ TWO processing paths, one engine. When this run is tied to a
+        # BLOCK (staff pulled it in Step 1) we call the block endpoint, which
+        # runs the SAME server-side processor and then PERSISTS the result on
+        # the block — so Step 7 can materialise from the server's own numbers
+        # instead of re-uploading ours, and a reopened wizard renders what the
+        # server holds. Without a block (a plain layout), the legacy
+        # compute-only call is still exactly right: there is nothing to
+        # persist it against.
+        if self.state.fulfillment_order_id:
+            self._execute_block_processing(claims)
+        else:
+            self._execute_processing(claims)
+
+    def _collect_block_process_options(self) -> Dict[str, Any]:
+        """The options the block `process/` call carries.
+
+        ⭐⭐ `lm_corner_explicit` is the one to read carefully. This wizard
+        sends a corner for EVERY claim, defaulting to 1 — so a server reading a
+        bare `lm_corners` value as a deliberate pick would see every default as
+        a deliberate choice and could not cluster shared corners (nine Idaho
+        claims sharing interior corners need FOUR LM survey points, not nine).
+        The server therefore DROPS any pick that is not flagged, and we flag
+        ONLY the picks the user actually made in Step 5 — which is why the
+        state tracks them separately from the per-claim default.
+        """
+        from ...processors.monument_overrides import read_monument_overrides_from_state
+
+        explicit = dict(getattr(self.state, 'block_explicit_lm_corners', None) or {})
+        options: Dict[str, Any] = {
+            'cluster_lms': bool(getattr(self.state, 'auto_lm_cluster', True)),
+            'witness_points': True,
+            'monument_overrides': read_monument_overrides_from_state(
+                self.state, self.logger),
+            'reference_points': list(self.state.reference_points or []),
+        }
+        if explicit:
+            options['lm_corners'] = explicit
+            options['lm_corner_explicit'] = True
+        return options
+
+    def _execute_block_processing(self, claims: List[Dict[str, Any]]):
+        """Process the loaded BLOCK server-side and persist the result.
+
+        The claims list is not sent: the block already holds its proposals, so
+        the server processes what it has. That is the point — one set of
+        geometry, on the server, which the plugin renders rather than mirrors.
+
+        ⚠️ Degrades to the legacy compute-only path on an older server (404)
+        so a plugin upgrade never strands a user against an un-upgraded server.
+        """
+        self.progress_bar.show()
+        self.progress_bar.setValue(0)
+        self.process_btn.setEnabled(False)
+        try:
+            self.progress_bar.setValue(20)
+            self.emit_status("Processing the claim block on the server...", "info")
+            result = self.claims_manager.process_block(
+                self.state.fulfillment_order_id,
+                progress_parent=self,
+                **self._collect_block_process_options(),
+            )
+
+            self.progress_bar.setValue(50)
+            self.state.processed_claims = result.get('claims', []) or []
+            self.state.processed_waypoints = result.get('waypoints', []) or []
+            self.state.block_stage = result.get('stage') or self.state.block_stage
+            self.state.block_stage_label = (result.get('stage_label')
+                                            or self.state.block_stage_label)
+
+            self.progress_bar.setValue(100)
+            self._display_results(result)
+            self._show_block_warnings(result)
+            self.generate_docs_btn.setEnabled(True)
+            self.emit_status(
+                f"Processed {len(self.state.processed_claims)} claims on the block "
+                f"({result.get('warning_count', 0)} warning(s))", "success")
+            self.emit_validation_changed()
+            self.processing_completed.emit(result)
+
+        except Exception as e:  # noqa: BLE001
+            if _looks_like_missing_endpoint(e):
+                self.logger.info(
+                    "[CLAIMS] Block processing endpoint unavailable; "
+                    "falling back to the legacy compute-only path."
+                )
+                self.progress_bar.hide()
+                self.process_btn.setEnabled(True)
+                self._execute_processing(claims)
+                return
+            QMessageBox.critical(self, "Processing Error", str(e))
+            self.emit_status(f"Processing failed: {e}", "error")
+        finally:
+            self.progress_bar.hide()
+            self.process_btn.setEnabled(True)
+
+    def _show_block_warnings(self, result: Dict[str, Any]):
+        """Put the processor's warnings in front of the operator.
+
+        ⭐ This IS the QC step. The QGIS-only flow did it by eyeball — someone
+        looked at the map and noticed a corner on private land. The server now
+        returns those findings as a first-class list (private-land corners,
+        missing PLSS, state/county straddles, an explicit pick that could not
+        be honoured, MTRSC rows skipped), and showing them BEFORE materialise
+        is what makes materialise a decision rather than a formality.
+
+        Errors and warnings are separated because they mean different things:
+        an `error` claim cannot be landed as drawn; a `warning` is "look before
+        you commit"; an `info` is a fact to disclose (a state straddle is
+        LEGAL and is never split).
+        """
+        warnings = result.get('warnings') or []
+        if not warnings:
+            return
+        errors = [w for w in warnings if w.get('severity') == 'error']
+        others = [w for w in warnings if w.get('severity') != 'error']
+
+        def _fmt(items):
+            return "\n".join(
+                f"  • {w.get('claim') or 'block'}: {w.get('message', '')}" for w in items)
+
+        parts = []
+        if errors:
+            parts.append(f"{len(errors)} claim(s) cannot be landed as drawn:\n" + _fmt(errors))
+        if others:
+            parts.append(f"{len(others)} thing(s) to check:\n" + _fmt(others))
+        body = "\n\n".join(parts)
+
+        if errors:
+            QMessageBox.warning(self, "Processing found problems", body)
+        else:
+            QMessageBox.information(self, "Processing notes", body)
 
     def _execute_processing(self, claims: List[Dict[str, Any]]):
         """Execute immediate processing (Enterprise/Staff)."""

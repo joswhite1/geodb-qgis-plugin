@@ -35,6 +35,28 @@ DATA_LAYER_ACCESS_TYPES_FALLBACK = frozenset({
 })
 
 
+def looks_like_missing_endpoint(exc: Exception) -> bool:
+    """True when a failure means "this server does not have that route yet".
+
+    The block endpoints (`blocks/<id>/`, `.../process/`, `.../materialise/`)
+    are ADDITIVE: a plugin upgrade must not strand a user whose server has not
+    been deployed yet. Every caller degrades to the legacy flow on a 404 —
+    but ONLY on a 404. A 403 (not staff), a 409 (of record / not processed) or
+    a 500 are real answers the user must see, and swallowing them into a
+    silent fallback is how the grid generator's offline path came to hide
+    server errors for a year.
+    """
+    status = getattr(exc, 'status_code', None)
+    if status == 404:
+        return True
+    if status is not None:
+        return False
+    # No status at all: a transport-level failure. Read the text, but stay
+    # narrow — "not found" in a server's own error prose is not a 404.
+    text = str(exc).lower()
+    return '404' in text and 'not found' in text
+
+
 def data_layers_allowed(access_info: Dict[str, Any]) -> bool:
     """Single source of truth (plugin side) for whether the streaming reference
     data layers (BLM claims, PLSS, federal/state lands) should be enabled.
@@ -412,6 +434,184 @@ class ClaimsManager:
         except APIException as e:
             self.logger.error(f"[QCLAIMS] Get staff pending orders failed: {e}")
             raise
+
+    # =========================================================================
+    # Claim BLOCKS — the stage round-trip (server P6, plugin v2.35.0)
+    # =========================================================================
+    # A "block" is a ClaimPurchaseOrder: the one money/fulfilment record for a
+    # claim job, and since the claims-engine work also the one carrier of the
+    # GEOMETRY stage (proposed → laid_out → processed → materialised →
+    # documented) and the stored processing output.
+    #
+    # The three endpoints below let the wizard work a block the way the web
+    # toolbench does, against the SAME service functions — one engine, two
+    # doors. In particular `materialise_block` is byte-compatible with the
+    # legacy Step-7 push: both land LandHolding + ClaimStake rows through the
+    # same server-side writer. The difference is which side computes the
+    # geometry, and the answer is now always the server.
+
+    def get_claim_block(self, block_id: int) -> Dict[str, Any]:
+        """Fetch one claim block with its stage and stored processing.
+
+        GET /api/v2/claims/blocks/<id>/
+
+        Returns a dict with:
+            - block: {id, order_number, name, status, status_display,
+                      stage, stage_label, processed_at, layout_editable,
+                      layout_locked_reason, project_id, project_name,
+                      company_id, company_name, claim_count, payer_label,
+                      bill_to, is_paid, is_invoiced, landholdings_created}
+            - processing: the stored block-level processor output
+                      ({session_id, input_epsg, waypoints, reference_points,
+                        monument_overrides, warnings, summary, options, ...})
+                      or {} when the block has not been processed
+            - proposals: [{id, proposed_claim_id, claim_name, claim_type,
+                           acreage, plss_location, status, approved, version,
+                           geometry, corners, processed}] — `corners` is the
+                      processor's OWN per-claim dict, so Steps 5-6 render what
+                      the server will write rather than a re-derivation
+            - claim_package_ids / claim_packages
+
+        ⚠️ ADDITIVE on the server: older servers have no such route and return
+        404. Callers must degrade to the legacy compute-only flow, not error.
+
+        Raises:
+            APIException: on transport failure or a server refusal.
+        """
+        url = self.config.get_claims_url(f'blocks/{int(block_id)}/')
+        result = self.api._make_request('GET', url)
+        block = (result or {}).get('block') or {}
+        self.logger.info(
+            f"[QCLAIMS] Block {block_id}: stage={block.get('stage')} "
+            f"claims={block.get('claim_count')} "
+            f"processed={'yes' if (result or {}).get('processing') else 'no'}"
+        )
+        return result
+
+    def process_block(
+        self,
+        block_id: int,
+        *,
+        lm_corners: Optional[Dict[str, int]] = None,
+        lm_corner_explicit: bool = False,
+        monument_overrides: Optional[Dict[str, Any]] = None,
+        reference_points: Optional[List[Dict[str, Any]]] = None,
+        cluster_lms: bool = True,
+        witness_points: bool = True,
+        monument_inset_ft: Optional[float] = None,
+        epsg: Optional[int] = None,
+        progress_parent=None,
+    ) -> Dict[str, Any]:
+        """Process the block server-side and PERSIST the result on it.
+
+        POST /api/v2/claims/blocks/<id>/process/
+
+        This is the same `process_block` service function the web toolbench and
+        Petra call. Unlike the legacy `process_claims`, the output is STORED:
+        each claim's processor dict lands on its ProposedMiningClaim and the
+        block moves to stage `processed`, so Step 7 can materialise from the
+        server's own numbers instead of re-uploading ours.
+
+        ⭐⭐ `lm_corner_explicit` is the one argument to get right.
+        `lm_corner` ON THE WIRE CANNOT EXPRESS INTENT: this wizard sends a
+        corner for EVERY claim, defaulting to 1, so a server that read a bare
+        value as a deliberate pick would see nine wizard defaults as nine
+        deliberate choices and could not cluster shared corners (the 3x3 Idaho
+        block needs 4 LM survey points where a naive run needs 9). So the
+        server DROPS a pick that is not flagged explicit, and this method only
+        flags it when the caller says the user chose it in Step 5.
+        ⛔ Never pass `lm_corner_explicit=True` for the wizard's default.
+
+        Rides the shared async rail (202 + poll) via `post_async_capable`, so a
+        700-claim block does not die on Cloudflare's ~100s origin read.
+
+        Returns the ProcessResult payload: {success, stage, stage_label,
+        warnings, warning_count, error_count, claims, waypoints, summary,
+        session_id, input_epsg, processed, total, processed_at}.
+
+        ⭐ The HEADLINE is `warnings` — private-land corners, missing PLSS,
+        state/county straddles, an overridden explicit pick, skipped MTRSC.
+        Show them BEFORE offering to materialise; that is the QC the old
+        QGIS-only flow did by eyeball.
+        """
+        payload: Dict[str, Any] = {
+            'cluster_lms': bool(cluster_lms),
+            'witness_points': bool(witness_points),
+        }
+        if lm_corners:
+            payload['lm_corners'] = dict(lm_corners)
+            # Only ever true when the USER picked a corner (Step 5), never for
+            # the wizard's default of 1 — see the docstring.
+            payload['lm_corner_explicit'] = bool(lm_corner_explicit)
+        if monument_overrides:
+            payload['monument_overrides'] = dict(monument_overrides)
+        if reference_points:
+            payload['reference_points'] = list(reference_points)
+        if monument_inset_ft is not None:
+            payload['monument_inset_ft'] = float(monument_inset_ft)
+        if epsg:
+            payload['epsg'] = int(epsg)
+
+        url = self.config.get_claims_url(f'blocks/{int(block_id)}/process/')
+        result = self.api.post_async_capable(
+            url,
+            data=payload,
+            progress_title="Processing claim block...",
+            progress_parent=progress_parent,
+        )
+        self.logger.info(
+            f"[QCLAIMS] Block {block_id} processed: "
+            f"{(result or {}).get('processed')}/{(result or {}).get('total')} claims, "
+            f"{(result or {}).get('warning_count', 0)} warnings, "
+            f"stage={(result or {}).get('stage')}"
+        )
+        return result
+
+    #: The word the server requires before it writes the geometry of record.
+    #: Mirrors `services/api/claim_blocks.MATERIALISE_CONFIRM`.
+    MATERIALISE_CONFIRM = 'MATERIALISE'
+
+    def materialise_block(
+        self,
+        block_id: int,
+        *,
+        claim_package_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Write the block's claims as the geometry OF RECORD.
+
+        POST /api/v2/claims/blocks/<id>/materialise/
+
+        Creates LandHolding + ClaimStake + ClaimStakeLink rows and the
+        ClaimPackage, from the STORED processing — so the rows come from the
+        numbers the user reviewed in Steps 5-6, not from a fresh re-upload.
+        Idempotent: a claim already landed is skipped and reported, so a
+        partial failure can simply be re-run.
+
+        Requires the block to be at stage `processed` (call `process_block`
+        first — the server refuses with code `not_processed` otherwise) and
+        sends the server's typed confirmation.
+
+        ⛔ Deliberately synchronous, even for a big block: the RESULT (which
+        holdings, which stakes, what was skipped) is what the operator
+        confirms against, and a 202 would hand back a session id instead of
+        the answer.
+
+        Returns {success, stage, stage_label, package_id, package_number,
+        landholdings, claim_stakes, claim_links, completed, skipped, warnings,
+        landholding_count, claim_stake_count}.
+        """
+        payload: Dict[str, Any] = {'confirm': self.MATERIALISE_CONFIRM}
+        if claim_package_id:
+            payload['claim_package_id'] = int(claim_package_id)
+        url = self.config.get_claims_url(f'blocks/{int(block_id)}/materialise/')
+        result = self.api._make_request('POST', url, data=payload)
+        self.logger.info(
+            f"[QCLAIMS] Block {block_id} materialised: "
+            f"{(result or {}).get('landholding_count')} holdings, "
+            f"{(result or {}).get('claim_stake_count')} stakes, "
+            f"package={(result or {}).get('package_number')}"
+        )
+        return result
 
     # =========================================================================
     # Proposed Claims (Admin-uploaded claims for staff workflow)

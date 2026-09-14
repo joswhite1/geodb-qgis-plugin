@@ -521,6 +521,15 @@ class ClaimsStep1Widget(ClaimsStepBase):
             # Set fulfillment context in wizard state
             self.state.set_fulfillment_context(order_data)
 
+            # …then enrich it with the block's stage + stored processing. The
+            # Orders tab and the Proposed tab reach the SAME row (a
+            # ClaimPurchaseOrder), so both doors deserve the same context —
+            # otherwise an order pulled from the Orders tab would run the
+            # legacy flow even when the server had already processed it.
+            # Degrades silently on an older server.
+            if order_data.get('order_type', 'claim_purchase') == 'claim_purchase':
+                self._load_block_context(order_data.get('id'), order_data)
+
             # Switch project context to the order's project/company
             # This ensures subsequent API calls use the correct context
             project_id = order_data.get('project_id')
@@ -582,8 +591,21 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 )
                 return
 
-            # Clear any previous fulfillment context (proposed claims are not orders)
-            self.state.clear_fulfillment_context()
+            # ⭐ KEEP the fulfilment tie. This used to read
+            # `self.state.clear_fulfillment_context()` on the reasoning that
+            # "proposed claims are not orders" — but a block's proposed claims
+            # belong to exactly ONE ClaimPurchaseOrder, the same row the
+            # Orders tab calls an order. Clearing it here threw the tie away on
+            # the most common staff path, so every document generated
+            # afterwards came back linked to nothing.
+            #
+            # A pull with no single block behind it ("All blocks" on a
+            # multi-block project) genuinely has no tie, and only THAT clears.
+            block_id = claims_data.get('block_id')
+            if block_id:
+                self._load_block_context(block_id, claims_data)
+            else:
+                self.state.clear_fulfillment_context()
 
             # Auto-populate claimant info from company address if available
             company_address = claims_data.get('company_address')
@@ -616,6 +638,73 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load proposed claims: {e}")
+
+    def _load_block_context(self, block_id: int, claims_data: dict):
+        """Pull the block's stage + stored processing and put it on the state.
+
+        Called when staff pull a block's proposed claims (Step 1). One extra
+        round-trip buys the wizard three things it could not know otherwise:
+
+        * the fulfilment TIE, so generated documents and the eventual push
+          land on the block instead of orphaning;
+        * the GEOMETRY STAGE, which decides what Step 7 does — at `processed`
+          the push becomes a `materialise/` call against the server's own
+          stored numbers;
+        * the SERVER'S STORED PROCESSING, so Steps 5-6 render what the server
+          will write rather than a local re-derivation.
+
+        ⚠️ The endpoint is ADDITIVE — an older server answers 404. That is not
+        an error the user should see: the wizard simply keeps the minimal tie
+        it can build from the dialog payload and runs the legacy compute-only
+        flow, exactly as v2.34 did.
+        """
+        from ...utils.logger import PluginLogger
+        logger = PluginLogger.get_logger()
+
+        if not block_id:
+            return
+        detail = None
+        try:
+            detail = self.claims_manager.get_claim_block(block_id)
+        except Exception as e:  # noqa: BLE001 — degrade, never block the pull
+            logger.info(
+                f"[CLAIMS] Block detail unavailable for block {block_id} "
+                f"({e}); continuing with the legacy flow."
+            )
+
+        if detail and (detail.get('block') or {}).get('id'):
+            self.state.set_block_detail(detail)
+            block = detail['block']
+            stage = block.get('stage_label') or block.get('stage') or ''
+            logger.info(
+                f"[CLAIMS] Block {block_id} context loaded: stage={stage}, "
+                f"processing={'yes' if detail.get('processing') else 'no'}"
+            )
+            if not block.get('layout_editable'):
+                # Of record: say so now, not at the end of Step 7.
+                QMessageBox.information(
+                    self,
+                    "Block already materialised",
+                    (block.get('layout_locked_reason') or
+                     "This block's claims are already the geometry of record.") +
+                    "\n\nYou can still generate documents, but re-laying the "
+                    "claims would orphan the landholdings that already exist."
+                )
+            return
+
+        # Older server (or a failed fetch): keep the tie we DO have, from the
+        # dialog's own payload. A partial tie beats no tie — it is what makes
+        # generated documents land on the block. Skipped when the caller
+        # already set a context for this same block (the Orders-tab door),
+        # so enrichment can never DOWNGRADE what is already there.
+        if self.state.fulfillment_order_id == block_id:
+            return
+        self.state.set_fulfillment_context({
+            'id': block_id,
+            'order_type': 'claim_purchase',
+            'order_number': claims_data.get('order_number'),
+            'claimant_info': claims_data.get('company_address'),
+        })
 
     def _load_proposed_claims_to_layer(self, claims_data: dict):
         """

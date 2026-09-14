@@ -99,11 +99,49 @@ class ClaimsWizardState:
     completed_steps: List[int] = field(default_factory=list)
 
     # Staff order fulfillment context
-    # When set, links generated documents to existing order/package
+    # When set, links generated documents to existing order/package.
+    #
+    # ⭐ "Order" and "block" are the SAME ROW — a ClaimPurchaseOrder. The
+    # wizard reached it two ways and only one of them set this context:
+    # picking an order on the Orders tab did, and picking a block's proposed
+    # claims on the Proposed tab CLEARED it (v2.34 and earlier). So the common
+    # path — staff pulling a block's claims to work — lost the tie, and the
+    # documents it generated came back orphaned. Both doors now set it; see
+    # `set_fulfillment_context`.
     fulfillment_order_id: Optional[int] = None
     fulfillment_order_type: Optional[str] = None  # 'claim_purchase' or 'claim_order'
     fulfillment_order_number: Optional[str] = None  # For display (e.g., "CPO-2026-0001")
     fulfillment_claimant_info: Optional[Dict[str, Any]] = None  # Pre-populated from order
+
+    # ---- Block stage round-trip (server P6, plugin v2.35.0) ---------------
+    # The GEOMETRY stage of the block above, and the processing the SERVER has
+    # stored for it. `status` (on the order) is the money/fulfilment axis;
+    # `stage` is the geometry axis, and they answer different questions.
+    #
+    # `block_stage` is one of proposed | laid_out | processed | materialised |
+    # documented. It decides what Step 7 does: at `processed` the push is a
+    # `materialise/` call (the server writes from its OWN stored numbers);
+    # anywhere else it is the legacy claims+stakes push. Both land the same
+    # rows through the same server-side writer.
+    #
+    # `block_processing` is the server's stored block-level output — waypoints,
+    # monument overrides, reference points, warnings, summary. When present,
+    # Steps 5-6 RENDER FROM IT rather than from a local compute, so what the
+    # operator adjusts is what the server will write.
+    #
+    # All three are None/empty on a non-block run (a plain wizard layout with
+    # no order behind it), which is exactly the legacy path.
+    block_stage: Optional[str] = None
+    block_stage_label: Optional[str] = None
+    block_processing: Optional[Dict[str, Any]] = None
+    block_layout_editable: bool = True
+    block_layout_locked_reason: Optional[str] = None
+    block_payer_label: Optional[str] = None
+    block_claim_package_ids: List[int] = field(default_factory=list)
+    #: {claim_name: corner 1-4} the USER picked in Step 5 — never the wizard's
+    #: default. Only these are sent with `lm_corner_explicit=True`; a default
+    #: pick must not read as a deliberate one (server review F2).
+    block_explicit_lm_corners: Dict[str, int] = field(default_factory=dict)
 
     @property
     def claims_group_name(self) -> str:
@@ -847,10 +885,7 @@ class ClaimsWizardState:
         self.sideline_monuments_layer_id = None
         self.endline_monuments_layer_id = None
         # Clear staff fulfillment context
-        self.fulfillment_order_id = None
-        self.fulfillment_order_type = None
-        self.fulfillment_order_number = None
-        self.fulfillment_claimant_info = None
+        self.clear_fulfillment_context()
 
     def set_fulfillment_context(self, order_data: Dict[str, Any]):
         """
@@ -860,9 +895,17 @@ class ClaimsWizardState:
             order_data: Order dict from staff_pending_orders API
         """
         self.fulfillment_order_id = order_data.get('id')
-        self.fulfillment_order_type = order_data.get('order_type')
+        self.fulfillment_order_type = order_data.get('order_type') or 'claim_purchase'
         self.fulfillment_order_number = order_data.get('order_number')
         self.fulfillment_claimant_info = order_data.get('claimant_info')
+
+        # The GEOMETRY stage, when the caller has it (the block detail
+        # endpoint, or a staff-orders row on a new-enough server). A caller
+        # with no stage information leaves these alone rather than blanking
+        # them — `set_block_detail` is the authority and may have run first.
+        if order_data.get('stage'):
+            self.block_stage = order_data.get('stage')
+            self.block_stage_label = order_data.get('stage_label')
 
         # Pre-populate claimant info if available
         claimant_info = order_data.get('claimant_info')
@@ -879,16 +922,74 @@ class ClaimsWizardState:
                 self.mining_district = claimant_info['district']
 
     def clear_fulfillment_context(self):
-        """Clear staff fulfillment context (when loading proposed claims instead of orders)."""
+        """Clear the staff fulfillment context AND the block stage with it.
+
+        ⚠️ Call this only when the wizard genuinely has no block behind it.
+        It used to be called when loading PROPOSED CLAIMS, on the reasoning
+        that "proposed claims are not orders" — but a block's proposed claims
+        belong to exactly one ClaimPurchaseOrder, so that call threw away the
+        tie on the most common staff path and the documents generated
+        afterwards came back orphaned. The proposed-claims door now SETS the
+        context from the block it pulled from (v2.35.0).
+        """
         self.fulfillment_order_id = None
         self.fulfillment_order_type = None
         self.fulfillment_order_number = None
         self.fulfillment_claimant_info = None
+        self.block_stage = None
+        self.block_stage_label = None
+        self.block_processing = None
+        self.block_layout_editable = True
+        self.block_layout_locked_reason = None
+        self.block_payer_label = None
+        self.block_claim_package_ids = []
+        self.block_explicit_lm_corners = {}
+
+    def set_block_detail(self, detail: Dict[str, Any]):
+        """Absorb a `GET /api/v2/claims/blocks/<id>/` response.
+
+        Sets the fulfilment tie AND the geometry stage AND the server's stored
+        processing in one step — they arrive together and are read together.
+        Tolerant of a partial payload so an older server (or a degraded call)
+        cannot half-populate the wizard.
+        """
+        block = (detail or {}).get('block') or {}
+        if not block.get('id'):
+            return
+        self.fulfillment_order_id = block.get('id')
+        self.fulfillment_order_type = 'claim_purchase'
+        self.fulfillment_order_number = block.get('order_number')
+        self.block_stage = block.get('stage')
+        self.block_stage_label = block.get('stage_label')
+        self.block_layout_editable = bool(block.get('layout_editable', True))
+        self.block_layout_locked_reason = block.get('layout_locked_reason') or None
+        self.block_payer_label = block.get('payer_label')
+        self.block_processing = (detail or {}).get('processing') or None
+        self.block_claim_package_ids = list((detail or {}).get('claim_package_ids') or [])
 
     @property
     def is_fulfillment_mode(self) -> bool:
         """Check if we're in staff order fulfillment mode."""
         return self.fulfillment_order_id is not None
+
+    @property
+    def block_is_processed(self) -> bool:
+        """True when the SERVER holds processing for this block — i.e. Step 7
+        should materialise rather than push. `materialised` and `documented`
+        are past `processed`, so they count too: the server refuses a second
+        materialise idempotently and says what it skipped, which is a better
+        answer than the legacy push re-landing rows."""
+        return self.block_stage in ('processed', 'materialised', 'documented')
+
+    def record_explicit_lm_corner(self, claim_name: str, corner: int):
+        """Remember that the USER chose this corner in Step 5.
+
+        ⭐ Only picks recorded here travel with `lm_corner_explicit=True`. The
+        wizard's own default of corner 1 must NEVER be recorded: the server
+        would then read every default as a deliberate choice and could not
+        cluster shared corners (server review F2)."""
+        if claim_name and corner:
+            self.block_explicit_lm_corners[str(claim_name)] = int(corner)
 
     def restore_layers_from_geopackage(self) -> Dict[str, Optional[QgsVectorLayer]]:
         """

@@ -536,6 +536,24 @@ class StaffOrdersDialog(QDialog):
                 f"Failed to load proposed claims:\n{e}"
             )
 
+    def _effective_block_id(self):
+        """The block these claims belong to, or None if genuinely ambiguous.
+
+        The picker is HIDDEN when a project has fewer than two blocks — which
+        is the common case — so `_selected_block_id` is None there even though
+        the claims unambiguously belong to the project's one block. Reading the
+        raw field would lose the fulfilment tie exactly where it matters most.
+
+        So: an explicit pick wins; otherwise a project with exactly ONE block
+        resolves to it; a project with several and no pick ("All blocks")
+        stays None, because there is no single block to tie to.
+        """
+        if self._selected_block_id:
+            return self._selected_block_id
+        if len(self._blocks) == 1:
+            return self._blocks[0].get('id')
+        return None
+
     def _populate_block_combo(self):
         """Rebuild the block picker from the last response's block list.
 
@@ -831,7 +849,22 @@ class StaffOrdersDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # Build data to emit
+        # Build data to emit.
+        #
+        # ⭐ `block_id` is the fix for the orphaned-document path. A block's
+        # proposed claims belong to exactly ONE ClaimPurchaseOrder — the same
+        # row the Orders tab calls an "order" — so pulling them IS pulling
+        # that block, and the wizard must keep the tie. It used to be dropped
+        # here (the receiving handler called `clear_fulfillment_context`),
+        # which is why documents generated after the common staff path came
+        # back linked to nothing.
+        #
+        # It is None only when the user is looking at ALL blocks at once
+        # (the "All blocks" entry), where there is no single block to tie to.
+        block_id = self._effective_block_id()
+        block = None
+        if block_id:
+            block = next((b for b in self._blocks if b.get('id') == block_id), None)
         claims_data = {
             'source': 'proposed_claims',
             'project_id': self.selected_project.get('id'),
@@ -841,6 +874,9 @@ class StaffOrdersDialog(QDialog):
             'claims': selected_claims,
             'company_address': self._company_address,
             'default_monument_type': self._default_monument_type,
+            'block_id': block_id,
+            'block_name': (block or {}).get('name'),
+            'order_number': (block or {}).get('order_number'),
         }
 
         # Emit signal

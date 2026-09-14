@@ -875,6 +875,22 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
             )
             return
 
+        # ⭐⭐ Record these as DELIBERATE picks (server review F2).
+        #
+        # `changes` holds exactly the corners the USER chose — a table pick
+        # that differs from the displayed value, or a corner they typed into
+        # the layer themselves. It never contains the wizard's own default of
+        # 1, and that distinction is load-bearing: the block `process/`
+        # endpoint drops any pick that is not flagged explicit, precisely
+        # because this wizard sends a corner for every claim. Flag the
+        # defaults and the server sees nine deliberate choices where there
+        # were none, and can no longer cluster shared corners — nine Idaho
+        # claims would need nine LM survey points instead of four.
+        #
+        # ⛔ Never widen this to "every row in the table".
+        for _name, _corner in changes.items():
+            self.state.record_explicit_lm_corner(_name, _corner)
+
         # Update status
         self.status_label.setText("Applying LM corner changes...")
         self.status_detail.setText("Sending changes to server and regenerating layers...")
@@ -1045,8 +1061,54 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
 
         return errors
 
+    def _seed_from_server_processing(self):
+        """Adopt the block's STORED processing as this step's starting point.
+
+        When staff pull a block that the server has already processed (from the
+        web toolbench, from Petra, or from an earlier QGIS session), the
+        adjustments already made to it live on the server:
+        ``monument_overrides`` the operator dragged, ``reference_points`` they
+        tied to, and the explicit LM corners they picked.
+
+        Seeding them here is what makes Step 5 RENDER the server's state rather
+        than start from a blank local one — otherwise reopening a processed
+        block would silently discard every adjustment and the next `process/`
+        call would send an empty overrides dict, which the server reads as
+        "use the algorithm's placement" and the drags would be undone.
+
+        ⚠️ Seeds only what is EMPTY locally. A value the user has set in this
+        session is newer than the server's and must win; this runs on every
+        step entry, so overwriting would undo the work in progress.
+        """
+        processing = getattr(self.state, 'block_processing', None) or {}
+        if not processing:
+            return
+
+        if not self.state.reference_points and processing.get('reference_points'):
+            self.state.reference_points = list(processing['reference_points'])
+            self.logger.info(
+                f"[CLAIMS] Seeded {len(self.state.reference_points)} reference "
+                f"point(s) from the block's stored processing."
+            )
+
+        stored_picks = (processing.get('options') or {}).get('lm_corners') or {}
+        if stored_picks and not self.state.block_explicit_lm_corners:
+            # These were deliberate when they were made — the server only ever
+            # stores a pick it accepted as explicit — so they stay deliberate.
+            for name, corner in stored_picks.items():
+                self.state.record_explicit_lm_corner(name, corner)
+            self.logger.info(
+                f"[CLAIMS] Seeded {len(stored_picks)} explicit LM corner pick(s) "
+                f"from the block's stored processing."
+            )
+
     def on_enter(self):
         """Called when step becomes active."""
+        # Adopt whatever the server already holds for this block BEFORE
+        # generating layers, so the regeneration starts from the operator's
+        # existing adjustments rather than from the algorithm's defaults.
+        self._seed_from_server_processing()
+
         # If this step is no longer marked complete (user went back and changed
         # something upstream), force regeneration with fresh data
         if not self.state.is_step_complete(5) and self._layers_generated:
