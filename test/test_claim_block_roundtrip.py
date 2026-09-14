@@ -431,6 +431,46 @@ class MissingEndpointWiringTests(unittest.TestCase):
                 src = fh.read()
             self.assertIn('looks_like_missing_endpoint', src, rel)
 
+    def test_the_local_copy_still_agrees_with_the_real_helper(self):
+        """``_looks_like_missing_endpoint`` above is a COPY — the real one
+        lives in ``managers/claims_manager.py``, which cannot be imported here
+        because it needs Qt. A copy that drifts is a test that proves nothing,
+        and the whole point of this module is that the five
+        ``LM_AT_CORNER_STATES`` copies drifted exactly that way.
+
+        So: extract the real function's body from source and check it decides
+        the same way on the cases that matter — above all that ONLY a 404
+        degrades. Compares BEHAVIOUR rather than text, so reformatting the
+        real helper does not redden this, but changing its mind does."""
+        import re
+        with open(os.path.join(_REPO, 'managers/claims_manager.py'),
+                  encoding='utf-8') as fh:
+            manager_src = fh.read()
+        m = re.search(r'\ndef looks_like_missing_endpoint\(.*?\n(?=\S)',
+                      manager_src, re.S)
+        self.assertIsNotNone(
+            m, 'looks_like_missing_endpoint has moved or been renamed in '
+               'managers/claims_manager.py — this pin must move with it')
+        namespace = {}
+        exec(m.group(0).strip(), namespace)          # noqa: S102 - our own source
+        real = namespace['looks_like_missing_endpoint']
+
+        cases = [_Exc('Not Found', 404), _Exc('nope', 403), _Exc('nope', 409),
+                 _Exc('nope', 500), _Exc('nope', 400), _Exc('nope', 502),
+                 _Exc('Claim block not found.', 409),
+                 _Exc('HTTP 404: Not Found'), _Exc('connection reset'),
+                 _Exc('claim not found')]
+        for exc in cases:
+            self.assertEqual(
+                real(exc), _looks_like_missing_endpoint(exc),
+                f'the copy in this file disagrees with the real helper on '
+                f'{exc!s} (status {getattr(exc, "status_code", None)})')
+        # And the rule itself, stated once against the REAL function: a 404
+        # degrades to the legacy flow; every other answer must be shown.
+        self.assertTrue(real(_Exc('Not Found', 404)))
+        for status in (400, 401, 403, 409, 500, 502):
+            self.assertFalse(real(_Exc('nope', status)), status)
+
 
 # ---------------------------------------------------------------------------
 # 5. The fulfilment tie survives the proposed-claims door
