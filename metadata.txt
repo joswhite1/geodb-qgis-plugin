@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.35.0
+version=2.35.1
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,14 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.35.1 - Show what the server actually said when it refuses
+        - A refusal carrying an HTTP status is now read and shown, instead of
+          being reported as "Network error: ... Unprocessable Entity" with the
+          server's explanation thrown away. Claim document generation was the
+          case that exposed it: the server named the claim and the fields to
+          shorten, and none of it reached the screen.
+        - A refused request is no longer retried three times. Only a genuine
+          transport failure retries now.
     2.35.0 - Work a claim BLOCK end to end, against the server's geometry
         - A project CRS with no EPSG authority id now REFUSES to generate a
           grid, instead of silently sending WGS84 degrees into a field the

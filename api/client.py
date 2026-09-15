@@ -355,14 +355,37 @@ class APIClient:
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
-        # Check for network-level errors
-        if error_code != QgsBlockingNetworkRequest.NoError:
+        # Check for network-level errors.
+        #
+        # QgsBlockingNetworkRequest reports an HTTP 4xx/5xx as an error_code,
+        # exactly as QNetworkReply does on the async path — but a response
+        # WITH a status code is the server answering us, not the network
+        # failing. Raising NetworkError here threw away a body that explains
+        # itself: a claims doc-gen refusal reached the user as
+        # "Network error: ... Unprocessable Entity" while the server had sent
+        # the claim name and the fields to shorten. It was also retried three
+        # times, because NetworkError is the ONE class the retry loop retries
+        # (APIException subclasses are not), so a deterministic refusal was
+        # re-sent once per web pod.
+        #
+        # So: hand anything carrying an HTTP status to the response processor,
+        # which parses the body and raises the right typed APIException. Only
+        # a genuine transport failure (no status at all) stays a NetworkError.
+        # This mirrors _process_response's existing behaviour on the async
+        # path — one rule, not a second one.
+        reply = blocking_request.reply()
+        status_code = None
+        if reply is not None:
+            status_code = reply.attribute(
+                QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+
+        if error_code != QgsBlockingNetworkRequest.NoError and not status_code:
             error_msg = blocking_request.errorMessage()
             self.logger.error(f"Network error ({error_code}): {error_msg}")
             raise NetworkError(f"Network error: {error_msg}")
 
         # Process response
-        return self._process_blocking_response(blocking_request.reply())
+        return self._process_blocking_response(reply)
 
     def _execute_patch_request(
         self,
