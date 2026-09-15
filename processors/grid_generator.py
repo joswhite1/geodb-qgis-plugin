@@ -320,14 +320,29 @@ class GridGenerator:
         return layer
 
     def _get_epsg_code(self, crs: QgsCoordinateReferenceSystem) -> int:
-        """Extract EPSG code from CRS."""
-        auth_id = crs.authid()
+        """The EPSG code the server will read the origin's easting/northing in.
+
+        REFUSES when the CRS carries no EPSG authority id (a custom / user
+        CRS, or an empty project CRS). The old `return 4326` fallback would
+        have sent WGS84 DEGREES into a field the server reads as METRES in
+        that EPSG frame — a block placed at (lon, lat) metres from the zone
+        origin, i.e. in the ocean. Unreachable today behind the wizard's
+        `is_utm_crs` gate; closed by refusing rather than defaulting
+        (2026-09-15, plan `claim_layout_projected_frame_and_frame_door` R5).
+        """
+        auth_id = crs.authid() if crs is not None else ''
         if ':' in auth_id:
             try:
                 return int(auth_id.split(':')[1])
             except (ValueError, IndexError):
                 pass
-        return 4326  # Default to WGS84
+        label = auth_id or (crs.description() if crs is not None else '') or '(none)'
+        raise ValueError(
+            f"The project CRS {label!r} "
+            "has no EPSG code. Claim grids need a projected CRS with an EPSG "
+            "authority id (a UTM zone, e.g. EPSG:26911) — set the project CRS "
+            "and try again."
+        )
 
     # =========================================================================
     # ⛔ THE OFFLINE LOCAL FALLBACK WAS DELETED (claims-petra P6, 2026-09-14)

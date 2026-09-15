@@ -25,6 +25,9 @@ license=GPL-2.0-or-later
 hasProcessingProvider=no
 changelog=
     2.35.0 - Work a claim BLOCK end to end, against the server's geometry
+        - A project CRS with no EPSG authority id now REFUSES to generate a
+          grid, instead of silently sending WGS84 degrees into a field the
+          server reads as metres.
         - "Load Staff Orders" now keeps the block you pulled from. Pulling a
           block's proposed claims used to drop the order link, so every
           document generated afterwards came back attached to nothing. The
