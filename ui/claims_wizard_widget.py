@@ -4,6 +4,7 @@ Claims wizard main container widget.
 
 Provides step navigation, step indicator, and manages step widget transitions.
 """
+from contextlib import suppress
 from typing import List, TYPE_CHECKING
 
 from qgis.PyQt.QtWidgets import (
@@ -264,10 +265,8 @@ class ClaimsWizardWidget(QWidget):
         # Clean up step widgets
         for widget in self.step_widgets:
             if hasattr(widget, 'cleanup'):
-                try:
+                with suppress(Exception):
                     widget.cleanup()
-                except Exception:
-                    pass
 
     def _completed_steps_for_indicator(self) -> List[int]:
         """Convert 1-indexed state completed_steps to 0-indexed for the indicator."""
@@ -483,10 +482,8 @@ class ClaimsWizardWidget(QWidget):
         for i in range(len(self.step_widgets) - 1, 1, -1):
             widget = self.step_widgets[i]
             if hasattr(widget, 'cleanup'):
-                try:
+                with suppress(Exception):
                     widget.cleanup()
-                except Exception:
-                    pass
             self.stack.removeWidget(widget)
             widget.deleteLater()
 
@@ -876,10 +873,8 @@ class ClaimsWizardWidget(QWidget):
 
         # Remove old waypoints layer from Step 6 if it exists
         if self.state.waypoints_layer_id:
-            try:
+            with suppress(Exception):
                 QgsProject.instance().removeMapLayer(self.state.waypoints_layer_id)
-            except Exception:
-                pass
 
         # Remove the "Claims Workflow" layer group from the layer tree
         self._remove_claims_layer_group()
@@ -905,14 +900,12 @@ class ClaimsWizardWidget(QWidget):
 
     def _remove_claims_layer_group(self):
         """Remove the 'Claims Workflow' layer group from the QGIS layer tree."""
-        try:
+        with suppress(Exception):
             root = QgsProject.instance().layerTreeRoot()
             for child in root.children():
                 if hasattr(child, 'name') and child.name().startswith("Claims Workflow"):
                     root.removeChildNode(child)
                     break
-        except Exception:
-            pass
 
     def set_project(self, project_id: int, company_id: int):
         """

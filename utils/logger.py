@@ -6,6 +6,7 @@ Supports:
 - File logging (always enabled)
 - UI logging (when a callback is registered)
 """
+from contextlib import suppress
 import logging
 import os
 from typing import Optional, Callable
@@ -34,33 +35,29 @@ class UILogHandler(logging.Handler):
 
     def emit(self, record):
         """Emit a log record to the UI."""
-        try:
-            # Map logging levels to UI levels
-            level_map = {
-                logging.DEBUG: 'info',  # Show debug as info in UI
-                logging.INFO: 'info',
-                logging.WARNING: 'warning',
-                logging.ERROR: 'error',
-                logging.CRITICAL: 'error',
-            }
-            ui_level = level_map.get(record.levelno, 'info')
-            message = self.format(record)
-
-            # Only show [CLAIMS DEBUG] messages and errors/warnings in UI
-            # Filter out verbose debug messages to keep UI clean
-            if record.levelno >= logging.WARNING or '[CLAIMS' in message:
-                # Pass _from_logger=True to prevent feedback loop
-                # (the callback is _log_message which would otherwise log back to us)
-                self.callback(message, ui_level, _from_logger=True)
-        except TypeError:
-            # Fallback for callbacks that don't support _from_logger parameter
+        # Don't let UI logging errors crash the plugin
+        with suppress(Exception):
             try:
+                # Map logging levels to UI levels
+                level_map = {
+                    logging.DEBUG: 'info',  # Show debug as info in UI
+                    logging.INFO: 'info',
+                    logging.WARNING: 'warning',
+                    logging.ERROR: 'error',
+                    logging.CRITICAL: 'error',
+                }
+                ui_level = level_map.get(record.levelno, 'info')
+                message = self.format(record)
+
+                # Only show [CLAIMS DEBUG] messages and errors/warnings in UI
+                # Filter out verbose debug messages to keep UI clean
+                if record.levelno >= logging.WARNING or '[CLAIMS' in message:
+                    # Pass _from_logger=True to prevent feedback loop
+                    # (the callback is _log_message which would otherwise log back to us)
+                    self.callback(message, ui_level, _from_logger=True)
+            except TypeError:
+                # Fallback for callbacks that don't support _from_logger parameter
                 self.callback(message, ui_level)
-            except Exception:
-                pass
-        except Exception:
-            # Don't let UI logging errors crash the plugin
-            pass
 
 
 class PluginLogger:
@@ -80,11 +77,9 @@ class PluginLogger:
         if cls._instance is not None:
             # Remove all handlers to prevent duplicates on reload
             for handler in cls._instance.handlers[:]:
-                try:
+                with suppress(Exception):
                     handler.close()
                     cls._instance.removeHandler(handler)
-                except Exception:
-                    pass
             cls._instance = None
 
     @classmethod

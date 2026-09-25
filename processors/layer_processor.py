@@ -2,6 +2,7 @@
 """
 QGIS layer operations and management.
 """
+from contextlib import suppress
 import os
 from typing import Optional, Dict, Any, List
 from qgis.core import (
@@ -686,7 +687,7 @@ class LayerProcessor:
                     return None
 
                 # Try OGR first (most reliable for GeoJSON)
-                try:
+                with suppress(Exception):
                     import json
                     from osgeo import ogr
                     geojson_str = json.dumps(geom_data)
@@ -698,18 +699,14 @@ class LayerProcessor:
                             geometry = QgsGeometry.fromWkt(wkt)
                             if geometry and not geometry.isNull():
                                 return geometry
-                except Exception:
-                    pass
 
                 # Fall back to manual conversion
-                try:
+                with suppress(Exception):
                     wkt = geojson_to_wkt(geom_data)
                     if wkt:
                         geometry = QgsGeometry.fromWkt(wkt)
                         if geometry and not geometry.isNull():
                             return geometry
-                except Exception:
-                    pass
 
                 return None
 

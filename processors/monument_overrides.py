@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover — non-QGIS test contexts
     QgsCoordinateTransform = None  # type: ignore
     QgsProject = None  # type: ignore
 
-from ..utils.layer_utils import is_layer_valid
+from ..utils.layer_utils import is_layer_valid, is_lode_claims_polygon_layer
 
 
 def _build_transform_fn(source_crs) -> Optional[Callable[[float, float], tuple]]:
@@ -102,18 +102,9 @@ def _build_claim_state_lookup(state: Any) -> Dict[str, str]:
     # Layout / Processed Claims / Claims Waypoints have id slots).
     if QgsProject is None:
         return lookup
-    try:
-        from qgis.core import QgsWkbTypes
-    except Exception:
-        return lookup
 
     for lyr in QgsProject.instance().mapLayers().values():
-        try:
-            if not lyr.name().startswith('Lode Claims'):
-                continue
-            if lyr.geometryType() != QgsWkbTypes.PolygonGeometry:
-                continue
-        except Exception:
+        if not is_lode_claims_polygon_layer(lyr):
             continue
         fields = lyr.fields()
         if 'State' not in fields.names() or 'Name' not in fields.names():

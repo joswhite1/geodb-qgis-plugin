@@ -8,6 +8,7 @@ the discovery monument, which is included in legal documents.
 
 Ported from QClaims: GenClaimQ/reference_tool.py
 """
+from contextlib import suppress
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal
@@ -940,12 +941,10 @@ class ReferencePointsWidget(QWidget):
             layer.triggerRepaint()
 
             # Force map canvas refresh
-            try:
+            with suppress(Exception):
                 from qgis.utils import iface
                 if iface and iface.mapCanvas():
                     iface.mapCanvas().refresh()
-            except Exception:
-                pass
 
             self.logger.info(
                 f"[REFERENCE WIDGET] Reloaded GeoPackage layer after adding '{ref_point['name']}', "

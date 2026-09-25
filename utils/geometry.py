@@ -5,6 +5,7 @@ Shared GeoJSON-to-WKT geometry conversion utilities.
 Consolidates duplicate implementations from layer_processor, blm_claims_manager,
 plss_streaming_manager, sync_manager, and step1_project_setup.
 """
+from contextlib import suppress
 import json
 from typing import Optional
 
@@ -28,7 +29,7 @@ def geojson_to_wkt(geojson_dict: dict) -> str:
     # ------------------------------------------------------------------
     # Try OGR first (most reliable, handles all edge cases)
     # ------------------------------------------------------------------
-    try:
+    with suppress(Exception):
         from osgeo import ogr
         geojson_str = json.dumps(geojson_dict)
         ogr_geom = ogr.CreateGeometryFromJson(geojson_str)
@@ -36,13 +37,11 @@ def geojson_to_wkt(geojson_dict: dict) -> str:
             wkt = ogr_geom.ExportToWkt()
             ogr_geom = None  # Release OGR geometry
             return wkt
-    except Exception:
-        pass
 
     # ------------------------------------------------------------------
     # Manual fallback — handles all standard GeoJSON geometry types
     # ------------------------------------------------------------------
-    try:
+    with suppress(Exception):
         geom_type = geojson_dict['type'].upper()
         coords = geojson_dict['coordinates']
 
@@ -82,8 +81,5 @@ def geojson_to_wkt(geojson_dict: dict) -> str:
                     rings.append(f"({points})")
                 polygons.append(f"({', '.join(rings)})")
             return f"MULTIPOLYGON ({', '.join(polygons)})"
-
-    except Exception:
-        pass
 
     return ''

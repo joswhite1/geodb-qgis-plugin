@@ -15,6 +15,7 @@ same endpoint, ``ownership=state&state=AK``). The state-lands manager
 reuses :class:`FederalLandsFetchWorker` from this module; keep the
 worker's contract stable when editing.
 """
+from contextlib import suppress
 import json
 from typing import Optional, Dict
 
@@ -106,10 +107,8 @@ class FederalLandsFetchWorker(QThread):
 
         except urllib.error.HTTPError as e:
             body = ''
-            try:
+            with suppress(Exception):
                 body = e.read().decode('utf-8', errors='replace')
-            except Exception:
-                pass
             log.error(f"[FedLands Worker] HTTP error {e.code}: {body[:500]}")
             if e.code == 403:
                 self.error.emit(self.generation,
@@ -210,10 +209,8 @@ class FederalLandsStreamingManager(QObject):
             pass
 
         if self._layer_alive(self._layer):
-            try:
+            with suppress(Exception):
                 QgsProject.instance().removeMapLayer(self._layer.id())
-            except Exception:
-                pass
         self._layer = None
 
         if self._worker and self._worker.isRunning():

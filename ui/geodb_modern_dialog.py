@@ -6,6 +6,7 @@
  ***************************************************************************/
 """
 
+from contextlib import suppress
 import os
 import sys
 from typing import Optional, List, Dict, Any
@@ -3330,7 +3331,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Stop any running refresh worker thread
         if hasattr(self, '_refresh_worker') and self._refresh_worker is not None:
-            try:
+            with suppress(Exception):
                 self._refresh_worker.finished.disconnect()
                 self._refresh_worker.error.disconnect()
                 if self._refresh_worker.isRunning():
@@ -3338,99 +3339,69 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                     self._refresh_worker.wait(1000)  # Wait up to 1 second
                     if self._refresh_worker.isRunning():
                         self._refresh_worker.terminate()
-            except Exception:
-                pass
             self._refresh_worker = None
 
         # Clean up claims wizard widget
         if self.claims_wizard is not None:
-            try:
+            with suppress(Exception):
                 # Call cleanup first to prevent deferred callbacks from crashing
                 self.claims_wizard.cleanup()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.claims_wizard.status_message.disconnect()
                 self.claims_wizard.claims_processed.disconnect()
                 self.claims_wizard.wizard_completed.disconnect()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.claims_wizard.deleteLater()
-            except Exception:
-                pass
             self.claims_wizard = None
 
         # Clean up claims order widget
         if self.claims_order_widget is not None:
-            try:
+            with suppress(Exception):
                 self.claims_order_widget.status_message.disconnect()
                 self.claims_order_widget.order_submitted.disconnect()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.claims_order_widget.deleteLater()
-            except Exception:
-                pass
             self.claims_order_widget = None
 
         # Clean up basemaps widget
         if self.basemaps_widget is not None:
-            try:
+            with suppress(Exception):
                 self.basemaps_widget.basemap_added.disconnect()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.basemaps_widget.deleteLater()
-            except Exception:
-                pass
             self.basemaps_widget = None
 
         # Clean up georef files widget
         if self.georef_files_widget is not None:
-            try:
+            with suppress(Exception):
                 self.georef_files_widget.status_message.disconnect()
                 self.georef_files_widget.upload_completed.disconnect()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.georef_files_widget.deleteLater()
-            except Exception:
-                pass
             self.georef_files_widget = None
 
         # Clean up gpkg sync widget
         if self.gpkg_sync_widget is not None:
-            try:
+            with suppress(Exception):
                 self.gpkg_sync_widget.status_message.disconnect()
                 self.gpkg_sync_widget.upload_completed.disconnect()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.gpkg_sync_widget.deleteLater()
-            except Exception:
-                pass
             self.gpkg_sync_widget = None
 
         # Clean up map capture widget
         if self.map_capture_widget is not None:
-            try:
+            with suppress(Exception):
                 self.map_capture_widget.status_message.disconnect()
                 self.map_capture_widget.upload_completed.disconnect()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.map_capture_widget.deleteLater()
-            except Exception:
-                pass
             self.map_capture_widget = None
 
         # Clean up raster tools parent tab
         if self.raster_tools_tab is not None:
-            try:
+            with suppress(Exception):
                 self.raster_tools_tab.deleteLater()
-            except Exception:
-                pass
             self.raster_tools_tab = None
 
     def closeEvent(self, event):

@@ -20,3 +20,5 @@ test/               export-ignore
 docs/               export-ignore
 DARKMODE_PLAN.md    export-ignore
 DARKMODE_BRIEF.md   export-ignore
+progress_docs/      export-ignore
+CLAUDE.md           export-ignore

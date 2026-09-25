@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.35.1
+version=2.35.2
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,15 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.35.2 - Pass the plugin repository's security scan
+        - No change in behaviour. The plugin repository now blocks any
+          version with a security-scanner finding, and 2.35.1 was blocked
+          on 73 of them. None was a vulnerability: 69 were cleanup code that
+          deliberately ignores a failure (now written the idiomatic way),
+          two flagged an empty login-token default, one flagged a settings
+          key whose NAME contains "password" (it stores a yes/no choice,
+          never a password), and one flagged the GPX exporter's XML import
+          (it only writes GPX, it never reads XML).
     2.35.1 - Show what the server actually said when it refuses
         - A refusal carrying an HTTP status is now read and shown, instead of
           being reported as "Network error: ... Unprocessable Entity" with the

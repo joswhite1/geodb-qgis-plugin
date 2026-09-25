@@ -6,6 +6,7 @@ Manages live vector layers that show PLSS townships and sections,
 auto-refreshing as the user pans/zooms the map canvas.
 Follows the same pattern as BLMClaimsManager.
 """
+from contextlib import suppress
 import json
 from typing import Optional, Dict
 
@@ -85,10 +86,8 @@ class PLSSFetchWorker(QThread):
 
         except urllib.error.HTTPError as e:
             body = ''
-            try:
+            with suppress(Exception):
                 body = e.read().decode('utf-8', errors='replace')
-            except Exception:
-                pass
             if e.code == 403:
                 self.error.emit(self.generation, self.layer_type,
                                 f"403: {body or 'Access denied'}")
@@ -203,10 +202,8 @@ class PLSSStreamingManager(QObject):
         # Remove layers
         for layer in (self._twp_layer, self._sec_layer):
             if self._layer_alive(layer):
-                try:
+                with suppress(Exception):
                     QgsProject.instance().removeMapLayer(layer.id())
-                except Exception:
-                    pass
         self._twp_layer = None
         self._sec_layer = None
 

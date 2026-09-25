@@ -2,6 +2,7 @@
 """
 Low-level synchronization between API and QGIS layers.
 """
+from contextlib import suppress
 import json
 import hashlib
 from typing import Dict, Any, List, Optional, Callable, Tuple
@@ -196,7 +197,7 @@ class SyncManager:
 
         # Normalize ISO datetime strings
         if isinstance(value, str) and ('T' in value and ('Z' in value or '+' in value or value.count(':') >= 2)):
-            try:
+            with suppress(Exception):
                 # Try parsing as ISO datetime
                 dt_str = value.replace('Z', '+00:00')
                 # Simple fallback if dateutil not available
@@ -208,12 +209,10 @@ class SyncManager:
                     dt = datetime.fromisoformat(dt_str)
                 # Return in consistent format (strip microseconds)
                 return dt.strftime('%Y-%m-%d %H:%M:%S')
-            except:
-                pass
 
         # Normalize date-only strings (YYYY-MM-DD)
         if isinstance(value, str) and len(value) == 10 and value.count('-') == 2:
-            try:
+            with suppress(Exception):
                 # Validate it's a valid date
                 parts = value.split('-')
                 if len(parts) == 3 and all(p.isdigit() for p in parts):
@@ -221,8 +220,6 @@ class SyncManager:
                     if 1 <= month <= 12 and 1 <= day <= 31 and year >= 1900:
                         # Return normalized date string
                         return f"{year:04d}-{month:02d}-{day:02d}"
-            except:
-                pass
 
         # Try to parse string representations of dicts/lists back to objects
         if isinstance(value, str) and (value.startswith('{') or value.startswith('[')):

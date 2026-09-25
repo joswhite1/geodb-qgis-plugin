@@ -5,6 +5,7 @@ Basemaps widget for adding XYZ tile layers and reference layers to QGIS project.
 Provides easy access to common basemap providers like ESRI, USGS, and OpenStreetMap,
 as well as BLM PLSS cadastral reference layers for mining claims work.
 """
+from contextlib import suppress
 from typing import Optional
 
 from qgis.PyQt.QtWidgets import (
@@ -1023,10 +1024,8 @@ class BasemapsWidget(QWidget):
                     new_feat = QgsFeature(layer.fields())
                     new_feat.setGeometry(feat.geometry())
                     for field in fields:
-                        try:
+                        with suppress(Exception):
                             new_feat.setAttribute(field.name(), feat.attribute(field.name()))
-                        except Exception:
-                            pass
                     features.append(new_feat)
                     # Keep UI responsive during copy
                     if len(features) % 100 == 0:
@@ -1474,10 +1473,8 @@ class BasemapsWidget(QWidget):
                     new_feat = QgsFeature(layer.fields())
                     new_feat.setGeometry(feat.geometry())
                     for field in fields:
-                        try:
+                        with suppress(Exception):
                             new_feat.setAttribute(field.name(), feat.attribute(field.name()))
-                        except Exception:
-                            pass
                     features.append(new_feat)
                     if len(features) % 100 == 0:
                         QgsApplication.processEvents()

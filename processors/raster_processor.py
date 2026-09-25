@@ -5,6 +5,7 @@ Raster processor for handling GeoTIFF/DEM file downloads and QGIS layer creation
 Supports downloading georeferenced raster files from the API and loading them
 as raster layers in QGIS.
 """
+from contextlib import suppress
 import os
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any, List, Tuple
@@ -243,10 +244,8 @@ class RasterProcessor:
                         # first so the canvas never keeps a blank one alongside
                         # the downloaded raster.
                         if layer is not None:
-                            try:
+                            with suppress(Exception):
                                 QgsProject.instance().removeMapLayer(layer.id())
-                            except Exception:
-                                pass
                         self.logger.warning(
                             f"XYZ tiles unusable for '{pf.get('name')}' "
                             f"(reachable={tiles_reachable}), "

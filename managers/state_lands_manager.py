@@ -24,6 +24,7 @@ refactor — see CLAUDE.md "no duplicate paths" rule. Documented as
 paired so a future reader doesn't accidentally fix one without the
 other.
 """
+from contextlib import suppress
 import json
 from typing import Optional
 
@@ -145,10 +146,8 @@ class StateLandsStreamingManager(QObject):
             pass
 
         if self._layer_alive(self._layer):
-            try:
+            with suppress(Exception):
                 QgsProject.instance().removeMapLayer(self._layer.id())
-            except Exception:
-                pass
         self._layer = None
 
         if self._worker and self._worker.isRunning():

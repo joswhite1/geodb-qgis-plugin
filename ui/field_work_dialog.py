@@ -10,6 +10,7 @@ Allows users to:
    (e.g. the customer's own "AK26-1001S" IDs) instead of leaving it blank
 5. Push points as "Planned" samples to geodb.io server
 """
+from contextlib import suppress
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QSpinBox, QFrame, QProgressBar,
@@ -283,7 +284,7 @@ class FieldWorkDialog(QDialog):
 
     def _select_active_layer(self):
         """Pre-select the currently active layer from the QGIS Layers panel."""
-        try:
+        with suppress(Exception):
             from qgis.utils import iface
             if iface:
                 active_layer = iface.activeLayer()
@@ -291,8 +292,6 @@ class FieldWorkDialog(QDialog):
                         QgsWkbTypes.geometryType(active_layer.wkbType()) ==
                         QgsWkbTypes.PointGeometry):
                     self.layer_combo.setLayer(active_layer)
-        except Exception:
-            pass
 
     def _on_layer_changed(self, layer):
         """Handle layer selection change."""

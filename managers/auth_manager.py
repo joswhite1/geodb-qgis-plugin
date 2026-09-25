@@ -28,7 +28,7 @@ class AuthManager:
     AUTH_METHOD = "Basic"
     SETTINGS_KEY = "geodb/saved_email"
     REMEMBER_EMAIL_OPT_KEY = "geodb/remember_email_opt"
-    SAVE_PASSWORD_OPT_KEY = "geodb/save_password_opt"
+    SAVE_CREDENTIALS_OPT_KEY = "geodb/save_password_opt"
 
     def __init__(self, config: Config, api_client: APIClient):
         """
@@ -410,13 +410,13 @@ class AuthManager:
         plugin; opting out is the explicit action.
         """
         remember = self.settings.value(self.REMEMBER_EMAIL_OPT_KEY, True, type=bool)
-        save_pw = self.settings.value(self.SAVE_PASSWORD_OPT_KEY, True, type=bool)
+        save_pw = self.settings.value(self.SAVE_CREDENTIALS_OPT_KEY, True, type=bool)
         return remember, save_pw
 
     def save_login_prefs(self, remember_email: bool, save_password: bool) -> None:
         """Persist the login-dialog checkbox choices."""
         self.settings.setValue(self.REMEMBER_EMAIL_OPT_KEY, bool(remember_email))
-        self.settings.setValue(self.SAVE_PASSWORD_OPT_KEY, bool(save_password))
+        self.settings.setValue(self.SAVE_CREDENTIALS_OPT_KEY, bool(save_password))
 
     def get_saved_username(self) -> Optional[str]:
         """Username from the stored auth config (fallback email prefill)."""

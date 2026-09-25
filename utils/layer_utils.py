@@ -7,7 +7,7 @@ the claims workflow steps.
 """
 from typing import Optional
 
-from qgis.core import QgsLayerTreeGroup, QgsVectorLayer, QgsProject
+from qgis.core import QgsLayerTreeGroup, QgsVectorLayer, QgsProject, QgsWkbTypes
 
 try:
     from qgis.PyQt import sip
@@ -120,6 +120,33 @@ def get_layer_in_project_or_none(layer: Optional[QgsVectorLayer]) -> Optional[Qg
         ...     self._layer = self._load_or_create_layer()
     """
     return layer if is_layer_in_project(layer) else None
+
+
+def is_lode_claims_polygon_layer(layer) -> bool:
+    """
+    True for the claims wizard's Lode Claims polygon layer.
+
+    Matches on the name PREFIX "Lode Claims", never a substring: "Initial
+    Layout [<prefix> Lode Claims]" repeats the phrase in its group suffix
+    and carries different attributes. A layer whose C++ object is gone
+    reads as False.
+    """
+    try:
+        return (layer.name().startswith('Lode Claims')
+                and layer.geometryType() == QgsWkbTypes.PolygonGeometry)
+    except Exception:
+        return False
+
+
+def feature_point(feature):
+    """
+    The feature's point geometry as a QgsPointXY, or None when the feature
+    has no single point to give (null, multipart or non-point geometry).
+    """
+    try:
+        return feature.geometry().asPoint()
+    except Exception:
+        return None
 
 
 # Claims Workflow group prefix used across the claims wizard

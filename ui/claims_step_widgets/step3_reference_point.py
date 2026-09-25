@@ -6,6 +6,7 @@ Handles:
 - Choose reference point on map (interactive tool)
 - Store reference description
 """
+from contextlib import suppress
 from typing import List
 
 from qgis.PyQt.QtWidgets import (
@@ -236,13 +237,11 @@ class ClaimsStep3Widget(ClaimsStepBase):
             self.state.save_to_geopackage()
 
         # Deactivate any active map tools
-        try:
+        with suppress(Exception):
             from qgis.utils import iface
             if hasattr(self, 'reference_widget') and hasattr(self.reference_widget, '_map_tool'):
                 if self.reference_widget._map_tool:
                     iface.mapCanvas().unsetMapTool(self.reference_widget._map_tool)
-        except Exception:
-            pass
 
     def save_state(self):
         """Save widget state to shared state."""

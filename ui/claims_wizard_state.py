@@ -8,12 +8,15 @@ and to GeoPackage metadata.
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from pathlib import Path
+from contextlib import suppress
 import json
 import logging
 import sqlite3
 import re
 
 from qgis.core import QgsVectorLayer, QgsProject
+
+from ..utils.layer_utils import feature_point, is_lode_claims_polygon_layer
 
 logger = logging.getLogger('geodb')
 
@@ -653,14 +656,8 @@ class ClaimsWizardState:
         # Lode Claims]" because the suffix repeats "Lode Claims" in the
         # group name. That layer has different attributes, so all features
         # got skipped and rebuilt counts came back as zero.
-        candidates = []
-        for lyr in project.mapLayers().values():
-            try:
-                if (lyr.name().startswith('Lode Claims')
-                        and lyr.geometryType() == QgsWkbTypes.PolygonGeometry):
-                    candidates.append(lyr)
-            except Exception:
-                continue
+        candidates = [lyr for lyr in project.mapLayers().values()
+                      if is_lode_claims_polygon_layer(lyr)]
         if not candidates:
             logger.info("[REHYDRATE] No Lode Claims polygon layer found")
             return 0
@@ -676,7 +673,7 @@ class ClaimsWizardState:
         def _index_points(name_substr, geom_type=None):
             out = {}
             for lyr in project.mapLayers().values():
-                try:
+                with suppress(Exception):
                     if name_substr not in lyr.name():
                         continue
                     if geom_type is not None and lyr.geometryType() != geom_type:
@@ -686,9 +683,8 @@ class ClaimsWizardState:
                         claim = f['Claim'] if 'Claim' in fnames else None
                         if not claim:
                             continue
-                        try:
-                            pt = f.geometry().asPoint()
-                        except Exception:
+                        pt = feature_point(f)
+                        if pt is None:
                             continue
                         rec = {
                             'name': f['Name'] if 'Name' in fnames else '',
@@ -696,8 +692,6 @@ class ClaimsWizardState:
                             'northing': pt.y(),
                         }
                         out.setdefault(claim, []).append(rec)
-                except Exception:
-                    continue
             return out
 
         discoveries = _index_points('Monuments', QgsWkbTypes.PointGeometry)
@@ -812,21 +806,18 @@ class ClaimsWizardState:
         rebuilt_waypoints = []
         wp_layer = None
         for lyr in project.mapLayers().values():
-            try:
+            with suppress(Exception):
                 if ('Waypoints' in lyr.name()
                         and 'Reference' not in lyr.name()
                         and lyr.geometryType() == QgsWkbTypes.PointGeometry):
                     wp_layer = lyr
                     break
-            except Exception:
-                continue
 
         if wp_layer:
             wp_fnames = [fld.name() for fld in wp_layer.fields()]
             for f in wp_layer.getFeatures():
-                try:
-                    pt = f.geometry().asPoint()
-                except Exception:
+                pt = feature_point(f)
+                if pt is None:
                     continue
                 rebuilt_waypoints.append({
                     'sequence_number': f['Name'] if 'Name' in wp_fnames else '',

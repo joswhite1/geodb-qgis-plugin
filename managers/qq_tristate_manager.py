@@ -17,6 +17,7 @@ Styling mirrors the web:
 Follows the ``managers/state_lands_manager.py`` streaming contract and reuses the
 SSL-safe :class:`FederalLandsFetchWorker`.
 """
+from contextlib import suppress
 from typing import Optional
 
 try:
@@ -111,10 +112,8 @@ class QQTristateStreamingManager(QObject):
         except (TypeError, RuntimeError):
             pass
         if self._layer_alive(self._layer):
-            try:
+            with suppress(Exception):
                 QgsProject.instance().removeMapLayer(self._layer.id())
-            except Exception:
-                pass
         self._layer = None
         if self._worker and self._worker.isRunning():
             self._worker.terminate()

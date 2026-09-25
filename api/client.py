@@ -9,6 +9,7 @@ to avoid heap corruption crashes. QEventLoop.exec() processes all Qt events
 which can cause reentrancy issues when combined with QApplication.processEvents()
 calls elsewhere in the codebase.
 """
+from contextlib import suppress
 import configparser
 import json
 import os
@@ -211,10 +212,8 @@ class APIClient:
             )
         finally:
             if progress_dialog is not None:
-                try:
+                with suppress(Exception):
                     progress_dialog.close()
-                except Exception:
-                    pass
 
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -662,13 +661,11 @@ class APIClient:
         if error_code != QgsBlockingNetworkRequest.NoError:
             error_msg = blocking_request.errorMessage()
             # Check if there's a response body with validation details
-            try:
+            with suppress(Exception):
                 reply = blocking_request.reply()
                 response_data = bytes(reply.content()).decode('utf-8')
                 if response_data:
                     return self._process_blocking_response(reply)
-            except Exception:
-                pass
             self.logger.error(f"Upload error ({error_code}): {error_msg}")
             raise NetworkError(f"Upload failed: {error_msg}")
 

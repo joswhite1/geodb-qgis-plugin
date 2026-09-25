@@ -18,6 +18,7 @@ Provides utilities for working with claim grids:
 
 These operations help prepare a claim grid for processing.
 """
+from contextlib import suppress
 from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
 import math
@@ -210,17 +211,15 @@ class GridProcessor:
             "rotation-tolerant numbering."
         )
         self.logger.warning(f"[GRID PROCESSOR] {msg}")
-        try:
+        # Headless/test contexts have no message bar — the log line above
+        # is the record.
+        with suppress(Exception):
             from qgis.core import Qgis
             from qgis.utils import iface
             if iface and iface.messageBar():
                 iface.messageBar().pushMessage(
                     "QClaims ordering", msg, level=Qgis.Warning, duration=10
                 )
-        except Exception:
-            # Headless/test contexts have no message bar — the log line above
-            # is the record.
-            pass
 
     def rename_claims(
         self,

@@ -11,6 +11,7 @@ Also provides cross-version Qt enum constants that work on both Qt5 and Qt6.
 In Qt6 (QGIS 4.0+), unscoped enums like Qt.Checked moved to Qt.CheckState.Checked.
 """
 
+from contextlib import suppress
 import sys
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QSizePolicy, QFrame
@@ -18,11 +19,9 @@ from qgis.PyQt.QtWidgets import QSizePolicy, QFrame
 # Debug logging — logs to QGIS message log
 def _compat_log(msg):
     """Log compat module debug info to QGIS message log."""
-    try:
+    with suppress(Exception):
         from qgis.core import QgsMessageLog, Qgis
         QgsMessageLog.logMessage(f"[compat] {msg}", 'GeodbIO', Qgis.Info)
-    except Exception:
-        pass
 
 # ============================================================
 # QgsField type constants

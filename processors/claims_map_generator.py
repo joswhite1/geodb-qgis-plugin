@@ -11,6 +11,7 @@ Map types:
 - Filing Map: Claims + PLSS + topo, no waypoints, for county recording
 - State Filing Map (AZ/NV): State-specific requirements (scale, bearings, etc.)
 """
+from contextlib import suppress
 import math
 import os
 import logging
@@ -1165,10 +1166,8 @@ class ClaimsMapGenerator:
                 new_feat = QgsFeature(mem_layer.fields())
                 new_feat.setGeometry(feat.geometry())
                 for field in fields:
-                    try:
+                    with suppress(Exception):
                         new_feat.setAttribute(field.name(), feat.attribute(field.name()))
-                    except Exception:
-                        pass
                 features.append(new_feat)
 
             mem_layer.addFeatures(features)
@@ -1366,15 +1365,13 @@ class ClaimsMapGenerator:
         Falls back to 96 dpi when no GUI application is available (e.g. a
         headless render), which is the conventional default.
         """
-        try:
+        with suppress(Exception):
             from qgis.PyQt.QtWidgets import QApplication
             app = QApplication.instance()
             if app is not None:
                 screen = app.primaryScreen()
                 if screen is not None and screen.logicalDotsPerInch() > 0:
                     return float(screen.logicalDotsPerInch())
-        except Exception:
-            pass
         return 96.0
 
     def _autofit_title_labels(self, layout: QgsPrintLayout):
@@ -2149,12 +2146,10 @@ class ClaimsMapGenerator:
         """Get human-readable CRS label from project EPSG."""
         if not self.state.project_epsg:
             return ''
-        try:
+        with suppress(Exception):
             crs = QgsCoordinateReferenceSystem(f"EPSG:{self.state.project_epsg}")
             if crs.isValid():
                 return crs.description()
-        except Exception:
-            pass
         return f"EPSG:{self.state.project_epsg}"
 
     # =========================================================================

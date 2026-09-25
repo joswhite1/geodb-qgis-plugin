@@ -6,6 +6,7 @@ Manages a live vector layer that shows BLM mining claim density per PLSS section
 auto-refreshing as the user pans/zooms the map canvas. Provides snapshot functionality
 to save the current view as a persistent layer.
 """
+from contextlib import suppress
 import json
 from typing import Optional, Dict, Any
 
@@ -77,10 +78,8 @@ class BLMFetchWorker(QThread):
 
         except urllib.error.HTTPError as e:
             body = ''
-            try:
+            with suppress(Exception):
                 body = e.read().decode('utf-8', errors='replace')
-            except Exception:
-                pass
             if e.code == 403:
                 self.error.emit(self.generation, f"403: {body or 'Access denied'}")
             else:
@@ -187,10 +186,8 @@ class BLMClaimsManager(QObject):
 
         # Remove the streaming layer from project
         if self._layer_alive(self._streaming_layer):
-            try:
+            with suppress(Exception):
                 QgsProject.instance().removeMapLayer(self._streaming_layer.id())
-            except Exception:
-                pass
         self._streaming_layer = None
 
         # Cancel any pending worker
@@ -243,10 +240,8 @@ class BLMClaimsManager(QObject):
             new_feat = QgsFeature(snap_layer.fields())
             new_feat.setGeometry(feat.geometry())
             for i in range(feat.fields().count()):
-                try:
+                with suppress(Exception):
                     new_feat.setAttribute(i, feat.attribute(i))
-                except Exception:
-                    pass
             features.append(new_feat)
         snap_layer.addFeatures(features)
         snap_layer.commitChanges()

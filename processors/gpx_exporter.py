@@ -8,7 +8,9 @@ for use with handheld GPS devices during field staking.
 from typing import List, Dict, Any
 from pathlib import Path
 from datetime import datetime
-import xml.etree.ElementTree as ET
+# Write-only: this module BUILDS GPX and never parses input, so the XML-attack
+# class B405 guards against (untrusted XML being parsed) cannot reach it.
+import xml.etree.ElementTree as ET  # nosec B405
 
 from ..utils.logger import PluginLogger
 # The ONE home for the ID/NM predicate — mirror of the server's

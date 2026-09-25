@@ -5,6 +5,7 @@ Assay Range Configuration selection dialog.
 Allows users to select an AssayRangeConfiguration for visualizing
 PointSample or DrillSample data with color-coded grade values.
 """
+from contextlib import suppress
 from typing import Optional, List, Dict, Any
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
@@ -448,15 +449,13 @@ class AssayRangeDialog(QDialog):
             # Color (with background)
             color_item = QTableWidgetItem(color)
             color_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            try:
+            with suppress(Exception):
                 qcolor = QColor(color)
                 color_item.setBackground(QBrush(qcolor))
                 # Use white or black text based on luminance
                 luminance = 0.299 * qcolor.red() + 0.587 * qcolor.green() + 0.114 * qcolor.blue()
                 text_color = QColor('#ffffff') if luminance < 128 else QColor('#000000')
                 color_item.setForeground(QBrush(text_color))
-            except:
-                pass
             self.range_table.setItem(row, 2, color_item)
 
             # Size

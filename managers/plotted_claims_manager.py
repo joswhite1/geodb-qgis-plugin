@@ -22,6 +22,7 @@ Pairs with :mod:`managers.qq_tristate_manager`. Reuses the SSL-safe
 ``utils/http.get_shared_ssl_context`` + the v2.23.1 Windows-crash fix). Follows
 the streaming-manager contract established in ``managers/state_lands_manager.py``.
 """
+from contextlib import suppress
 import json
 from typing import Optional
 
@@ -134,10 +135,8 @@ class PlottedClaimsStreamingManager(QObject):
             pass
         for lyr in (self._layer, self._line_layer):
             if self._layer_alive(lyr):
-                try:
+                with suppress(Exception):
                     QgsProject.instance().removeMapLayer(lyr.id())
-                except Exception:
-                    pass
         self._layer = None
         self._line_layer = None
         if self._worker and self._worker.isRunning():

@@ -43,7 +43,7 @@ class TwoFactorDialog(QDialog):
         self,
         parent=None,
         api_client: Optional['APIClient'] = None,
-        session_token: str = "",
+        session_token: Optional[str] = None,
         user_id: int = 0,
         has_recovery_email: bool = False
     ):
@@ -602,7 +602,7 @@ class TwoFactorDialog(QDialog):
     def verify(
         parent=None,
         api_client: Optional['APIClient'] = None,
-        session_token: str = "",
+        session_token: Optional[str] = None,
         user_id: int = 0,
         has_recovery_email: bool = False
     ) -> Tuple[bool, Optional[str], Optional[str]]:

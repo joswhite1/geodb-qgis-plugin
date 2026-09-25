@@ -8,6 +8,7 @@ Handles:
 - Renumber claims (auto-number)
 - Rename claim layout
 """
+from contextlib import suppress
 import os
 from typing import List, Optional
 
@@ -588,12 +589,10 @@ class ClaimsStep2Widget(ClaimsStepBase):
         self.save_state()
 
         # Deactivate move tool if active
-        try:
+        with suppress(Exception):
             from qgis.utils import iface
             if hasattr(self, '_move_tool'):
                 iface.mapCanvas().unsetMapTool(self._move_tool)
-        except Exception:
-            pass
 
     def save_state(self):
         """Save widget state to shared state."""

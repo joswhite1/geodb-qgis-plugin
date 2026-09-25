@@ -8,6 +8,7 @@ Handles:
 - Process claims (server-side)
 - Generate documents (server-side)
 """
+from contextlib import suppress
 from typing import List, Dict, Any, Optional
 
 from qgis.PyQt.QtWidgets import (
@@ -735,11 +736,9 @@ class ClaimsStep6Widget(ClaimsStepBase):
         # Remove old waypoints layer if it exists (prevents duplicates
         # when user goes back to Step 5 then forward and regenerates)
         if self.state.waypoints_layer_id:
-            try:
+            with suppress(Exception):
                 QgsProject.instance().removeMapLayer(self.state.waypoints_layer_id)
                 self.state.waypoints_layer_id = None
-            except Exception:
-                pass
 
         try:
             # Create waypoints layer
@@ -940,7 +939,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
         except Exception:
             # Fall back to simple styling on error
-            try:
+            with suppress(Exception):
                 symbol = QgsMarkerSymbol.createSimple({
                     'name': 'circle',
                     'color': '#2563eb',
@@ -949,8 +948,6 @@ class ClaimsStep6Widget(ClaimsStepBase):
                 from qgis.core import QgsSingleSymbolRenderer
                 layer.setRenderer(QgsSingleSymbolRenderer(symbol))
                 layer.triggerRepaint()
-            except:
-                pass
 
     def _apply_waypoints_labeling(self, layer: QgsVectorLayer):
         """
@@ -959,7 +956,8 @@ class ClaimsStep6Widget(ClaimsStepBase):
         This matches QClaims behavior where waypoint numbers are displayed on the map
         for easy field navigation reference.
         """
-        try:
+        # Labeling is optional - don't fail if it doesn't work
+        with suppress(Exception):
             from qgis.core import (
                 QgsPalLayerSettings, QgsVectorLayerSimpleLabeling,
                 QgsTextFormat, QgsTextBufferSettings
@@ -991,10 +989,6 @@ class ClaimsStep6Widget(ClaimsStepBase):
             labeling = QgsVectorLayerSimpleLabeling(label_settings)
             layer.setLabeling(labeling)
             layer.setLabelsEnabled(True)
-
-        except Exception:
-            # Labeling is optional - don't fail if it doesn't work
-            pass
 
     # =========================================================================
     # Monument Position Helpers

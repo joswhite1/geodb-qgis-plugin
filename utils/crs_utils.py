@@ -5,6 +5,7 @@ Shared CRS / UTM utilities.
 Consolidates duplicate implementations from step1_project_setup,
 step2_claim_layout, and claims_order_widget.
 """
+from contextlib import suppress
 import math
 from typing import Optional
 
@@ -36,13 +37,12 @@ def extent_to_wgs84(extent: 'QgsRectangle', map_crs: 'QgsCoordinateReferenceSyst
     if crs_bounds and not crs_bounds.isEmpty():
         # Transform CRS bounds into the map CRS to clamp the extent
         reverse = QgsCoordinateTransform(wgs84, map_crs, QgsProject.instance())
-        try:
+        # If reverse transform fails, try forward anyway
+        with suppress(Exception):
             crs_bounds_in_map = reverse.transformBoundingBox(crs_bounds)
             extent = extent.intersect(crs_bounds_in_map)
             if extent.isEmpty():
                 return None
-        except Exception:
-            pass  # If reverse transform fails, try forward anyway
 
     try:
         result = transform.transformBoundingBox(extent)

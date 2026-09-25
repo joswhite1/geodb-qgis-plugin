@@ -5,6 +5,7 @@ Style processor for applying AssayRangeConfiguration to QGIS layers.
 Handles color-coding of features based on assay values using
 configured grade ranges.
 """
+from contextlib import suppress
 from typing import Dict, Any, List, Optional
 from qgis.core import (
     QgsVectorLayer,
@@ -818,7 +819,7 @@ class StyleProcessor:
 
         svg_layer = None
         for svg_path in svg_paths:
-            try:
+            with suppress(Exception):
                 test_layer = QgsSvgMarkerSymbolLayer(svg_path)
                 if test_layer.isValid() or test_layer.path():
                     svg_layer = test_layer
@@ -827,8 +828,6 @@ class StyleProcessor:
                     svg_layer.setStrokeColor(QColor('#2c3e50'))  # Dark outline
                     svg_layer.setStrokeWidth(0.5)
                     break
-            except Exception:
-                continue
 
         if svg_layer:
             symbol.appendSymbolLayer(svg_layer)
@@ -1017,7 +1016,7 @@ class StyleProcessor:
 
         svg_layer = None
         for svg_path in svg_paths:
-            try:
+            with suppress(Exception):
                 test_layer = QgsSvgMarkerSymbolLayer(svg_path)
                 if test_layer.isValid() or test_layer.path():
                     svg_layer = test_layer
@@ -1026,8 +1025,6 @@ class StyleProcessor:
                     svg_layer.setStrokeColor(QColor('#c0392b'))  # Dark red outline
                     svg_layer.setStrokeWidth(0.5)
                     break
-            except Exception:
-                continue
 
         if svg_layer:
             symbol.appendSymbolLayer(svg_layer)

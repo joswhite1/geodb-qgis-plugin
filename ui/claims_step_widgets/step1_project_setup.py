@@ -8,6 +8,7 @@ Handles:
 - Create or identify GeoPackage for claims storage
 - Fill in claimant information
 """
+from contextlib import suppress
 from typing import List
 from pathlib import Path
 import math
@@ -1036,7 +1037,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
     def _zoom_to_loaded_layers(self, loader):
         """Zoom map canvas to the extent of layers loaded by a claims loader."""
-        try:
+        with suppress(Exception):
             from qgis.utils import iface
             if not iface or not iface.mapCanvas():
                 return
@@ -1053,8 +1054,6 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 combined.scale(1.1)
                 iface.mapCanvas().setExtent(combined)
                 iface.mapCanvas().refresh()
-        except Exception:
-            pass
 
     def _refresh_server_geopackages(self):
         """Fetch claims-linked GeoPackages from the server for the current project."""
@@ -1139,13 +1138,11 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
             # Resolve base URL for relative file_url values
             base_url = None
-            try:
+            with suppress(Exception):
                 from urllib.parse import urlparse
                 endpoint = self.claims_manager.api.config.base_url
                 parsed = urlparse(endpoint)
                 base_url = f"{parsed.scheme}://{parsed.netloc}"
-            except Exception:
-                pass
 
             self.emit_status("Downloading GeoPackage from server...", "info")
 

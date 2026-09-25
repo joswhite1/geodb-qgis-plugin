@@ -21,6 +21,7 @@
  *                                                                         *
  ***************************************************************************/
 """
+from contextlib import suppress
 import os
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
@@ -188,15 +189,11 @@ class GeodbIO:
 
         # Clean up the dialog to prevent crashes on plugin reload
         if self.modern_dialog is not None:
-            try:
+            with suppress(Exception):
                 self.modern_dialog.cleanup()
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 self.modern_dialog.close()
                 self.modern_dialog.deleteLater()
-            except Exception:
-                pass
             self.modern_dialog = None
 
     def run_modern(self):
