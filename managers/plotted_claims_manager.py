@@ -57,10 +57,10 @@ _SCOPE_LABEL = {'mine': 'My Plotted Claims', 'public': 'Public Plotted Claims'}
 def _tier_pen(tier):
     """Tier → outline pen style mirroring the web: solid A/B, dashed C, dotted D."""
     if tier == 'C':
-        return Qt.DashLine
+        return Qt.PenStyle.DashLine
     if tier == 'D':
-        return Qt.DotLine
-    return Qt.SolidLine             # A/B
+        return Qt.PenStyle.DotLine
+    return Qt.PenStyle.SolidLine             # A/B
 
 
 class PlottedClaimsStreamingManager(QObject):
@@ -324,7 +324,7 @@ class PlottedClaimsStreamingManager(QObject):
             return sym
 
         rules = [
-            ('My private (in-window)', '"is_own" = 1 AND "is_public" = 0', COL_PRIVATE, 40, Qt.SolidLine),
+            ('My private (in-window)', '"is_own" = 1 AND "is_public" = 0', COL_PRIVATE, 40, Qt.PenStyle.SolidLine),
             ('Tier A/B', '"tier" IN (\'A\',\'B\')', COL_PLOTTED, 24, _tier_pen('A')),
             ('Tier C', '"tier" = \'C\'', COL_PLOTTED, 20, _tier_pen('C')),
             ('Tier D', '"tier" = \'D\'', COL_PLOTTED, 16, _tier_pen('D')),
@@ -335,7 +335,7 @@ class PlottedClaimsStreamingManager(QObject):
             rule.setLabel(label)
             root_rule.appendChild(rule)
 
-        default = QgsRuleBasedRenderer.Rule(_fill_symbol(COL_PLOTTED, Qt.SolidLine, COL_PLOTTED, 18))
+        default = QgsRuleBasedRenderer.Rule(_fill_symbol(COL_PLOTTED, Qt.PenStyle.SolidLine, COL_PLOTTED, 18))
         default.setFilterExpression('ELSE')
         default.setLabel('Plotted')
         root_rule.appendChild(default)

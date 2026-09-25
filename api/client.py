@@ -378,7 +378,7 @@ class APIClient:
             status_code = reply.attribute(
                 QNetworkRequest.Attribute.HttpStatusCodeAttribute)
 
-        if error_code != QgsBlockingNetworkRequest.NoError and not status_code:
+        if error_code != QgsBlockingNetworkRequest.ErrorCode.NoError and not status_code:
             error_msg = blocking_request.errorMessage()
             self.logger.error(f"Network error ({error_code}): {error_msg}")
             raise NetworkError(f"Network error: {error_msg}")
@@ -525,7 +525,7 @@ class APIClient:
 
             # Check for network errors - but for HTTP errors (4xx, 5xx) process normally
             # QNetworkReply reports 400/500 as errors, but we want to parse their response
-            if reply.error() != QNetworkReply.NoError:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
                 # If we have a valid HTTP status code, handle as HTTP error below
                 if status_code and status_code >= 400:
                     pass  # Fall through to HTTP error handling
@@ -658,7 +658,7 @@ class APIClient:
             request, QByteArray(body_data), forceRefresh=True
         )
 
-        if error_code != QgsBlockingNetworkRequest.NoError:
+        if error_code != QgsBlockingNetworkRequest.ErrorCode.NoError:
             error_msg = blocking_request.errorMessage()
             # Check if there's a response body with validation details
             with suppress(Exception):

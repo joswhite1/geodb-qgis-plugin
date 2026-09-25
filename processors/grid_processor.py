@@ -218,7 +218,7 @@ class GridProcessor:
             from qgis.utils import iface
             if iface and iface.messageBar():
                 iface.messageBar().pushMessage(
-                    "QClaims ordering", msg, level=Qgis.Warning, duration=10
+                    "QClaims ordering", msg, level=Qgis.MessageLevel.Warning, duration=10
                 )
 
     def rename_claims(
@@ -1211,7 +1211,7 @@ class GridProcessor:
                 continue
 
             # Check if polygon
-            if geom.type() != QgsWkbTypes.PolygonGeometry:
+            if geom.type() != QgsWkbTypes.GeometryType.PolygonGeometry:
                 issues.append({
                     'feature_id': fid,
                     'name': name,

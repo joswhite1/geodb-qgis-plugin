@@ -124,7 +124,7 @@ class FieldWorkDialog(QDialog):
 
         # Layer combo box (points only)
         self.layer_combo = QgsMapLayerComboBox()
-        self.layer_combo.setFilters(QgsMapLayerProxyModel.PointLayer)
+        self.layer_combo.setFilters(QgsMapLayerProxyModel.Filter.PointLayer)
         self.layer_combo.setAllowEmptyLayer(True)
         self.layer_combo.setShowCrs(True)
         layer_layout.addRow("Point Layer:", self.layer_combo)
@@ -290,7 +290,7 @@ class FieldWorkDialog(QDialog):
                 active_layer = iface.activeLayer()
                 if (active_layer and isinstance(active_layer, QgsVectorLayer) and
                         QgsWkbTypes.geometryType(active_layer.wkbType()) ==
-                        QgsWkbTypes.PointGeometry):
+                        QgsWkbTypes.GeometryType.PointGeometry):
                     self.layer_combo.setLayer(active_layer)
 
     def _on_layer_changed(self, layer):

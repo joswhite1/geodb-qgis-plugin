@@ -68,7 +68,7 @@ def is_dark_theme() -> bool:
         window = app.palette().color(QPalette.ColorRole.Window)
     except AttributeError:
         # Qt5 unscoped enum
-        window = app.palette().color(QPalette.Window)
+        window = app.palette().color(QPalette.ColorRole.Window)
     # Perceived luminance (Rec. 601). Below ~0.5 => dark surface.
     r, g, b = window.redF(), window.greenF(), window.blueF()
     luminance = 0.299 * r + 0.587 * g + 0.114 * b

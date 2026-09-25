@@ -119,7 +119,7 @@ class GridMoveTool(QgsMapToolEmitPoint):
         self._clear_rubber_band()
 
         # Create a polygon rubber band
-        self._rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.PolygonGeometry)
+        self._rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         self._rubber_band.setColor(QColor(0, 128, 255, 100))
         self._rubber_band.setFillColor(QColor(0, 128, 255, 50))
         self._rubber_band.setWidth(2)
@@ -136,7 +136,7 @@ class GridMoveTool(QgsMapToolEmitPoint):
             return
 
         # Clear and recreate with offset
-        self._rubber_band.reset(QgsWkbTypes.PolygonGeometry)
+        self._rubber_band.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
 
         for feature in self.layer.getFeatures():
             geom = feature.geometry()

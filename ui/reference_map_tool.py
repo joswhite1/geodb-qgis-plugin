@@ -287,9 +287,9 @@ class ReferenceMapTool(QgsMapToolEmitPoint):
 
         self.marker = QgsVertexMarker(self.canvas)
         self.marker.setCenter(point)
-        self.marker.setColor(Qt.red)
+        self.marker.setColor(Qt.GlobalColor.red)
         self.marker.setIconSize(15)
-        self.marker.setIconType(QgsVertexMarker.ICON_CROSS)
+        self.marker.setIconType(QgsVertexMarker.IconType.ICON_CROSS)
         self.marker.setPenWidth(3)
 
     def _remove_marker(self):
@@ -881,9 +881,9 @@ class ReferencePointsWidget(QWidget):
             from qgis.PyQt.QtGui import QColor, QFont
 
             # Create red diamond marker
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
             marker = QgsSimpleMarkerSymbolLayer()
-            marker.setShape(QgsSimpleMarkerSymbolLayer.Diamond)
+            marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Diamond)
             marker.setSize(8)
             marker.setColor(QColor(220, 38, 38))  # Red
             marker.setStrokeColor(QColor(127, 29, 29))  # Dark red stroke

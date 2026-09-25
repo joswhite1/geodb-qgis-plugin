@@ -28,7 +28,10 @@ from qgis.PyQt.QtCore import pyqtSignal
 from .step_base import ClaimsStepBase
 from ...processors.geometry_processor import sanitize_polygon_geometry
 from ...managers.claims_manager import looks_like_missing_endpoint as _looks_like_missing_endpoint
-from ...utils.compat import FieldType_QString, FieldType_Int, FieldType_Double, QFrame_NoFrame, QAbstractItemView_NoEditTriggers, QHeaderView_Stretch
+from ...utils.compat import (
+    FieldType_QString, FieldType_Int, FieldType_Double, QFrame_NoFrame,
+    QAbstractItemView_NoEditTriggers, QHeaderView_Stretch, LabelPlacement_OverPoint,
+)
 from ...utils.layer_utils import is_layer_valid
 from ...utils.theme import T
 
@@ -967,7 +970,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             # Configure label settings
             label_settings = QgsPalLayerSettings()
             label_settings.fieldName = 'Name'
-            label_settings.placement = QgsPalLayerSettings.OverPoint
+            label_settings.placement = LabelPlacement_OverPoint
 
             # Text format
             text_format = QgsTextFormat()

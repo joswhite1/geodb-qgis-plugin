@@ -31,18 +31,18 @@ class LayerProcessor:
 
     # Reverse mapping for GeoPackage creation
     GEOMETRY_TYPE_NAMES = {
-        QgsWkbTypes.Point: 'Point',
-        QgsWkbTypes.PointZ: 'PointZ',
-        QgsWkbTypes.LineString: 'LineString',
-        QgsWkbTypes.LineStringZ: 'LineStringZ',
-        QgsWkbTypes.Polygon: 'Polygon',
-        QgsWkbTypes.PolygonZ: 'PolygonZ',
-        QgsWkbTypes.MultiPoint: 'MultiPoint',
-        QgsWkbTypes.MultiPointZ: 'MultiPointZ',
-        QgsWkbTypes.MultiLineString: 'MultiLineString',
-        QgsWkbTypes.MultiLineStringZ: 'MultiLineStringZ',
-        QgsWkbTypes.MultiPolygon: 'MultiPolygon',
-        QgsWkbTypes.MultiPolygonZ: 'MultiPolygonZ'
+        QgsWkbTypes.Type.Point: 'Point',
+        QgsWkbTypes.Type.PointZ: 'PointZ',
+        QgsWkbTypes.Type.LineString: 'LineString',
+        QgsWkbTypes.Type.LineStringZ: 'LineStringZ',
+        QgsWkbTypes.Type.Polygon: 'Polygon',
+        QgsWkbTypes.Type.PolygonZ: 'PolygonZ',
+        QgsWkbTypes.Type.MultiPoint: 'MultiPoint',
+        QgsWkbTypes.Type.MultiPointZ: 'MultiPointZ',
+        QgsWkbTypes.Type.MultiLineString: 'MultiLineString',
+        QgsWkbTypes.Type.MultiLineStringZ: 'MultiLineStringZ',
+        QgsWkbTypes.Type.MultiPolygon: 'MultiPolygon',
+        QgsWkbTypes.Type.MultiPolygonZ: 'MultiPolygonZ'
     }
 
     def __init__(self, config):
@@ -203,7 +203,7 @@ class LayerProcessor:
             self.logger.warning(f"Invalid CRS '{crs}', falling back to EPSG:4326")
             QgsMessageLog.logMessage(
                 f"Invalid CRS, falling back to EPSG:4326. Original: {crs}",
-                "GeodbIO", Qgis.Warning
+                "GeodbIO", Qgis.MessageLevel.Warning
             )
             crs_obj = QgsCoordinateReferenceSystem('EPSG:4326')
 
@@ -295,9 +295,9 @@ class LayerProcessor:
         # If GeoPackage already exists, update it
         gpkg_exists = os.path.exists(gpkg_path)
         if gpkg_exists:
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+            options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
         else:
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+            options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
 
         # Write the empty layer structure
         error = QgsVectorFileWriter.writeAsVectorFormatV3(
@@ -307,7 +307,7 @@ class LayerProcessor:
             options
         )
 
-        if error[0] != QgsVectorFileWriter.NoError:
+        if error[0] != QgsVectorFileWriter.WriterError.NoError:
             error_msg = error[1] if error[1] else "Unknown error"
             self.logger.error(f"GeoPackage write failed: {error_msg}")
             self.logger.error(f"  Path: {gpkg_path}")
@@ -320,14 +320,14 @@ class LayerProcessor:
                 self.logger.warning("Attempting to recreate GeoPackage file...")
                 try:
                     os.remove(gpkg_path)
-                    options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+                    options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
                     error = QgsVectorFileWriter.writeAsVectorFormatV3(
                         temp_layer,
                         gpkg_path,
                         QgsProject.instance().transformContext(),
                         options
                     )
-                    if error[0] == QgsVectorFileWriter.NoError:
+                    if error[0] == QgsVectorFileWriter.WriterError.NoError:
                         self.logger.info("Successfully recreated GeoPackage file")
                     else:
                         raise LayerError(f"Failed to create GeoPackage layer: {error[1] or error_msg}")
@@ -506,7 +506,7 @@ class LayerProcessor:
 
         QgsMessageLog.logMessage(
             f"Adding {len(features_data)} features to layer {layer.name()}",
-            "GeodbIO", Qgis.Info
+            "GeodbIO", Qgis.MessageLevel.Info
         )
 
         # Debug: log first feature's geometry info once
@@ -517,27 +517,27 @@ class LayerProcessor:
                 if isinstance(geom_sample, dict):
                     QgsMessageLog.logMessage(
                         f"Geometry format: GeoJSON dict with keys {list(geom_sample.keys())}",
-                        "GeodbIO", Qgis.Info
+                        "GeodbIO", Qgis.MessageLevel.Info
                     )
                 elif isinstance(geom_sample, str):
                     preview = geom_sample[:100] + '...' if len(geom_sample) > 100 else geom_sample
                     QgsMessageLog.logMessage(
                         f"Geometry format: WKT string: {preview}",
-                        "GeodbIO", Qgis.Info
+                        "GeodbIO", Qgis.MessageLevel.Info
                     )
                 else:
                     QgsMessageLog.logMessage(
                         f"Geometry format: {type(geom_sample).__name__}",
-                        "GeodbIO", Qgis.Info
+                        "GeodbIO", Qgis.MessageLevel.Info
                     )
             else:
                 QgsMessageLog.logMessage(
                     f"First feature has NO geometry data in field '{geometry_field}'",
-                    "GeodbIO", Qgis.Warning
+                    "GeodbIO", Qgis.MessageLevel.Warning
                 )
                 QgsMessageLog.logMessage(
                     f"Available keys: {list(first_feature.keys())}",
-                    "GeodbIO", Qgis.Info
+                    "GeodbIO", Qgis.MessageLevel.Info
                 )
 
         layer.startEditing()
@@ -593,7 +593,7 @@ class LayerProcessor:
                     preview = str(geom_data or feature_data.get('location'))[:200]
                     QgsMessageLog.logMessage(
                         f"First geometry parse failure. Data: {preview}",
-                        "GeodbIO", Qgis.Warning
+                        "GeodbIO", Qgis.MessageLevel.Warning
                     )
             else:
                 # No geometry data provided at all
@@ -631,9 +631,9 @@ class LayerProcessor:
         msg = f"Added {added_count} features (geometry: {geom_success} success, {geom_failed} failed)"
         if null_geom_count > 0:
             msg += f", {null_geom_count} with null geometry"
-            QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.Warning)
+            QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.MessageLevel.Warning)
         else:
-            QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.Info)
+            QgsMessageLog.logMessage(msg, "GeodbIO", Qgis.MessageLevel.Info)
 
         return added_count
 

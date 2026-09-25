@@ -266,7 +266,7 @@ class QQTristateStreamingManager(QObject):
         plotted = QgsSymbol.defaultSymbol(layer.geometryType())
         plotted.deleteSymbolLayer(0)
         pf = QgsSimpleFillSymbolLayer()
-        pf.setBrushStyle(Qt.NoBrush)                    # Qt.NoBrush — no fill
+        pf.setBrushStyle(Qt.BrushStyle.NoBrush)                    # Qt.NoBrush — no fill
         pf.setStrokeColor(QColor(COL_PLOTTED))
         pf.setStrokeWidth(0.6)
         plotted.appendSymbolLayer(pf)
@@ -285,7 +285,7 @@ class QQTristateStreamingManager(QObject):
         hatch.setLineWidth(0.3)
         mixed.appendSymbolLayer(hatch)
         outline = QgsSimpleFillSymbolLayer()
-        outline.setBrushStyle(Qt.NoBrush)               # no solid fill over the hatch
+        outline.setBrushStyle(Qt.BrushStyle.NoBrush)               # no solid fill over the hatch
         outline.setStrokeColor(QColor(COL_PLOTTED))
         outline.setStrokeWidth(0.6)
         mixed.appendSymbolLayer(outline)
@@ -298,7 +298,7 @@ class QQTristateStreamingManager(QObject):
         other = QgsSymbol.defaultSymbol(layer.geometryType())
         other.deleteSymbolLayer(0)
         of = QgsSimpleFillSymbolLayer()
-        of.setBrushStyle(Qt.NoBrush)
+        of.setBrushStyle(Qt.BrushStyle.NoBrush)
         of.setStrokeColor(QColor('#8a8a92'))
         of.setStrokeWidth(0.3)
         other.appendSymbolLayer(of)

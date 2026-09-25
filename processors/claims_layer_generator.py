@@ -35,7 +35,7 @@ from ..utils.compat import (
 )
 
 
-def _qgis_log(message: str, level: Qgis.MessageLevel = Qgis.Info):
+def _qgis_log(message: str, level: Qgis.MessageLevel = Qgis.MessageLevel.Info):
     """Log to QGIS Message Log panel for visibility."""
     QgsMessageLog.logMessage(message, 'GeodbIO Claims', level)
 
@@ -1040,7 +1040,7 @@ class ClaimsLayerGenerator:
 
         for feature in features:
             geom = feature.geometry()
-            if geom.isEmpty() or geom.type() != QgsWkbTypes.PolygonGeometry:
+            if geom.isEmpty() or geom.type() != QgsWkbTypes.GeometryType.PolygonGeometry:
                 continue
 
             # Get polygon coordinates
@@ -1259,9 +1259,9 @@ class ClaimsLayerGenerator:
             from qgis.core import QgsTextBufferSettings, Qgis
 
             # Create black circle marker
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
             marker = QgsSimpleMarkerSymbolLayer()
-            marker.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+            marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Circle)
             marker.setSize(1.6)  # Size in mm
             marker.setColor(QColor(0, 0, 0))  # Black fill
             marker.setStrokeColor(QColor(0, 0, 0))  # Black stroke
@@ -1318,9 +1318,9 @@ class ClaimsLayerGenerator:
         """
         try:
             # Create lime green circle marker
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
             marker = QgsSimpleMarkerSymbolLayer()
-            marker.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+            marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Circle)
             marker.setSize(1.6)  # Size in mm
             marker.setColor(QColor(0, 255, 0))  # Lime green fill
             marker.setStrokeColor(QColor(0, 200, 0))  # Slightly darker green stroke
@@ -1346,7 +1346,7 @@ class ClaimsLayerGenerator:
         Dashed gray line for reference.
         """
         try:
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.LineGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.LineGeometry)
             line = QgsSimpleLineSymbolLayer()
             line.setColor(QColor(128, 128, 128))  # Gray
             line.setWidth(0.3)
@@ -1370,9 +1370,9 @@ class ClaimsLayerGenerator:
         Green triangle marker for discovery monuments.
         """
         try:
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
             marker = QgsSimpleMarkerSymbolLayer()
-            marker.setShape(QgsSimpleMarkerSymbolLayer.Triangle)
+            marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Triangle)
             marker.setSize(2.5)
             marker.setColor(QColor(34, 139, 34))  # Forest green
             marker.setStrokeColor(QColor(0, 100, 0))  # Dark green stroke
@@ -1405,9 +1405,9 @@ class ClaimsLayerGenerator:
     def _apply_sideline_monuments_style(self, layer: QgsVectorLayer):
         """Apply styling to Sideline Monuments layer (Wyoming)."""
         try:
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
             marker = QgsSimpleMarkerSymbolLayer()
-            marker.setShape(QgsSimpleMarkerSymbolLayer.Square)
+            marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Square)
             marker.setSize(2.0)
             marker.setColor(QColor(65, 105, 225))  # Royal blue
             marker.setStrokeColor(QColor(0, 0, 139))  # Dark blue stroke
@@ -1426,9 +1426,9 @@ class ClaimsLayerGenerator:
     def _apply_endline_monuments_style(self, layer: QgsVectorLayer):
         """Apply styling to Endline Monuments layer (Arizona)."""
         try:
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
             marker = QgsSimpleMarkerSymbolLayer()
-            marker.setShape(QgsSimpleMarkerSymbolLayer.Diamond)
+            marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Diamond)
             marker.setSize(2.0)
             marker.setColor(QColor(255, 140, 0))  # Dark orange
             marker.setStrokeColor(QColor(255, 69, 0))  # Red-orange stroke
@@ -1457,7 +1457,7 @@ class ClaimsLayerGenerator:
             )
 
             # Create light blue fill with darker blue outline
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PolygonGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PolygonGeometry)
             fill = QgsSimpleFillSymbolLayer()
             fill.setColor(QColor(173, 216, 230, 100))  # Light blue with transparency
             fill.setStrokeColor(QColor(70, 130, 180))  # Steel blue outline

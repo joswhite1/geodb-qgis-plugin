@@ -50,7 +50,7 @@ from qgis.core import (
     QgsWkbTypes,
 )
 from qgis.PyQt.QtGui import QColor, QFont
-from ..utils.compat import QFont_Bold
+from ..utils.compat import QFont_Bold, LabelPlacement_OverPoint
 
 logger = logging.getLogger('geodb')
 
@@ -562,7 +562,7 @@ class ClaimsLoader:
 
     def _style_lode_claims(self, layer: QgsVectorLayer):
         """Light blue fill with steel blue outline, claim name labels."""
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PolygonGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PolygonGeometry)
         fill = QgsSimpleFillSymbolLayer()
         fill.setColor(QColor(173, 216, 230, 100))
         fill.setStrokeColor(QColor(70, 130, 180))
@@ -590,9 +590,9 @@ class ClaimsLoader:
 
     def _style_corner_points(self, layer: QgsVectorLayer):
         """Black circles with corner number labels."""
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
         marker = QgsSimpleMarkerSymbolLayer()
-        marker.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+        marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Circle)
         marker.setSize(2.5)
         marker.setColor(QColor(0, 0, 0))
         marker.setStrokeColor(QColor(0, 0, 0))
@@ -617,9 +617,9 @@ class ClaimsLoader:
 
     def _style_lm_corners(self, layer: QgsVectorLayer):
         """Green circles for LM corners."""
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
         marker = QgsSimpleMarkerSymbolLayer()
-        marker.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+        marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Circle)
         marker.setSize(3.0)
         marker.setColor(QColor(34, 139, 34))
         marker.setStrokeColor(QColor(0, 100, 0))
@@ -629,7 +629,7 @@ class ClaimsLoader:
 
     def _style_centerlines(self, layer: QgsVectorLayer):
         """Dashed red lines."""
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.LineGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.LineGeometry)
         line = QgsSimpleLineSymbolLayer()
         line.setColor(QColor(220, 20, 60))
         line.setWidth(0.4)
@@ -640,9 +640,9 @@ class ClaimsLoader:
 
     def _style_monuments(self, layer: QgsVectorLayer):
         """Green triangles with name labels."""
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
         marker = QgsSimpleMarkerSymbolLayer()
-        marker.setShape(QgsSimpleMarkerSymbolLayer.Triangle)
+        marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Triangle)
         marker.setSize(3.0)
         marker.setColor(QColor(50, 205, 50))
         marker.setStrokeColor(QColor(34, 139, 34))
@@ -667,9 +667,9 @@ class ClaimsLoader:
 
     def _style_endline_monuments(self, layer: QgsVectorLayer):
         """Blue squares for endline monuments."""
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
         marker = QgsSimpleMarkerSymbolLayer()
-        marker.setShape(QgsSimpleMarkerSymbolLayer.Square)
+        marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Square)
         marker.setSize(2.5)
         marker.setColor(QColor(59, 130, 246))
         marker.setStrokeColor(QColor(29, 78, 216))
@@ -684,9 +684,9 @@ class ClaimsLoader:
         table); the new format uses 'name'. Fall back to the first string
         field if neither is present.
         """
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PointGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PointGeometry)
         marker = QgsSimpleMarkerSymbolLayer()
-        marker.setShape(QgsSimpleMarkerSymbolLayer.Triangle)
+        marker.setShape(QgsSimpleMarkerSymbolLayer.Shape.Triangle)
         marker.setSize(3.5)
         marker.setColor(QColor(204, 0, 0))
         marker.setStrokeColor(QColor(0, 0, 0))
@@ -779,7 +779,7 @@ class ClaimsLoader:
         label_settings = QgsPalLayerSettings()
         label_settings.fieldName = 'Name'
         label_settings.enabled = True
-        label_settings.placement = QgsPalLayerSettings.OverPoint
+        label_settings.placement = LabelPlacement_OverPoint
         text_format = QgsTextFormat()
         text_format.setFont(QFont("Arial", 7, QFont_Bold))
         text_format.setColor(QColor(0, 0, 0))

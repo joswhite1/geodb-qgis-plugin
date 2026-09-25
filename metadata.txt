@@ -4,10 +4,10 @@
 
 [general]
 name=geodb.io
-qgisMinimumVersion=3.0
+qgisMinimumVersion=3.22
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.35.2
+version=2.35.3
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,17 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.35.3 - Ready for QGIS 4 (Qt6)
+        - Fixes errors QGIS 4 users would hit when certain features run:
+          network error handling, plotted-claim and township outline
+          styles, the reference-point marker, and several map-layout and
+          export steps used Qt5-only names that Qt6 no longer accepts
+          ("type object 'Qt' has no attribute ..."). All 145 items from the
+          plugin repository's Qt6 check are resolved.
+        - Waypoint labels keep their "over the point" placement on every
+          QGIS version.
+        - Now requires QGIS 3.22 or newer (the 2021 long-term release). The
+          Qt6-ready code does not run on older QGIS 3 releases.
     2.35.2 - Pass the plugin repository's security scan
         - No change in behaviour. The plugin repository now blocks any
           version with a security-scanner finding, and 2.35.1 was blocked

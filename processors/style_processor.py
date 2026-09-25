@@ -233,7 +233,7 @@ class StyleProcessor:
         """
         QColor(color)
 
-        if geometry_type == QgsWkbTypes.PointGeometry:
+        if geometry_type == QgsWkbTypes.GeometryType.PointGeometry:
             symbol = QgsMarkerSymbol.createSimple({
                 'name': 'circle',
                 'color': color,
@@ -241,12 +241,12 @@ class StyleProcessor:
                 'outline_width': '0.4',
                 'size': str(size)
             })
-        elif geometry_type == QgsWkbTypes.LineGeometry:
+        elif geometry_type == QgsWkbTypes.GeometryType.LineGeometry:
             symbol = QgsLineSymbol.createSimple({
                 'color': color,
                 'width': str(size * 0.5)
             })
-        elif geometry_type == QgsWkbTypes.PolygonGeometry:
+        elif geometry_type == QgsWkbTypes.GeometryType.PolygonGeometry:
             symbol = QgsFillSymbol.createSimple({
                 'color': color,
                 'outline_color': '#000000',
@@ -440,7 +440,7 @@ class StyleProcessor:
         pattern = symbol_spec.get('pattern')
         fill_opacity = symbol_spec.get('fillOpacity')
 
-        if geometry_type == QgsWkbTypes.PointGeometry:
+        if geometry_type == QgsWkbTypes.GeometryType.PointGeometry:
             shape = symbol_spec.get('shape')
             props = {
                 'name': shape if shape in self.VECTOR_MARKER_SHAPES else 'circle',
@@ -452,7 +452,7 @@ class StyleProcessor:
                 props['size'] = str(round(float(size) * self._PX_TO_MM, 2))
             return QgsMarkerSymbol.createSimple(props)
 
-        if geometry_type == QgsWkbTypes.LineGeometry:
+        if geometry_type == QgsWkbTypes.GeometryType.LineGeometry:
             props = {'color': color}
             if weight:
                 props['width'] = str(round(float(weight) * self._PX_TO_MM, 2))
@@ -743,17 +743,17 @@ class StyleProcessor:
             simple_layer = QgsSimpleMarkerSymbolLayer()
 
             if style['style'] == 'hollow':
-                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Shape.Circle)
                 simple_layer.setColor(QColor('transparent'))
                 simple_layer.setStrokeColor(QColor(style['outline']))
                 simple_layer.setStrokeWidth(1.0)
             elif style['style'] == 'cross':
-                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Cross2)
+                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Shape.Cross2)
                 simple_layer.setColor(QColor(style['color']))
                 simple_layer.setStrokeColor(QColor(style['outline']))
                 simple_layer.setStrokeWidth(1.0)
             else:  # filled
-                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Circle)
+                simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Shape.Circle)
                 simple_layer.setColor(QColor(style['color']))
                 simple_layer.setStrokeColor(QColor(style['outline']))
                 simple_layer.setStrokeWidth(0.5)
@@ -835,7 +835,7 @@ class StyleProcessor:
         else:
             # Fallback: use a distinctive star/cross marker
             simple_layer = QgsSimpleMarkerSymbolLayer()
-            simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Star)
+            simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Shape.Star)
             simple_layer.setSize(5)
             simple_layer.setColor(QColor('#3498db'))  # Blue
             simple_layer.setStrokeColor(QColor('#2c3e50'))
@@ -1032,7 +1032,7 @@ class StyleProcessor:
         else:
             # Fallback: use a square marker (represents photo)
             simple_layer = QgsSimpleMarkerSymbolLayer()
-            simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Square)
+            simple_layer.setShape(QgsSimpleMarkerSymbolLayer.Shape.Square)
             simple_layer.setSize(4)
             simple_layer.setColor(QColor('#e74c3c'))  # Red
             simple_layer.setStrokeColor(QColor('#c0392b'))
@@ -1072,7 +1072,7 @@ class StyleProcessor:
         # Create action to open photo in browser
         # Uses QGIS expression to get the image_url field value
         action = QgsAction(
-            QgsAction.OpenUrl,  # Action type: open URL in browser
+            QgsAction.ActionType.OpenUrl,  # Action type: open URL in browser
             'View Full Photo',  # Action name
             '[% "image_url" %]',  # Expression for URL (field value)
             '',  # Icon path (empty = default)
@@ -1195,7 +1195,7 @@ class StyleProcessor:
             # QGIS rotates clockwise from North, our symbols are at 0 degrees
             # Strike is measured clockwise from North, so direct mapping works
             svg_layer.setDataDefinedProperty(
-                QgsSymbolLayer.PropertyAngle,
+                QgsSymbolLayer.Property.PropertyAngle,
                 QgsProperty.fromExpression(rotation_expr)
             )
 

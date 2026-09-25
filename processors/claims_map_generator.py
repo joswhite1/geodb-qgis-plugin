@@ -515,7 +515,7 @@ class ClaimsMapGenerator:
             ))
             it.attemptMove(QgsLayoutPoint(
                 off_x + pos.x() * scale, off_y + pos.y() * scale,
-                QgsUnitTypes.LayoutMillimeters,
+                QgsUnitTypes.LayoutUnit.LayoutMillimeters,
             ))
             if isinstance(it, QgsLayoutItemLabel):
                 font = it.font()
@@ -818,7 +818,7 @@ class ClaimsMapGenerator:
             grid.setIntervalY(chosen_interval)
 
             # Cross style
-            grid.setStyle(QgsLayoutItemMapGrid.Cross)
+            grid.setStyle(QgsLayoutItemMapGrid.GridStyle.Cross)
             grid.setCrossLength(3.0)
 
             # Enable annotations
@@ -828,20 +828,20 @@ class ClaimsMapGenerator:
 
             # Annotations outside on all sides (NV has full-page map)
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame,
-                QgsLayoutItemMapGrid.Left,
+                QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Left,
             )
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame,
-                QgsLayoutItemMapGrid.Right,
+                QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Right,
             )
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame,
-                QgsLayoutItemMapGrid.Top,
+                QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Top,
             )
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame,
-                QgsLayoutItemMapGrid.Bottom,
+                QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Bottom,
             )
 
             grid.setEnabled(True)
@@ -887,12 +887,12 @@ class ClaimsMapGenerator:
 
             # White background box with border
             bg = QgsLayoutItemShape(layout)
-            bg.setShapeType(QgsLayoutItemShape.Rectangle)
+            bg.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
             bg.attemptMove(
-                QgsLayoutPoint(inset_x, inset_y, QgsUnitTypes.LayoutMillimeters)
+                QgsLayoutPoint(inset_x, inset_y, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
             )
             bg.attemptResize(
-                QgsLayoutSize(inset_w, inset_h, QgsUnitTypes.LayoutMillimeters)
+                QgsLayoutSize(inset_w, inset_h, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
             )
             # White fill with black border
             symbol = QgsSymbol.defaultSymbol(2)  # Polygon
@@ -920,12 +920,12 @@ class ClaimsMapGenerator:
 
             # Draw the claim rectangle outline
             claim_rect = QgsLayoutItemShape(layout)
-            claim_rect.setShapeType(QgsLayoutItemShape.Rectangle)
+            claim_rect.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
             claim_rect.attemptMove(
-                QgsLayoutPoint(rect_x, rect_y, QgsUnitTypes.LayoutMillimeters)
+                QgsLayoutPoint(rect_x, rect_y, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
             )
             claim_rect.attemptResize(
-                QgsLayoutSize(rect_w, rect_h, QgsUnitTypes.LayoutMillimeters)
+                QgsLayoutSize(rect_w, rect_h, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
             )
             rect_sym = QgsSymbol.defaultSymbol(2)
             rect_sym.setColor(QColor(255, 255, 255, 0))  # Transparent fill
@@ -1298,7 +1298,7 @@ class ClaimsMapGenerator:
                     item.setUnits(Qgis.DistanceUnit.Feet)
                 except AttributeError:
                     # Older QGIS versions
-                    item.setUnits(QgsUnitTypes.DistanceFeet)
+                    item.setUnits(QgsUnitTypes.DistanceUnit.DistanceFeet)
 
                 # Set reasonable number of segments for feet
                 item.setNumberOfSegments(4)
@@ -1595,7 +1595,7 @@ class ClaimsMapGenerator:
                 if size.width() > 100:
                     item.attemptMove(
                         QgsLayoutPoint(pos.x(), target_scalebar_y,
-                                       QgsUnitTypes.LayoutMillimeters)
+                                       QgsUnitTypes.LayoutUnit.LayoutMillimeters)
                     )
             elif isinstance(item, QgsLayoutItemLabel):
                 text = item.text().strip()
@@ -1603,7 +1603,7 @@ class ClaimsMapGenerator:
                     pos = item.pagePos()
                     item.attemptMove(
                         QgsLayoutPoint(pos.x(), target_scaletext_y,
-                                       QgsUnitTypes.LayoutMillimeters)
+                                       QgsUnitTypes.LayoutUnit.LayoutMillimeters)
                     )
 
     # =========================================================================
@@ -1775,29 +1775,29 @@ class ClaimsMapGenerator:
             # other side reads cleanly on the margin.
             from qgis.core import QgsLayoutItemMapGrid
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.InsideMapFrame,
-                QgsLayoutItemMapGrid.Bottom,
+                QgsLayoutItemMapGrid.AnnotationPosition.InsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Bottom,
             )
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame,
-                QgsLayoutItemMapGrid.Right,
+                QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Right,
             )
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame,
-                QgsLayoutItemMapGrid.Top,
+                QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Top,
             )
             grid.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame,
-                QgsLayoutItemMapGrid.Left,
+                QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame,
+                QgsLayoutItemMapGrid.BorderSide.Left,
             )
 
             # Draw the tick frame on the three sides whose annotations are
             # outside (left/right/top). The bottom frame stays off so its
             # zebra/tick ticks don't run into the title block.
             grid.setFrameSideFlags(
-                QgsLayoutItemMapGrid.FrameLeft
-                | QgsLayoutItemMapGrid.FrameRight
-                | QgsLayoutItemMapGrid.FrameTop
+                QgsLayoutItemMapGrid.FrameSideFlag.FrameLeft
+                | QgsLayoutItemMapGrid.FrameSideFlag.FrameRight
+                | QgsLayoutItemMapGrid.FrameSideFlag.FrameTop
             )
 
             logger.info(
@@ -2094,10 +2094,10 @@ class ClaimsMapGenerator:
         label.setFont(font)
 
         label.attemptMove(
-            QgsLayoutPoint(x, y, QgsUnitTypes.LayoutMillimeters)
+            QgsLayoutPoint(x, y, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
         )
         label.attemptResize(
-            QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters)
+            QgsLayoutSize(width, height, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
         )
         label.setVAlign(Qt.AlignmentFlag.AlignTop)
         label.setHAlign(Qt.AlignmentFlag.AlignLeft)

@@ -1320,7 +1320,7 @@ class BasemapsWidget(QWidget):
                 continue
 
             # Create fill symbol
-            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PolygonGeometry)
+            symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PolygonGeometry)
             symbol.deleteSymbolLayer(0)
 
             fill_layer = QgsSimpleFillSymbolLayer()
@@ -1334,7 +1334,7 @@ class BasemapsWidget(QWidget):
 
         # Add default category for unknown agencies
         default_colors = FEDERAL_LANDS_COLORS['default']
-        default_symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PolygonGeometry)
+        default_symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PolygonGeometry)
         default_symbol.deleteSymbolLayer(0)
         default_fill = QgsSimpleFillSymbolLayer()
         default_fill.setColor(QColor(default_colors['fill']))
@@ -1353,7 +1353,7 @@ class BasemapsWidget(QWidget):
         """
         from qgis.core import QgsWkbTypes
 
-        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.PolygonGeometry)
+        symbol = QgsSymbol.defaultSymbol(QgsWkbTypes.GeometryType.PolygonGeometry)
         symbol.deleteSymbolLayer(0)
 
         fill_layer = QgsSimpleFillSymbolLayer()

@@ -694,7 +694,7 @@ class ClaimsWizardState:
                         out.setdefault(claim, []).append(rec)
             return out
 
-        discoveries = _index_points('Monuments', QgsWkbTypes.PointGeometry)
+        discoveries = _index_points('Monuments', QgsWkbTypes.GeometryType.PointGeometry)
         endlines = _index_points('Endline')
         sidelines = _index_points('Sideline')
 
@@ -720,7 +720,7 @@ class ClaimsWizardState:
         for feat in lode_layer.getFeatures():
             try:
                 geom = feat.geometry()
-                if not geom or geom.isEmpty() or geom.type() != QgsWkbTypes.PolygonGeometry:
+                if not geom or geom.isEmpty() or geom.type() != QgsWkbTypes.GeometryType.PolygonGeometry:
                     skipped += 1
                     continue
                 poly = geom.asPolygon()
@@ -809,7 +809,7 @@ class ClaimsWizardState:
             with suppress(Exception):
                 if ('Waypoints' in lyr.name()
                         and 'Reference' not in lyr.name()
-                        and lyr.geometryType() == QgsWkbTypes.PointGeometry):
+                        and lyr.geometryType() == QgsWkbTypes.GeometryType.PointGeometry):
                     wp_layer = lyr
                     break
 

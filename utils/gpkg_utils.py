@@ -129,7 +129,7 @@ def download_geopackage(
     blocking_request = QgsBlockingNetworkRequest()
     error_code = blocking_request.get(request, forceRefresh=True)
 
-    if error_code != QgsBlockingNetworkRequest.NoError:
+    if error_code != QgsBlockingNetworkRequest.ErrorCode.NoError:
         error_msg = blocking_request.errorMessage()
         logger.error("Download failed for pf_%s: %s", file_id, error_msg)
         return None

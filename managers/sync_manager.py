@@ -2531,14 +2531,14 @@ class SyncManager:
             )
             QgsMessageLog.logMessage(
                 f"No data found for {model_name} (read-only model)",
-                "GeodbIO", Qgis.Info
+                "GeodbIO", Qgis.MessageLevel.Info
             )
             return {'added': 0, 'updated': 0, 'deleted': 0}
 
         self.logger.info(f"Creating empty layer for {model_name} from schema (supports push)")
         QgsMessageLog.logMessage(
             f"No data found for {model_name} - creating empty layer for new features",
-            "GeodbIO", Qgis.Info
+            "GeodbIO", Qgis.MessageLevel.Info
         )
 
         # Get geometry type from schema
@@ -2608,7 +2608,7 @@ class SyncManager:
         self.logger.info(f"Created empty {model_name} layer ready for new features")
         QgsMessageLog.logMessage(
             f"✓ Created empty {model_name} layer - digitize new features and push to server",
-            "GeodbIO", Qgis.Success
+            "GeodbIO", Qgis.MessageLevel.Success
         )
 
         return {

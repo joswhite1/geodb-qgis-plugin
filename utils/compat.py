@@ -21,7 +21,7 @@ def _compat_log(msg):
     """Log compat module debug info to QGIS message log."""
     with suppress(Exception):
         from qgis.core import QgsMessageLog, Qgis
-        QgsMessageLog.logMessage(f"[compat] {msg}", 'GeodbIO', Qgis.Info)
+        QgsMessageLog.logMessage(f"[compat] {msg}", 'GeodbIO', Qgis.MessageLevel.Info)
 
 # ============================================================
 # QgsField type constants
@@ -109,7 +109,7 @@ try:
 
 except (ImportError, AttributeError) as _e_import:
     _compat_log(f"QMetaType not available ({type(_e_import).__name__}: {_e_import}) — Qt5 path")
-    from PyQt5.QtCore import QVariant
+    from qgis.PyQt.QtCore import QVariant
     # Qt5 / QGIS < 3.30
     FieldType_QString = QVariant.String
     FieldType_Int = QVariant.Int
@@ -387,3 +387,17 @@ QStandardPaths_DocumentsLocation = _qenum(
     QStandardPaths, 'DocumentsLocation', 'StandardLocation.DocumentsLocation')
 QStandardPaths_TempLocation = _qenum(
     QStandardPaths, 'TempLocation', 'StandardLocation.TempLocation')
+
+
+# --- Label placement "over point" ---
+# QGIS 3.26+ / 4 keep it in Qgis.LabelPlacement; before 3.26 it lived on
+# QgsPalLayerSettings.Placement. ⚠️ pyqt5_to_pyqt6 suggests
+# QgsPalLayerSettings.PredefinedPointPosition.OverPoint — that is a DIFFERENT
+# enum (the label's position around a point, not the placement mode) that
+# happens to share the member name. It raises AttributeError on QGIS 3.34 and
+# would set the wrong kind of value on QGIS 4. Never use it for `.placement`.
+from qgis.core import Qgis, QgsPalLayerSettings
+try:
+    LabelPlacement_OverPoint = Qgis.LabelPlacement.OverPoint
+except AttributeError:
+    LabelPlacement_OverPoint = QgsPalLayerSettings.Placement.OverPoint

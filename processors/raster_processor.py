@@ -446,7 +446,7 @@ class RasterProcessor:
             # as it doesn't process events during the download
 
             # Check for errors
-            if error_code != QgsBlockingNetworkRequest.NoError:
+            if error_code != QgsBlockingNetworkRequest.ErrorCode.NoError:
                 error_msg = blocking_request.errorMessage()
                 self.logger.error(f"Download failed: {error_msg}")
                 return None
@@ -747,7 +747,7 @@ class RasterProcessor:
             blocking_request = QgsBlockingNetworkRequest()
             error_code = blocking_request.get(request, forceRefresh=True)
 
-            if error_code != QgsBlockingNetworkRequest.NoError:
+            if error_code != QgsBlockingNetworkRequest.ErrorCode.NoError:
                 self.logger.warning(
                     f"Tile probe failed: {blocking_request.errorMessage()}"
                 )
@@ -836,7 +836,7 @@ class RasterProcessor:
             # Create color ramp shader
             shader = QgsRasterShader()
             color_ramp_shader = QgsColorRampShader()
-            color_ramp_shader.setColorRampType(QgsColorRampShader.Interpolated)
+            color_ramp_shader.setColorRampType(QgsColorRampShader.Type.Interpolated)
 
             # Create elevation color ramp (green -> yellow -> brown -> white)
             color_ramp_items = [
@@ -890,7 +890,7 @@ class RasterProcessor:
             stats = layer.dataProvider().bandStatistics(1)
             enhancement = QgsContrastEnhancement(layer.dataProvider().dataType(1))
             enhancement.setContrastEnhancementAlgorithm(
-                QgsContrastEnhancement.StretchToMinimumMaximum
+                QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum
             )
             enhancement.setMinimumValue(stats.minimumValue)
             enhancement.setMaximumValue(stats.maximumValue)

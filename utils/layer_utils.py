@@ -133,7 +133,7 @@ def is_lode_claims_polygon_layer(layer) -> bool:
     """
     try:
         return (layer.name().startswith('Lode Claims')
-                and layer.geometryType() == QgsWkbTypes.PolygonGeometry)
+                and layer.geometryType() == QgsWkbTypes.GeometryType.PolygonGeometry)
     except Exception:
         return False
 

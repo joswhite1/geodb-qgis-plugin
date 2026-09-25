@@ -170,7 +170,7 @@ class ClaimsStorageManager:
             options = QgsVectorFileWriter.SaveVectorOptions()
             options.driverName = 'GPKG'
             options.layerName = self.REFERENCE_POINTS_TABLE
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+            options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
 
             error = QgsVectorFileWriter.writeAsVectorFormatV3(
                 ref_layer,
@@ -179,7 +179,7 @@ class ClaimsStorageManager:
                 options
             )
 
-            if error[0] != QgsVectorFileWriter.NoError:
+            if error[0] != QgsVectorFileWriter.WriterError.NoError:
                 raise Exception(f"Failed to create GeoPackage: {error[1]}")
 
             # Now add metadata table using SQLite
@@ -620,7 +620,7 @@ class ClaimsStorageManager:
             options = QgsVectorFileWriter.SaveVectorOptions()
             options.driverName = 'GPKG'
             options.layerName = self.REFERENCE_POINTS_TABLE
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+            options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
 
             error = QgsVectorFileWriter.writeAsVectorFormatV3(
                 ref_layer,
@@ -629,7 +629,7 @@ class ClaimsStorageManager:
                 options
             )
 
-            if error[0] != QgsVectorFileWriter.NoError:
+            if error[0] != QgsVectorFileWriter.WriterError.NoError:
                 self.logger.error(
                     f"[CLAIMS STORAGE] Failed to create reference points table: {error[1]}"
                 )
@@ -734,9 +734,9 @@ class ClaimsStorageManager:
                     self.logger.error(f"[CLAIMS STORAGE] Failed to remove invalid file: {e}")
 
         if gpkg_valid:
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+            options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
         else:
-            options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+            options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
 
         error = QgsVectorFileWriter.writeAsVectorFormatV3(
             temp_layer,
@@ -745,7 +745,7 @@ class ClaimsStorageManager:
             options
         )
 
-        if error[0] != QgsVectorFileWriter.NoError:
+        if error[0] != QgsVectorFileWriter.WriterError.NoError:
             error_msg = error[1] if error[1] else "Unknown error"
             self.logger.error(f"[CLAIMS STORAGE] Failed to create layer: {error_msg}")
             raise Exception(f"Failed to create layer '{table_name}': {error_msg}")
