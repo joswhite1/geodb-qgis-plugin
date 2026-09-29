@@ -11,6 +11,7 @@ Allows users to:
 5. Push points as "Planned" samples to geodb.io server
 """
 from contextlib import suppress
+from html import escape as html_escape
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QSpinBox, QFrame, QProgressBar,
@@ -385,18 +386,18 @@ class FieldWorkDialog(QDialog):
             # Pair each sample name with its generated sequence number.
             names = self._sample_field_values(layer, name_field, limit=50)
             lines = [
-                f"<b>Sample names from '{name_field}' "
+                f"<b>Sample names from '{html_escape(name_field)}' "
                 f"(sequence number in brackets, {count} total):</b><br/>"
             ]
             for i, nm in enumerate(names):
                 num = str(start + i).zfill(padding)
-                shown = nm if nm else "(blank!)"
-                lines.append(f"  {shown}  [{prefix}{num}]")
+                shown = html_escape(str(nm)) if nm else "(blank!)"
+                lines.append(f"  {shown}  [{html_escape(prefix)}{num}]")
         else:
             lines = [f"<b>Sequence numbers to be assigned ({count} total):</b><br/>"]
             for i in range(min(count, 50)):  # Show max 50
                 num = str(start + i).zfill(padding)
-                lines.append(f"  {prefix}{num}")
+                lines.append(f"  {html_escape(prefix)}{num}")
 
         if count > 50:
             lines.append(f"  ... and {count - 50} more")

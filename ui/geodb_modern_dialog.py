@@ -7,6 +7,7 @@
 """
 
 from contextlib import suppress
+from html import escape as html_escape
 import os
 import sys
 from typing import Optional, List, Dict, Any
@@ -2129,7 +2130,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         color = colors.get(level, T.TEXT_STRONG)
 
         # Format message
-        html = f'<span style="color: {color};">{message}</span>'
+        # The browser renders rich text: escape the message (it carries server names).
+        html = f'<span style="color: {color};">{html_escape(str(message))}</span>'
 
         # Append to browser
         cursor = self.messagesTextBrowser.textCursor()
@@ -2756,16 +2758,16 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         html = f"""
         <table style="width:100%">
-            <tr><td><b>Name:</b></td><td>{name}</td></tr>
-            <tr><td><b>Category:</b></td><td>{category}</td></tr>
+            <tr><td><b>Name:</b></td><td>{html_escape(str(name))}</td></tr>
+            <tr><td><b>Category:</b></td><td>{html_escape(str(category))}</td></tr>
             <tr><td><b>Size:</b></td><td>{size_str}</td></tr>
             <tr><td><b>Delivery:</b></td><td>{delivery_method}</td></tr>
             <tr><td><b>XYZ Tiles:</b></td><td>{tile_info}</td></tr>
-            <tr><td><b>CRS:</b></td><td>{crs}</td></tr>
+            <tr><td><b>CRS:</b></td><td>{html_escape(str(crs))}</td></tr>
             <tr><td><b>Resolution:</b></td><td>{res_str}</td></tr>
-            <tr><td><b>Bounds:</b></td><td style="font-size:9pt">{bounds_str}</td></tr>
+            <tr><td><b>Bounds:</b></td><td style="font-size:9pt">{html_escape(str(bounds_str))}</td></tr>
         </table>
-        <p style="margin-top:8px; color:{T.TEXT_MUTED};"><i>{description}</i></p>
+        <p style="margin-top:8px; color:{T.TEXT_MUTED};"><i>{html_escape(str(description))}</i></p>
         """
 
         self.projectFileMetadata.setHtml(html)

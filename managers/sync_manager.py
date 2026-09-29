@@ -1131,15 +1131,16 @@ class SyncManager:
         action_manager.addAction(open_image_action)
         self.logger.info("Added 'View Photo' map action")
 
-        # 3. Configure HTML maptip to show thumbnail on hover
+        # 3. Configure HTML maptip to show thumbnail on hover (text fields are
+        #    HTML-escaped in the expression: the maptip renders them as markup)
         # This creates a tooltip that displays the thumbnail image
         maptip_html = '''
 <div style="max-width: 400px; text-align: center;">
     <img src="[% "thumbnail_url" %]" style="max-width: 100%; max-height: 300px; border-radius: 4px;">
-    <p style="margin: 8px 0 4px; font-weight: bold;">[% "original_filename" %]</p>
-    <p style="margin: 0; color: #666; font-size: 0.9em;">[% "category_display" %]</p>
+    <p style="margin: 8px 0 4px; font-weight: bold;">[% replace("original_filename", array('&','<','>'), array('&amp;','&lt;','&gt;')) %]</p>
+    <p style="margin: 0; color: #666; font-size: 0.9em;">[% replace("category_display", array('&','<','>'), array('&amp;','&lt;','&gt;')) %]</p>
     [% IF "description" IS NOT NULL AND "description" != '' %]
-    <p style="margin: 4px 0 0; font-style: italic;">[% "description" %]</p>
+    <p style="margin: 4px 0 0; font-style: italic;">[% replace("description", array('&','<','>'), array('&amp;','&lt;','&gt;')) %]</p>
     [% END %]
     <p style="margin: 4px 0 0; color: #888; font-size: 0.8em;">Click to view full image</p>
 </div>

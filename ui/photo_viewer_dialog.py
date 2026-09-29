@@ -6,6 +6,7 @@ Provides a Qt-based image viewer that can display photos from URLs
 with caching support and navigation between multiple photos.
 """
 
+from html import escape as html_escape
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
@@ -282,11 +283,12 @@ class PhotoViewerDialog(QDialog):
         filename = photo.get('original_filename', '')
         description = photo.get('description', '')
 
-        info_parts = [f"<b>{fieldnote_name}</b>"]
+        # Rich-text label: escape server text (a "<" in a name hid the rest of it).
+        info_parts = [f"<b>{html_escape(str(fieldnote_name))}</b>"]
         if filename:
-            info_parts.append(f"| {filename}")
+            info_parts.append(f"| {html_escape(str(filename))}")
         if description:
-            info_parts.append(f"<br><i>{description}</i>")
+            info_parts.append(f"<br><i>{html_escape(str(description))}</i>")
 
         self.info_bar.setText(" ".join(info_parts))
 
