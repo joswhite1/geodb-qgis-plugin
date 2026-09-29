@@ -65,18 +65,32 @@ class ClaimsStep6Widget(ClaimsStepBase):
         self.logger = PluginLogger.get_logger()
         self._setup_ui()
 
+    def _api_client(self):
+        return self.claims_manager.api if self.claims_manager else None
+
     def _get_corner_processor(self):
-        """Lazy-load corner alignment processor."""
+        """Lazy-load corner alignment processor.
+
+        Alignment and validation run ONLY on the server (no local fallback
+        since 2026-09-29), so both processors MUST carry the API client.
+        Until then they were built without one and this step always ran the
+        plugin's local copies. Refreshed each call since claims_manager.api
+        may be assigned after init (same as step 2).
+        """
         if self._corner_processor is None:
             from ...processors.corner_alignment import CornerAlignmentProcessor
-            self._corner_processor = CornerAlignmentProcessor()
+            self._corner_processor = CornerAlignmentProcessor(api_client=self._api_client())
+        else:
+            self._corner_processor.set_api_client(self._api_client())
         return self._corner_processor
 
     def _get_grid_processor(self):
-        """Lazy-load grid processor."""
+        """Lazy-load grid processor (see ``_get_corner_processor``)."""
         if self._grid_processor is None:
             from ...processors.grid_processor import GridProcessor
-            self._grid_processor = GridProcessor()
+            self._grid_processor = GridProcessor(api_client=self._api_client())
+        else:
+            self._grid_processor.set_api_client(self._api_client())
         return self._grid_processor
 
     def _get_lode_claims_layer(self) -> Optional[QgsVectorLayer]:
@@ -361,10 +375,9 @@ class ClaimsStep6Widget(ClaimsStepBase):
 
                 msg = f"Found {len(errors)} error(s) and {len(warnings)} warning(s):\n\n"
                 for issue in issues[:10]:
-                    name = issue.get('name', 'Unknown')
-                    desc = issue.get('issue', '')
+                    # `issue` is a whole sentence that names its claim(s).
                     severity = issue.get('severity', 'warning').upper()
-                    msg += f"[{severity}] {name}: {desc}\n"
+                    msg += f"[{severity}] {issue.get('issue', '')}\n"
 
                 if len(issues) > 10:
                     msg += f"\n... and {len(issues) - 10} more issues."

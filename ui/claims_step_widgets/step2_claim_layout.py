@@ -49,14 +49,22 @@ class ClaimsStep2Widget(ClaimsStepBase):
 
     def _get_grid_generator(self):
         """Lazy-load grid generator with GeoPackage support."""
+        # Grid geometry is generated ONLY on the server (no local fallback since
+        # 844617a), so the generator MUST carry the API client — without it it
+        # refuses as "offline" even when signed in. Refresh it each call since
+        # claims_manager.api may be assigned after init (same as the processor).
+        api_client = self.claims_manager.api if self.claims_manager else None
         if self._grid_generator is None:
             from ...processors.grid_generator import GridGenerator
             from ...managers.claims_storage_manager import ClaimsStorageManager
 
             storage_manager = ClaimsStorageManager()
             self._grid_generator = GridGenerator(
+                api_client=api_client,
                 claims_storage_manager=storage_manager
             )
+        else:
+            self._grid_generator.set_api_client(api_client)
 
         # Update GeoPackage path and group name from state
         if self.state.geopackage_path:

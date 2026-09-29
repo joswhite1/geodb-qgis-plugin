@@ -394,13 +394,22 @@ class ClaimsOrderWidget(QWidget):
 
         layout.addWidget(pricing_frame)
 
-        # Disclaimer checkbox
-        self.disclaimer_checkbox = QCheckBox(
-            "I understand that by submitting this order, I am requesting claim "
-            "processing services. Payment is required to complete the order. "
-            "Claims will be processed by geodb.io staff after payment."
+        # Disclaimer. QCheckBox cannot word-wrap (no setWordWrap in Qt 5 or 6),
+        # so the long text is a wrapped label and the checkbox a short caption.
+        # The old `setWordWrap` call raised AttributeError while this widget
+        # was being BUILT, which left pay-per-claim users an empty Claims tab
+        # from v2.1.1 until 2.35.4.
+        disclaimer_label = QLabel(
+            "By submitting this order, you are requesting claim processing "
+            "services. Payment is required to complete the order. Claims will "
+            "be processed by geodb.io staff after payment."
         )
-        self.disclaimer_checkbox.setWordWrap(True)
+        disclaimer_label.setWordWrap(True)
+        disclaimer_label.setStyleSheet(
+            f"font-size: 12px; color: {T.TEXT_PRIMARY}; padding: 8px 8px 0 8px;")
+        layout.addWidget(disclaimer_label)
+
+        self.disclaimer_checkbox = QCheckBox("I understand")
         self.disclaimer_checkbox.setStyleSheet(f"""
             QCheckBox {{
                 font-size: 12px;
@@ -568,9 +577,34 @@ class ClaimsOrderWidget(QWidget):
             self.logger.error(f"[CLAIMS ORDER] UTM auto-detect failed: {e}")
             QMessageBox.critical(self, "Error", f"Failed to detect UTM zone: {e}")
 
+    def _ensure_tos_accepted(self) -> bool:
+        """Ask for the claims Terms of Service if they are not yet accepted.
+
+        Every claims action on this screen that reaches the server (Generate
+        Grid, Number & Rename, Submit) needs an accepted ToS: the server
+        refuses the algorithm endpoints without one. Asking here, at the
+        first such click, beats a raw "TOS acceptance required" error.
+
+        Returns True when accepted (already, or just now), False when the
+        user declined.
+        """
+        tos_status = self.claims_manager.check_tos()
+        if tos_status.get('accepted'):
+            return True
+        from .claims_tos_dialog import ClaimsTOSDialog
+        tos_content = self.claims_manager.get_tos_content()
+        dialog = ClaimsTOSDialog(tos_content, self)
+        if dialog.exec() != QDialog_Accepted:
+            return False
+        self.claims_manager.accept_tos()
+        return True
+
     def _generate_grid(self):
         """Generate a claim grid at the map center."""
         try:
+            if not self._ensure_tos_accepted():
+                return
+
             from qgis.utils import iface
             if not iface or not iface.mapCanvas():
                 QMessageBox.warning(
@@ -626,10 +660,12 @@ class ClaimsOrderWidget(QWidget):
         base_name = self.name_prefix_edit.text().strip() or "GE"
 
         try:
+            if not self._ensure_tos_accepted():
+                return
+
             from ..processors.grid_processor import GridProcessor
-            # Pass the API client so numbering uses the server's book-reading
-            # (strip-banding) order. Without it the processor falls back to the
-            # local strict-sort, which scrambles rows on a rotated block.
+            # Numbering runs only on the server (its book-reading row
+            # banding); without the API client the processor refuses.
             api_client = self.claims_manager.api if self.claims_manager else None
             processor = GridProcessor(api_client=api_client)
 
@@ -702,18 +738,8 @@ class ClaimsOrderWidget(QWidget):
             return
 
         try:
-            # Check TOS acceptance first
-            tos_status = self.claims_manager.check_tos()
-            if not tos_status.get('accepted'):
-                # Show TOS dialog
-                from .claims_tos_dialog import ClaimsTOSDialog
-                tos_content = self.claims_manager.get_tos_content()
-                dialog = ClaimsTOSDialog(tos_content, self)
-                if dialog.exec() != QDialog_Accepted:
-                    return
-
-                # Accept TOS
-                self.claims_manager.accept_tos()
+            if not self._ensure_tos_accepted():
+                return
 
             # Collect claimant info
             claimant_info = {

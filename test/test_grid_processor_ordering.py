@@ -2,7 +2,7 @@
 """Ordering tests for GridProcessor (Track D2, 2026-07-11).
 
 Runs WITHOUT QGIS: qgis/Qt modules are stubbed before import so the
-ordering logic (server wire contract + simple local fallback) can be
+ordering logic (server wire contract, and the refusal without a server) can be
 verified with plain ``python3 test/test_grid_processor_ordering.py`` from
 the repo root. (Do not run via ``-m unittest test.<name>`` — the test
 package __init__ imports the real qgis for the QGIS-environment suites.)
@@ -11,11 +11,9 @@ Covers:
 * the server path's wire contract — sends ``direction`` (not
   ``sort_direction``), parses ``claims`` (not ``ordered_claims``), joins by
   index-as-name, sorts by the returned ``order`` field, and RAISES on
-  empty / mismatched / malformed responses so the caller falls back;
-* the local fallback — deliberately simple strict sort: book order on an
-  UNROTATED block (the fallback's supported case; rotated blocks are the
-  server rule's job);
-* the loud warn-and-proceed helper survives headless contexts.
+  empty / mismatched / malformed responses, which the caller shows;
+* there is NO local ordering any more (deleted 2026-09-29, qgis-thin-client):
+  without an api_client, numbering refuses rather than guessing.
 """
 
 import importlib.util
@@ -138,30 +136,35 @@ def _server_echo_response(claims_payload, order_by_index):
     return {'claims': out, 'statistics': {'claim_count': len(out)}}
 
 
-class LocalFallbackTests(unittest.TestCase):
-    """The deliberately simple offline ordering (divergence ruled 2026-07-11)."""
+class _FakeLayer:
+    """Just enough of a QgsVectorLayer for the refusal paths."""
 
-    def setUp(self):
-        self.gp = grid_processor.GridProcessor(api_client=None)
+    def isValid(self):
+        return True
 
-    def test_unrotated_block_book_order(self):
-        claims = _grid_claims(2, 3)
-        ordered = self.gp._order_claims_local(claims, 'left_to_right_top_to_bottom')
-        names = [c['name'] for c in ordered]
-        self.assertEqual(
-            names, ['r0c0', 'r0c1', 'r0c2', 'r1c0', 'r1c1', 'r1c2'])
-        self.assertEqual([c['order'] for c in ordered], [1, 2, 3, 4, 5, 6])
+    def getFeatures(self):
+        raise AssertionError('the refusal must come before reading the layer')
 
-    def test_column_first_direction(self):
-        claims = _grid_claims(2, 2)
-        ordered = self.gp._order_claims_local(claims, 'top_to_bottom_left_to_right')
-        names = [c['name'] for c in ordered]
-        self.assertEqual(names, ['r0c0', 'r1c0', 'r0c1', 'r1c1'])
 
-    def test_banding_port_removed(self):
-        """The v2.22.1 banding port must stay removed (server-side only)."""
-        self.assertFalse(hasattr(self.gp, '_band_by_rows'))
-        self.assertFalse(hasattr(self.gp, '_band_into_rows'))
+class NoServerRefusesTests(unittest.TestCase):
+    """No local ordering exists; without a client, numbering refuses."""
+
+    def test_numbering_without_a_client_refuses_before_reading_the_layer(self):
+        gp = grid_processor.GridProcessor(api_client=None)
+        with self.assertRaises(RuntimeError) as ctx:
+            gp.autopopulate_manual_fid(_FakeLayer())
+        self.assertIn('Sign in on the Account tab', str(ctx.exception))
+
+    def test_validation_without_a_client_refuses_before_reading_the_layer(self):
+        gp = grid_processor.GridProcessor(api_client=None)
+        with self.assertRaises(RuntimeError):
+            gp.validate_grid_geometry(_FakeLayer())
+
+    def test_no_local_ordering_survives(self):
+        gp = grid_processor.GridProcessor(api_client=None)
+        for name in ('_order_claims_local', '_snake_sort', '_band_by_rows',
+                     '_band_into_rows', '_warn_simple_ordering_applied'):
+            self.assertFalse(hasattr(gp, name), name)
 
 
 class ServerPathTests(unittest.TestCase):
@@ -223,13 +226,6 @@ class ServerPathTests(unittest.TestCase):
     def test_error_response_raises(self):
         with self.assertRaises(ValueError):
             self._run({'error': 'boom'})
-
-
-class LoudFallbackTests(unittest.TestCase):
-    def test_warn_helper_survives_headless(self):
-        gp = grid_processor.GridProcessor(api_client=None)
-        # Must not raise even with stubbed/absent QGIS UI
-        gp._warn_simple_ordering_applied('working offline')
 
 
 if __name__ == '__main__':

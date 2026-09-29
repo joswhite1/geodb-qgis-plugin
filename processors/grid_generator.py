@@ -26,6 +26,7 @@ from qgis.core import (
     QgsPointXY, QgsCoordinateReferenceSystem, QgsField, QgsFields
 )
 from .geometry_processor import closed_ring_from_corners
+from .server_required import require_server
 from ..utils.logger import PluginLogger
 from ..utils.compat import FieldType_QString, FieldType_Int, FieldType_Double
 
@@ -45,7 +46,8 @@ class GridGenerator:
     drift from the server's published geometry contract. This class:
     1. Calls the server API with grid parameters
     2. Converts the response to a QGIS layer (GeoPackage or memory)
-    3. Offline (or without an api_client), REFUSES with a readable message
+    3. Without an api_client, REFUSES with a readable message
+       (``server_required.require_server``)
 
     The server handles:
     - Standard lode claim dimensions (600 ft wide x 1500 ft long)
@@ -70,7 +72,6 @@ class GridGenerator:
         self.api_client = api_client
         self.claims_storage_manager = claims_storage_manager
         self.logger = PluginLogger.get_logger()
-        self._offline_mode = api_client is None
         self._geopackage_path: Optional[str] = None
 
     def set_geopackage_path(self, gpkg_path: Optional[str]):
@@ -92,7 +93,6 @@ class GridGenerator:
     def set_api_client(self, api_client):
         """Set the API client for server-side generation."""
         self.api_client = api_client
-        self._offline_mode = api_client is None
 
     def generate_lode_grid(
         self,
@@ -133,8 +133,7 @@ class GridGenerator:
 
         # The server is the ONE geometry. There is no local fallback: a
         # server error must SURFACE, not quietly become client-drawn claims.
-        if not (self.api_client and not self._offline_mode):
-            self._refuse_offline("Generating a lode claim grid")
+        require_server(self.api_client, "Generating a lode claim grid")
         return self._generate_lode_grid_server(
             start_point, rows, cols, name_prefix, azimuth, epsg, project_crs
         )
@@ -209,8 +208,7 @@ class GridGenerator:
         epsg = self._get_epsg_code(project_crs)
 
         # Same rule as the lode path: the server is the ONE geometry.
-        if not (self.api_client and not self._offline_mode):
-            self._refuse_offline("Generating a placer claim grid")
+        require_server(self.api_client, "Generating a placer claim grid")
         return self._generate_placer_grid_server(
             start_point, rows, cols, claim_size_acres, name_prefix, epsg, project_crs
         )
@@ -370,22 +368,12 @@ class GridGenerator:
     #    indication anything had changed. That is silent divergence from the
     #    geometry of record.
     #
-    # Offline now REFUSES, loudly (see ``_refuse_offline``). Both callers
+    # Offline now REFUSES, loudly (``server_required.require_server``, shared
+    # with ordering / validation / corner alignment since 2026-09-29). Both callers
     # already wrap generation in try/except and show the message in a dialog.
     # ⛔ Do not restore a local generator "just for offline". If offline grid
     # drawing is ever wanted, it must consume the SAME published contract, not
     # a second set of constants.
-
-    def _refuse_offline(self, what: str) -> None:
-        """Raise the honest refusal. Claim geometry is the server's ONE
-        contract; the plugin never draws its own."""
-        raise RuntimeError(
-            f"{what} needs a connection to geodb.io. Claim geometry is "
-            f"generated on the server so that every claim — here, on the web "
-            f"map, and in the filed documents — comes from one set of "
-            f"dimensions. Reconnect and try again."
-        )
-
 
     def add_layer_to_project(
         self,

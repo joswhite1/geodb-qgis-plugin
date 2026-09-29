@@ -24,10 +24,12 @@ would read nine wizard defaults as nine deliberate choices and could not
 cluster shared corners — the 3x3 Idaho block would need nine LM survey points
 instead of four.
 
-**3. The offline grid fallback is GONE and offline REFUSES.** The deleted code
-was a second copy of the 600x1500 ft claim rectangle (with its own truncated
+**3. The offline fallbacks are GONE and offline REFUSES.** The grid one was a
+second copy of the 600x1500 ft claim rectangle (with its own truncated
 ``4046.86``), and it fired on ANY server exception — not only offline — so a
-transient 500 silently produced client-drawn claims.
+transient 500 silently produced client-drawn claims. Ordering, corner
+alignment and validation followed in 2.35.4; every UI construction of a
+claims processor must pass the API client.
 
 **4. ``looks_like_missing_endpoint`` is narrow.** The block routes are
 additive, so a 404 must degrade to the legacy flow — but a 403, 409 or 500 is
@@ -341,38 +343,125 @@ class OfflineFallbackRemovedTests(unittest.TestCase):
         self.assertNotIn('4046.86', self._code_only())
 
     def test_offline_refuses_rather_than_drawing_its_own_claims(self):
-        self.assertIn('def _refuse_offline', self.src)
-        self.assertIn('self._refuse_offline("Generating a lode claim grid")', self.src)
-        self.assertIn('self._refuse_offline("Generating a placer claim grid")', self.src)
-
-    def test_a_server_error_is_no_longer_swallowed_into_local_geometry(self):
-        """⭐ The reason the fallback had to go. The dispatch used to catch
-        ANY exception from the server call — a 500, a timeout, an auth
-        failure — log a warning and draw local geometry, so a user with a
-        working connection got client-drawn claims and nothing told them."""
-        self.assertNotIn('falling back to local', self._code_only())
+        self.assertIn('require_server(self.api_client, "Generating a lode claim grid")',
+                      self.src)
+        self.assertIn('require_server(self.api_client, "Generating a placer claim grid")',
+                      self.src)
 
     def test_the_refusal_message_says_why(self):
         """A refusal must name the remedy, not just say no
         (reference_refusal_must_name_the_remedy).
 
-        The message is an f-string split over four source lines, so the raw
+        The message is an f-string split over several source lines, so the raw
         text carries a `" f"` seam at every join. Parse it properly — read the
         function's own string constants out of the AST — and assert against
         the sentence the user will actually see.
         """
         import ast
-        tree = ast.parse(self.src)
+        with open(os.path.join(_REPO, 'processors/server_required.py'),
+                  encoding='utf-8') as fh:
+            tree = ast.parse(fh.read())
         fn = next((n for n in ast.walk(tree)
-                   if isinstance(n, ast.FunctionDef) and n.name == '_refuse_offline'),
+                   if isinstance(n, ast.FunctionDef) and n.name == 'require_server'),
                   None)
-        self.assertIsNotNone(fn, '_refuse_offline is gone')
-        parts = [n.value for n in ast.walk(fn)
+        self.assertIsNotNone(fn, 'require_server is gone')
+        parts = [n.value for n in ast.walk(fn.body[-1])
                  if isinstance(n, ast.Constant) and isinstance(n.value, str)]
         flat = ' '.join(' '.join(parts).split())
-        self.assertIn('needs a connection to geodb.io', flat)
-        self.assertIn('one set of', flat)
-        self.assertIn('Reconnect and try again', flat)
+        self.assertIn('runs on the geodb.io server', flat)
+        self.assertIn('needs a signed-in connection', flat)
+        self.assertIn('Sign in on the Account tab and try again', flat)
+
+
+def _code_only(relpath):
+    """A file's EXECUTABLE source: comments and string literals removed via
+    the tokenizer (see OfflineFallbackRemovedTests._code_only for why)."""
+    import io
+    import tokenize
+    with open(os.path.join(_REPO, relpath), encoding='utf-8') as fh:
+        src = fh.read()
+    return ' '.join(tok.string for tok in tokenize.generate_tokens(io.StringIO(src).readline)
+                    if tok.type not in (tokenize.COMMENT, tokenize.STRING))
+
+
+class LocalClaimsAlgorithmsRemovedTests(unittest.TestCase):
+    """2026-09-29 (qgis-thin-client): ordering, corner alignment and grid
+    validation followed grid generation off the plugin. The plugin is public;
+    the algorithms are the server's, and every one of these fallbacks fired
+    on ANY server error, not only offline."""
+
+    DELETED = {
+        'processors/grid_processor.py': (
+            '_order_claims_local', '_snake_sort', '_estimate_row_spacing',
+            '_group_by_coordinate', '_validate_grid_local', '_check_rectangular',
+            '_warn_simple_ordering_applied', '_cluster_values', '_count_clusters',
+            '_estimate_orientation', 'calculate_grid_statistics',
+            'detect_grid_pattern', '_validate_grid_server',
+        ),
+        'processors/corner_alignment.py': (
+            '_find_misaligned_local', '_align_corners_local', '_find_corner_clusters',
+            '_move_corner', '_find_shared_edges_local', '_edges_match',
+            'identify_misaligned_corners', 'find_shared_edges',
+            'get_corner_statistics', '_create_corner_analysis_layer',
+        ),
+    }
+
+    def test_the_local_copies_are_deleted(self):
+        for rel, names in self.DELETED.items():
+            code = _code_only(rel)
+            for name in names:
+                with self.subTest(file=rel, name=name):
+                    self.assertNotIn(f'def {name}', code)
+                    self.assertNotIn(f'.{name}(', code)
+
+    def test_no_processor_falls_back_or_tracks_an_offline_mode(self):
+        for rel in ('processors/grid_generator.py', 'processors/grid_processor.py',
+                    'processors/corner_alignment.py'):
+            code = _code_only(rel)
+            with self.subTest(file=rel):
+                self.assertNotIn('_offline_mode', code)
+                self.assertIn('require_server (', code)
+
+    def test_the_fallback_warning_prose_is_gone_everywhere(self):
+        for rel in ('processors/grid_processor.py', 'processors/corner_alignment.py'):
+            with open(os.path.join(_REPO, rel), encoding='utf-8') as fh:
+                self.assertNotIn('falling back to local', fh.read(), rel)
+
+
+class ProcessorCallersPassApiClientTests(unittest.TestCase):
+    """With the fallbacks gone, a processor built WITHOUT an api_client
+    refuses even when the user is signed in. The wizard's Layout step (grid)
+    and Finalize step (alignment, validation) did exactly that until 2.35.4:
+    Layout had only ever worked via the deleted grid fallback, and Finalize
+    had only ever run the local copies. Every construction site in the UI
+    must hand the client over."""
+
+    CLASSES = ('GridGenerator', 'GridProcessor', 'CornerAlignmentProcessor')
+
+    def _ui_files(self):
+        for root, _dirs, files in os.walk(os.path.join(_REPO, 'ui')):
+            for f in files:
+                if f.endswith('.py'):
+                    yield os.path.join(root, f)
+
+    def test_every_ui_construction_passes_the_api_client(self):
+        import ast
+        found = {c: 0 for c in self.CLASSES}
+        for path in self._ui_files():
+            with open(path, encoding='utf-8') as fh:
+                tree = ast.parse(fh.read())
+            for n in ast.walk(tree):
+                if not (isinstance(n, ast.Call)
+                        and getattr(n.func, 'id', None) in self.CLASSES):
+                    continue
+                found[n.func.id] += 1
+                kw = {k.arg for k in n.keywords}
+                rel = os.path.relpath(path, _REPO)
+                self.assertTrue(n.args or 'api_client' in kw,
+                                f'{rel}:{n.lineno} builds {n.func.id} without '
+                                'api_client, so it will refuse as offline')
+        for cls, count in found.items():
+            self.assertGreater(count, 0, f'no {cls}(...) construction found in ui/')
 
 
 # ---------------------------------------------------------------------------
