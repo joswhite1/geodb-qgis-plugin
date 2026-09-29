@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.22
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.35.3
+version=2.35.4
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,24 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.35.4 - Claims wizard fixes; all claim checks now run on geodb.io
+        - Fixed: "Generate Grid at Map Center" in the claims wizard failed
+          with "needs a connection to geodb.io" even when signed in.
+        - Fixed: the Claims tab was empty for pay-per-claim accounts (the
+          order screen failed to open).
+        - Validate Grid now runs the same quality check that document
+          generation uses: overlaps and gaps between claims, corners that
+          should be shared but are not, self-crossing outlines, lode size
+          limits, and duplicate or skipped claim numbers. A block that
+          validates here will not be stopped later at the documents step.
+        - Align Corners, Number & Rename and Validate Grid now always use
+          geodb.io, so the result is the same here, on the web map and in
+          your documents. Without a connection they say so instead of
+          quietly using a simpler offline method.
+        - The pay-per-claim screen asks for the claims Terms of Service
+          before Generate Grid and Number & Rename, not only at checkout.
+        - Names, filenames and descriptions containing "<" or "&" now
+          display correctly instead of hiding the rest of the text.
     2.35.3 - Ready for QGIS 4 (Qt6)
         - Fixes errors QGIS 4 users would hit when certain features run:
           network error handling, plotted-claim and township outline
