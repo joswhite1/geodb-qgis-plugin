@@ -1,5 +1,16 @@
 # Plan: Claims Order Widget for Pay-Per-Claim Users
 
+> **2026-09-29 update (plugin 2.35.4) — built; two corrections to this plan.**
+> 1. From v2.1.1 until 2.35.4 the widget never opened: `_create_submit_group` called
+>    `QCheckBox.setWordWrap` (no such method in Qt 5 or 6) while the widget was being BUILT, so every
+>    pay-per-claim user saw an empty Claims tab. The disclaimer is now a wrapped label plus a short
+>    "I understand" checkbox.
+> 2. **§3 TOS handling below is superseded.** The server requires an accepted claims ToS on every
+>    claims-algorithm endpoint (generate-grid, order-claims, …), and a user lays out claims BEFORE
+>    submitting. So `_ensure_tos_accepted()` shows the full `ClaimsTOSDialog` at the FIRST server action
+>    (Generate Grid, Number & Rename, Submit), not only at submit. Grid and numbering run only on the
+>    server (no local fallback); see this repo's `CLAUDE.md`.
+
 ## Overview
 
 Create a separate, simplified "Order Claims" workflow for pay-per-claim users that:
