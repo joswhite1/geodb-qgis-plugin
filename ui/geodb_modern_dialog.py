@@ -427,10 +427,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 user_name = session.user.full_name or session.user.email
                 self._log_message(f"Session restored. Welcome back, {user_name}!", "success")
 
-                # Show active project if set
-                if session.has_active_project():
-                    project = session.user_context.active_project
-                    self._log_message(f"Active project: {project.name}", "info")
+                # Show this plugin's project (kept across restore, not the server's)
+                if self.project_manager.active_project:
+                    self._log_message(
+                        f"Active project: {self.project_manager.active_project.name}", "info")
 
                 # Update context header
                 self._update_context_header()
@@ -489,6 +489,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             if session.user_context:
                 self.project_manager.load_from_user_context(session.user_context)
             self._update_auth_status(True)
+            # Keep the dropdowns and header on the project the manager kept.
+            self._load_projects_from_context()
+            self._update_context_header()
             self._log_message("Session renewed — please try again.", "info")
             QMessageBox.information(
                 self, "Session Renewed",
@@ -721,6 +724,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._log_message("Logging out...", "info")
             self.auth_manager.logout()
             self.current_session = None
+            self.project_manager.clear_selection()
             # Drop the cached author so the next user's name isn't stale.
             self._apply_author_to_wizard()
 
@@ -782,6 +786,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Update all managers with new API client
             self.auth_manager.api_client = self.api_client
             self.project_manager.api_client = self.api_client
+            # Project ids belong to a server; never carry one to another.
+            self.project_manager.clear_selection()
             self.data_manager.api_client = self.api_client
             self.claims_manager.api = self.api_client
             self.claims_manager.clear_cache()
@@ -3137,7 +3143,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         # Use try/except to guard against deleted C++ objects
         try:
             if self.claims_wizard and not sip.isdeleted(self.claims_wizard):
-                self.claims_wizard.set_project(project_id, company_id)
+                self.claims_wizard.set_project(
+                    project_id, company_id,
+                    project_name=self.project_manager.active_project.name,
+                    company_name=self.project_manager.active_company.name)
         except (RuntimeError, ReferenceError):
             pass
 
@@ -3289,38 +3298,26 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.logger.info(
             f"[CLAIMS] Project context switched: company_id={company_id}, project_id={project_id}"
         )
-
-        # Find and select the company in dropdown
-        company_found = False
-        if hasattr(self, 'companyCombo'):
-            for i in range(self.companyCombo.count()):
-                data = self.companyCombo.itemData(i)
-                if data and data.get('id') == company_id:
-                    self.companyCombo.setCurrentIndex(i)
-                    company_found = True
-                    break
-
-        if not company_found:
-            self.logger.warning(f"[CLAIMS] Company {company_id} not found in dropdown")
+        # Until 2026-09-30 this looked for `companyCombo` / `projectCombo` (the
+        # widgets are `companyComboBox` / `projectComboBox`) and read items as
+        # dicts, so it never switched anything. It goes through the project
+        # manager now: select (server + pin + permissions), then redraw the
+        # dropdowns from the manager's selection.
+        project = self.project_manager.find_project(project_id)
+        if project is None:
+            self._log_message(
+                f"Could not switch to project {project_id}: it is not in your project list. "
+                f"Press Refresh and try again.", "error")
             return
-
-        # The company change will trigger project list refresh
-        # We need to defer project selection until projects are loaded
-        def select_project():
-            if hasattr(self, 'projectCombo'):
-                for i in range(self.projectCombo.count()):
-                    data = self.projectCombo.itemData(i)
-                    if data and data.get('id') == project_id:
-                        self.projectCombo.setCurrentIndex(i)
-                        self.logger.info(f"[CLAIMS] Selected project {project_id}")
-                        return
-                self.logger.warning(f"[CLAIMS] Project {project_id} not found in dropdown")
-
-        # Use QTimer to defer project selection until after company change is processed
-        from qgis.PyQt.QtCore import QTimer
-        QTimer.singleShot(100, select_project)
-
-        self._log_message("Switched to project context for order fulfillment", "info")
+        try:
+            self.project_manager.select_project(project)
+        except Exception as e:
+            self._log_message(f"Could not switch to project {project.name}: {e}", "error")
+            return
+        self._load_projects_from_context()
+        self._update_context_header()
+        self._update_claims_wizard_context()
+        self._log_message(f"Switched to project {project.name} ({project.company_name})", "info")
 
     def cleanup(self):
         """Clean up resources before plugin unload to prevent crashes.

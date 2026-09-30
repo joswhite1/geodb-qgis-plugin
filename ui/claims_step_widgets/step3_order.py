@@ -309,12 +309,7 @@ class ClaimsStep3OrderWidget(ClaimsStepBase):
             )
             return
 
-        if not self.state.project_id:
-            QMessageBox.warning(
-                self,
-                "No Project",
-                "No project selected. Please ensure a project is selected."
-            )
+        if not self.require_project_for_server():
             return
 
         if not self.state.company_id:

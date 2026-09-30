@@ -30,10 +30,23 @@ class ClaimsWizardState:
     Each step reads from and writes to this state object.
     """
 
-    # Project context
+    # Project context — the plugin's CURRENT project (the main dialog's)
     project_id: Optional[int] = None
     company_id: Optional[int] = None
+    project_name: str = ""
+    company_name: str = ""
     geopackage_path: Optional[str] = None
+
+    # The project this GeoPackage BELONGS to, stored in its claims_metadata
+    # (2026-09-30). Bound once and never rewritten: when the first save of a
+    # fresh GeoPackage (no claim package on the server yet) happens, or when
+    # it is downloaded from the server's list for a project. A pre-existing
+    # GeoPackage that already has a claim package stays unbound rather than
+    # risk binding it to whatever project the plugin happens to be on.
+    # project_mismatch() compares the two before the wizard writes.
+    bound_project_id: Optional[int] = None
+    bound_project_name: str = ""
+    bound_company_name: str = ""
 
     # Step 1: Project Setup
     claimant_name: str = ""
@@ -290,6 +303,38 @@ class ClaimsWizardState:
 
         return errors
 
+    def bind_to_current_project(self, force: bool = False) -> None:
+        """Bind this GeoPackage to the plugin's current project, if unbound.
+
+        ``force`` rebinds: only for a GeoPackage the server just listed under
+        the current project, where the server is the authority on where the
+        file lives (a staff move re-homes it)."""
+        if (force or self.bound_project_id is None) and self.project_id:
+            self.bound_project_id = self.project_id
+            self.bound_project_name = self.project_name
+            self.bound_company_name = self.company_name
+
+    def project_mismatch(self) -> Optional[str]:
+        """A sentence naming both projects when this GeoPackage belongs to a
+        different project from the plugin's current one; None when they
+        agree (or the GeoPackage is unbound)."""
+        if self.bound_project_id is None or not self.project_id:
+            return None
+        if self.bound_project_id == self.project_id:
+            return None
+
+        def label(name, company, pid):
+            name = name or f"project {pid}"
+            return f"{name} ({company})" if company else name
+
+        return (
+            f"This claims GeoPackage belongs to "
+            f"{label(self.bound_project_name, self.bound_company_name, self.bound_project_id)}, "
+            f"but the plugin is set to "
+            f"{label(self.project_name, self.company_name, self.project_id)}. "
+            f"Nothing was sent to the server."
+        )
+
     def save_to_geopackage(self) -> bool:
         """
         Save state to GeoPackage metadata tables.
@@ -299,6 +344,10 @@ class ClaimsWizardState:
         """
         if not self.geopackage_path:
             return False
+
+        # First save of a fresh GeoPackage binds it (see bound_project_id).
+        if self.claim_package_id is None:
+            self.bind_to_current_project()
 
         try:
             conn = sqlite3.connect(self.geopackage_path)
@@ -334,6 +383,9 @@ class ClaimsWizardState:
                 'claim_package_id': str(self.claim_package_id) if self.claim_package_id else '',
                 'claims_pushed': '1' if self.claims_pushed else '',
                 'tos_accepted': '1' if self.tos_accepted else '',
+                'bound_project_id': str(self.bound_project_id) if self.bound_project_id else '',
+                'bound_project_name': self.bound_project_name or '',
+                'bound_company_name': self.bound_company_name or '',
             }
 
             for key, value in metadata.items():
@@ -486,6 +538,11 @@ class ClaimsWizardState:
         if not Path(path).exists():
             return False
 
+        # A different GeoPackage never inherits the previous one's binding.
+        self.bound_project_id = None
+        self.bound_project_name = ""
+        self.bound_company_name = ""
+
         try:
             conn = sqlite3.connect(path)
             cursor = conn.cursor()
@@ -508,6 +565,10 @@ class ClaimsWizardState:
 
             # Apply to state
             self.geopackage_path = path
+            bound_str = metadata.get('bound_project_id', '')
+            self.bound_project_id = int(bound_str) if bound_str else None
+            self.bound_project_name = metadata.get('bound_project_name', '')
+            self.bound_company_name = metadata.get('bound_company_name', '')
             self.claimant_name = metadata.get('claimant_name', '')
             # Support both new keys (address_line1/2/3) and old ClaimsStorageManager keys
             # (claimant_address, claimant_city, claimant_state) for backward compatibility
@@ -845,6 +906,9 @@ class ClaimsWizardState:
     def reset(self):
         """Reset state to defaults (for starting a new claims project)."""
         self.geopackage_path = None
+        self.bound_project_id = None
+        self.bound_project_name = ""
+        self.bound_company_name = ""
         self.claimant_name = ""
         self.address_line1 = ""
         self.address_line2 = ""

@@ -1296,8 +1296,7 @@ class ClaimsStep7Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Claims", "Process claims first before pushing to server.")
             return
 
-        if not self.state.project_id:
-            QMessageBox.warning(self, "No Project", "Please select a project first.")
+        if not self.require_project_for_server():
             return
 
         if self.state.fulfillment_order_id and self.state.block_is_processed:

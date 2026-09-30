@@ -1171,6 +1171,11 @@ class ClaimsStep1Widget(ClaimsStepBase):
                     f"from server response"
                 )
 
+            # The server listed this file under the current project, so that
+            # is the project it belongs to.
+            self.state.bind_to_current_project(force=True)
+            self.state.save_to_geopackage()
+
             self.emit_status(
                 f"Loaded GeoPackage from server: {server_file.get('name', '')}",
                 "success"

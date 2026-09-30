@@ -293,10 +293,26 @@ class GridProcessor:
 
         issues = []
         claims = []
-        name_idx = layer.fields().indexOf('name')
+        # lookupField is case-insensitive: the Lode Claims layer writes
+        # 'Name' / 'State' / 'County', user layers often lowercase them.
+        # Without state + county the server's jurisdiction checks cannot
+        # compare the declared values to the geometry (it warned "carries no
+        # declared state" on every claim of a layer whose State column was
+        # filled in, and named each claim "Feature N").
+        fields = layer.fields()
+        name_idx = fields.lookupField('name')
+        state_idx = fields.lookupField('state')
+        county_idx = fields.lookupField('county')
+
+        def _text(feature, idx):
+            if idx < 0:
+                return ''
+            value = feature.attribute(idx)
+            # A NULL attribute is a falsy QVariant (QGIS 3) or None (QGIS 4).
+            return str(value).strip() if value else ''
+
         for feature in layer.getFeatures():
-            name = feature.attribute(name_idx) if name_idx >= 0 else None
-            name = name or f"Feature {feature.id()}"
+            name = _text(feature, name_idx) or f"Feature {feature.id()}"
             geom = feature.geometry()
             if geom is None or geom.isNull() or geom.isEmpty():
                 issues.append({'name': name, 'issue': f"{name} has no geometry.",
@@ -311,11 +327,18 @@ class GridProcessor:
                                         f"cannot be checked.",
                                'severity': 'error', 'code': 'NOT_A_POLYGON'})
                 continue
-            claims.append({
+            claim = {
                 'name': name,
                 'corners': [{'easting': p.x(), 'northing': p.y()}
                             for p in polygon[0][:-1]],
-            })
+            }
+            state = _text(feature, state_idx)
+            county = _text(feature, county_idx)
+            if state:
+                claim['state'] = state
+            if county:
+                claim['county'] = county
+            claims.append(claim)
 
         if claims:
             epsg = input_epsg or layer.crs().postgisSrid() or None
@@ -679,7 +702,7 @@ class GridProcessor:
     ) -> List[Dict[str, Any]]:
         """Extract claim data from layer."""
         claims = []
-        name_idx = layer.fields().indexOf('name')
+        name_idx = layer.fields().lookupField('name')  # case-insensitive
 
         # Log feature count for debugging
         feature_count = layer.featureCount()

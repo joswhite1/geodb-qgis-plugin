@@ -42,6 +42,18 @@ changelog=
           before Generate Grid and Number & Rename, not only at checkout.
         - Names, filenames and descriptions containing "<" or "&" now
           display correctly instead of hiding the rest of the text.
+        - The plugin now keeps its own project. Switching project in the
+          web app (or signing in again, or a renewed session) no longer
+          moves the plugin to another project; the plugin makes geodb.io
+          follow it before it sends anything, the way the mobile app does.
+        - A claims GeoPackage remembers which project it belongs to. If the
+          plugin is set to a different project, the claims wizard stops
+          before sending anything and offers to switch back.
+        - Fixed: pulling an order in the claims wizard now switches the
+          plugin to that order's project (it silently did not).
+        - Fixed: Validate Grid reported "no declared state" on every claim
+          even when the State column was filled in, and named claims
+          "Feature N"; it now sends each claim's name, state and county.
     2.35.3 - Ready for QGIS 4 (Qt6)
         - Fixes errors QGIS 4 users would hit when certain features run:
           network error handling, plotted-claim and township outline

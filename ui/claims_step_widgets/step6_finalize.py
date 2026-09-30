@@ -447,8 +447,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Layer", "Please select a claims layer first.")
             return
 
-        if not self.state.project_id:
-            QMessageBox.warning(self, "No Project", "Please select a project first.")
+        if not self.require_project_for_server():
             return
 
         # Get features sorted by Manual_FID (logical claim order) rather than
@@ -1391,8 +1390,7 @@ class ClaimsStep6Widget(ClaimsStepBase):
             QMessageBox.warning(self, "No Claims", "Process claims first before generating documents.")
             return
 
-        if not self.state.project_id:
-            QMessageBox.warning(self, "No Project", "Please select a project first.")
+        if not self.require_project_for_server():
             return
 
         self.docs_progress_bar.show()

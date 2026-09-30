@@ -228,5 +228,111 @@ class ServerPathTests(unittest.TestCase):
             self._run({'error': 'boom'})
 
 
+class _PolygonType:
+    """One shared sentinel so the processor's polygon-type check passes."""
+
+
+class _QcFields:
+    """QgsFields stand-in: lookupField is case-insensitive, like QGIS."""
+
+    def __init__(self, names):
+        self._names = names
+
+    def lookupField(self, name):
+        lowered = [n.lower() for n in self._names]
+        return lowered.index(name.lower()) if name.lower() in lowered else -1
+
+
+class _QcGeom:
+    def __init__(self, ring):
+        self._ring = ring
+
+    def isNull(self):
+        return False
+
+    def isEmpty(self):
+        return False
+
+    def type(self):
+        return _PolygonType
+
+    def asPolygon(self):
+        return [self._ring + [self._ring[0]]]
+
+
+class _QcFeature:
+    def __init__(self, fid, attrs, ring):
+        self._fid, self._attrs, self._ring = fid, attrs, ring
+
+    def id(self):
+        return self._fid
+
+    def attribute(self, idx):
+        return self._attrs[idx]
+
+    def geometry(self):
+        return _QcGeom(self._ring)
+
+
+class _QcLayer:
+    """A Lode Claims layer: capitalized Name / State / County columns."""
+
+    def __init__(self, rows):
+        self._fields = _QcFields(['Name', 'State', 'County'])
+        ring = [_Point(0, 0), _Point(183, 0), _Point(183, 457), _Point(0, 457)]
+        self._features = [_QcFeature(i + 1, row, ring) for i, row in enumerate(rows)]
+
+    def isValid(self):
+        return True
+
+    def fields(self):
+        return self._fields
+
+    def crs(self):
+        class _Crs:
+            def postgisSrid(self):
+                return 26913
+        return _Crs()
+
+    def getFeatures(self):
+        return iter(self._features)
+
+
+class ValidationPayloadTests(unittest.TestCase):
+    """What Validate Grid sends to POST /claims/qc/."""
+
+    def setUp(self):
+        wkb = types.SimpleNamespace(
+            GeometryType=types.SimpleNamespace(PolygonGeometry=_PolygonType))
+        self._saved = grid_processor.QgsWkbTypes
+        grid_processor.QgsWkbTypes = wkb
+
+    def tearDown(self):
+        grid_processor.QgsWkbTypes = self._saved
+
+    def _sent_claims(self, rows):
+        api = _FakeApiClient({'findings': []})
+        gp = grid_processor.GridProcessor(api_client=api)
+        gp.validate_grid_geometry(_QcLayer(rows))
+        self.assertTrue(api.last_request['endpoint'].endswith('qc/'))
+        return api.last_request['data']['claims']
+
+    def test_sends_name_state_and_county_from_capitalized_columns(self):
+        # The server warned "carries no declared state" on every claim of a
+        # layer whose State column was filled in, because none was sent.
+        sent = self._sent_claims([['MSL 1', 'NM', 'Otero'],
+                                  ['MSL 2', ' NM ', 'Otero']])
+        self.assertEqual([c['name'] for c in sent], ['MSL 1', 'MSL 2'])
+        self.assertEqual([c['state'] for c in sent], ['NM', 'NM'])
+        self.assertEqual([c['county'] for c in sent], ['Otero', 'Otero'])
+
+    def test_blank_state_is_omitted_not_sent_empty(self):
+        sent = self._sent_claims([['MSL 1', None, ''], [None, 'NM', None]])
+        self.assertNotIn('state', sent[0])
+        self.assertNotIn('county', sent[0])
+        self.assertEqual(sent[1]['name'], 'Feature 2')
+        self.assertEqual(sent[1]['state'], 'NM')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -7,7 +7,7 @@ Provides common interface and utility methods for all step widgets.
 from typing import List, TYPE_CHECKING
 from abc import abstractmethod
 
-from qgis.PyQt.QtWidgets import QWidget, QVBoxLayout, QLabel
+from qgis.PyQt.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox
 from qgis.PyQt.QtCore import pyqtSignal
 
 from ...utils.theme import T
@@ -173,6 +173,38 @@ class ClaimsStepBase(QWidget):
             level: One of 'info', 'warning', 'error', 'success'
         """
         self.status_message.emit(message, level)
+
+    def require_project_for_server(self) -> bool:
+        """The gate every step passes before it writes to the server.
+
+        Refuses (with a message) when no project is selected, or when this
+        claims GeoPackage belongs to a different project from the plugin's
+        current one (``ClaimsWizardState.project_mismatch``), offering to
+        switch the plugin to the GeoPackage's project. Returns True to go on.
+        """
+        if not self.state.project_id:
+            QMessageBox.warning(self, "No Project", "Please select a project first.")
+            return False
+
+        mismatch = self.state.project_mismatch()
+        if not mismatch:
+            return True
+
+        target = self.state.bound_project_name or f"project {self.state.bound_project_id}"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Different Project")
+        box.setText(mismatch)
+        box.setInformativeText(
+            f"Switch the plugin to {target}, then run this step again. If the plugin "
+            f"project is the one you meant, open or create a GeoPackage for it instead.")
+        switch_btn = box.addButton(f"Switch to {target}", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is switch_btn:
+            # The dialog resolves the project by id; the company id is unused.
+            self.project_context_switched.emit(0, self.state.bound_project_id)
+        return False
 
     # =========================================================================
     # Common Styles (shared across all steps)

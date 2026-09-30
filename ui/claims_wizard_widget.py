@@ -907,16 +907,20 @@ class ClaimsWizardWidget(QWidget):
                     root.removeChildNode(child)
                     break
 
-    def set_project(self, project_id: int, company_id: int):
+    def set_project(self, project_id: int, company_id: int,
+                    project_name: str = '', company_name: str = ''):
         """
         Set the current project context.
 
         Args:
             project_id: Project ID
             company_id: Company ID
+            project_name / company_name: for messages that name the project
         """
         self.state.project_id = project_id
         self.state.company_id = company_id
+        self.state.project_name = project_name
+        self.state.company_name = company_name
 
         # Refresh first step if it's active
         if self.current_step == 0 and self.step_widgets:

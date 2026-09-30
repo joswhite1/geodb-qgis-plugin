@@ -74,10 +74,69 @@ class APIClient:
         self.token = token
         self.logger = PluginLogger.get_logger()
         self.network_manager = QgsNetworkAccessManager.instance()
+        # The plugin's own project (see pin_project / _reassert_project).
+        self.pinned_project_id: Optional[int] = None
+        self._project_asserted_at = 0.0
+        self._asserting_project = False
 
     def set_token(self, token: str):
         """Set authentication token."""
         self.token = token
+
+    # =========================================================================
+    # The plugin LEADS the server's active project (2026-09-30)
+    # =========================================================================
+    #
+    # The server keeps ONE active project per user, shared by the web app, the
+    # mobile app and this plugin, and most data endpoints are scoped by it. The
+    # mobile app keeps its own project and makes the server follow it before
+    # it works (ensureServerProjectSync); the plugin used to do the opposite
+    # and adopt whatever the server held. Switching project in the browser
+    # then silently moved the plugin: a claims wizard run started on one
+    # customer's project wrote its package, claims and documents into another.
+    #
+    # Now the plugin pins its project here and re-asserts it before requests,
+    # like the phone. The re-assertion is throttled: within
+    # PROJECT_REASSERT_SECONDS of the last one, requests go straight through.
+
+    PROJECT_REASSERT_SECONDS = 10
+
+    def pin_project(self, project_id: Optional[int], asserted: bool = True):
+        """Record the plugin's own project.
+
+        Args:
+            project_id: the project this plugin works in, or None to stop
+                re-asserting (logged out, or mid company switch).
+            asserted: True when the caller has just set it on the server, so
+                the next request need not repeat it.
+        """
+        self.pinned_project_id = project_id
+        self._project_asserted_at = time.time() if (project_id and asserted) else 0.0
+
+    def _project_exempt_urls(self):
+        endpoints = self.config.endpoints
+        return {endpoints[k] for k in (
+            'login', 'logout', 'check_token', 'verify_2fa',
+            'request_2fa_recovery', 'verify_2fa_recovery',
+            'me', 'set_active_company', 'set_active_project',
+        ) if k in endpoints}
+
+    def _reassert_project(self, url: str):
+        """Make the server's active project the plugin's before a request."""
+        if self._asserting_project or not self.pinned_project_id or not self.token:
+            return
+        if time.time() - self._project_asserted_at < self.PROJECT_REASSERT_SECONDS:
+            return
+        if url in self._project_exempt_urls():
+            return
+        self._asserting_project = True
+        try:
+            # A failure (lost access, expired session) raises to the caller's
+            # operation: better a loud stop than work in another project.
+            self.set_active_project(self.pinned_project_id)
+            self._project_asserted_at = time.time()
+        finally:
+            self._asserting_project = False
 
     # Long-running async claims endpoints reuse this constant. Kept on the
     # client so any caller (manager OR processor) can opt into the 202+poll
@@ -257,6 +316,7 @@ class APIClient:
             APIException: On request failure
         """
         self.logger.debug(f"{method} {url}")
+        self._reassert_project(url)
 
         # Prepare headers
         request_headers = {
@@ -602,6 +662,7 @@ class APIClient:
         import uuid
 
         self.logger.info(f"Uploading file: {file_path} to {url}")
+        self._reassert_project(url)  # builds its own request, not via _make_request
 
         # Generate a unique boundary string
         boundary = f'----GeodbBoundary{uuid.uuid4().hex}'
