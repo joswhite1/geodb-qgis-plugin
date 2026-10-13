@@ -1384,6 +1384,48 @@ class ClaimsStep6Widget(ClaimsStepBase):
     # Document Methods
     # =========================================================================
 
+    def _ask_about_trashed_package(self, package_status):
+        """The stored package is in the geoDB Trash: ask what to do.
+
+        Returns 'restore', 'new', or None (cancel). Restore is offered only
+        when the server says this user may restore it."""
+        trash = package_status.get('trash') or {}
+        label = package_status.get('package_number') or f"Package {self.state.claim_package_id}"
+        name = package_status.get('name')
+        title = f"{label} ({name})" if name else label
+
+        facts = []
+        if trash.get('deleted_on'):
+            who = f" by {trash['deleted_by']}" if trash.get('deleted_by') else ''
+            facts.append(f"Deleted on {trash['deleted_on']}{who}.")
+        stakes = trash.get('stakes')
+        if stakes:
+            facts.append(f"Restoring brings back its {stakes} stake{'s' if stakes != 1 else ''} "
+                         f"and its contractors' access.")
+        if trash.get('can_restore'):
+            facts.append("Starting a new package leaves this one in the Trash.")
+        else:
+            facts.append("You don't have permission to restore it. Ask a project manager, "
+                         "or start a new package.")
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Package in the Trash")
+        box.setText(f"{title} is in the geoDB Trash.")
+        box.setInformativeText(" ".join(facts))
+        restore_btn = None
+        if trash.get('can_restore'):
+            restore_btn = box.addButton("Restore it", QMessageBox.ButtonRole.AcceptRole)
+        new_btn = box.addButton("Start a new package", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if restore_btn is not None and clicked is restore_btn:
+            return 'restore'
+        if clicked is new_btn:
+            return 'new'
+        return None
+
     def _generate_documents(self):
         """Generate location notice documents."""
         if not self.state.processed_claims:
@@ -1404,7 +1446,9 @@ class ClaimsStep6Widget(ClaimsStepBase):
             # Validate that the stored claim_package_id still exists on the server.
             # Handle three cases:
             # 1. Package exists and is active -> reuse it
-            # 2. Package exists but is soft-deleted -> restore it and reuse
+            # 2. Package is in the geoDB Trash -> ASK: restore it, or start a new
+            #    package (never restore silently: someone may have deleted it on
+            #    purpose; 2.35.4 and earlier restored it without asking)
             # 3. Package doesn't exist (hard deleted) -> clear ID, let server create new
             if self.state.claim_package_id:
                 package_status = self.claims_manager.get_package_status(
@@ -1421,21 +1465,30 @@ class ClaimsStep6Widget(ClaimsStepBase):
                     self.state.save_to_geopackage()
 
                 elif package_status.get('mark_deleted'):
-                    # Package exists but is soft-deleted - restore it
-                    self.logger.info(
-                        f"[QCLAIMS] Package {self.state.claim_package_id} is soft-deleted. "
-                        f"Restoring..."
-                    )
-                    if self.claims_manager.restore_package(self.state.claim_package_id):
+                    choice = self._ask_about_trashed_package(package_status)
+                    if choice is None:
                         self.logger.info(
-                            f"[QCLAIMS] Successfully restored package "
-                            f"{self.state.claim_package_id}"
+                            f"[QCLAIMS] Package {self.state.claim_package_id} is in the "
+                            f"Trash; the user cancelled document generation."
                         )
+                        return
+                    if choice == 'restore':
+                        if self.claims_manager.restore_package(self.state.claim_package_id):
+                            self.logger.info(
+                                f"[QCLAIMS] Restored package {self.state.claim_package_id} "
+                                f"at the user's request"
+                            )
+                        else:
+                            QMessageBox.warning(
+                                self, "Restore Failed",
+                                "The package could not be restored from the Trash. "
+                                "Documents will be generated into a new package instead.")
+                            self.state.claim_package_id = None
+                            self.state.save_to_geopackage()
                     else:
-                        # Restore failed - clear ID and let server create new
-                        self.logger.warning(
-                            f"[QCLAIMS] Failed to restore package "
-                            f"{self.state.claim_package_id}. Clearing stale ID."
+                        self.logger.info(
+                            f"[QCLAIMS] Package {self.state.claim_package_id} stays in the "
+                            f"Trash; starting a new package."
                         )
                         self.state.claim_package_id = None
                         self.state.save_to_geopackage()

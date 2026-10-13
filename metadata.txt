@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.22
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.35.4
+version=2.35.5
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,19 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.35.5 - Deleted packages are never brought back without asking; the plugin keeps its own project
+        - Generate Documents no longer silently restores a claim package that
+          was deleted on geoDB. If the wizard's package is in the geoDB Trash,
+          you choose: restore it (its stakes come back with it), start a new
+          package, or cancel. Restore is offered only when you have permission
+          to restore it.
+        - The plugin now keeps the project you picked in it, instead of
+          switching to whichever project was last active on the web or phone.
+          A claims GeoPackage remembers its project, and the wizard asks before
+          it writes claims, stakes or documents to a different project.
+        - Step 1's "pull an order" now really switches to that order's project.
+        - Validate Grid sends each claim's name, state and county, whatever
+          the capitalization of the layer's columns.
     2.35.4 - Claims wizard fixes; all claim checks now run on geodb.io
         - Fixed: "Generate Grid at Map Center" in the claims wizard failed
           with "needs a connection to geodb.io" even when signed in.

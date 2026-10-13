@@ -1866,17 +1866,25 @@ class ClaimsManager:
         Returns:
             Dict with package info if found:
                 - exists: True
-                - mark_deleted: bool (True if soft-deleted)
+                - mark_deleted: bool (True if the package is in the geoDB Trash)
                 - package_number: str
                 - name: str
+                - trash: dict (only for a trashed package): deleted_on,
+                  deleted_by, stakes (how many come back on restore),
+                  can_restore (this user may restore it)
             None if package not found (hard deleted or never existed)
         """
         if not package_id:
             return None
 
         try:
-            # Use the packages detail endpoint - include deleted packages
-            url = self.config.get_claims_url(f'packages/{package_id}/?include_deleted=true')
+            # include_trashed (server 2026-10-13+) reports a package in the
+            # Trash WITH the facts the user needs to decide; the caller asks
+            # before restoring. The old include_deleted flag is answered 404
+            # for a trashed package on purpose, because plugins up to 2.35.4
+            # restored silently. An older server ignores include_trashed and
+            # answers 404 too, so the wizard starts a new package: safe.
+            url = self.config.get_claims_url(f'packages/{package_id}/?include_trashed=true')
             result = self.api._make_request('GET', url)
 
             package_info = {
@@ -1884,6 +1892,7 @@ class ClaimsManager:
                 'mark_deleted': result.get('mark_deleted', False),
                 'package_number': result.get('package_number', ''),
                 'name': result.get('name', ''),
+                'trash': result.get('trash') or {},
             }
             self.logger.info(
                 f"[QCLAIMS] Package {package_id} found: "
