@@ -27,8 +27,8 @@ changelog=
     2.35.6 - Planned-sample types match geoDB
         - The Field Work dialog's sample types are now exactly the ones geoDB
           accepts (Soil, Rock Chip, Outcrop, Dump, Stream Sediment, BLEG,
-          Other). Float, Stream Sediment and Pan Concentrate planned from QGIS
-          were refused by the server.
+          Other). Float, Pan Concentrate and the old Stream Sediment code were
+          refused by the server; Dump and BLEG were missing.
     2.35.5 - Deleted packages are never brought back without asking; the plugin keeps its own project
         - Generate Documents no longer silently restores a claim package that
           was deleted on geoDB. If the wizard's package is in the geoDB Trash,
