@@ -7,7 +7,7 @@ name=geodb.io
 qgisMinimumVersion=3.22
 qgisMaximumVersion=4.99
 description=Connects to spatial data from geodb.io via api
-version=2.35.5
+version=2.35.6
 author=geodb.io
 email=admin@geodb.io
 
@@ -24,6 +24,11 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
+    2.35.6 - Planned-sample types match geoDB
+        - The Field Work dialog's sample types are now exactly the ones geoDB
+          accepts (Soil, Rock Chip, Outcrop, Dump, Stream Sediment, BLEG,
+          Other). Float, Stream Sediment and Pan Concentrate planned from QGIS
+          were refused by the server.
     2.35.5 - Deleted packages are never brought back without asking; the plugin keeps its own project
         - Generate Documents no longer silently restores a claim package that
           was deleted on geoDB. If the wizard's package is in the geoDB Trash,

@@ -30,14 +30,16 @@ from ..utils.compat import QFrame_HLine
 from ..utils.theme import T
 
 
-# Sample type choices matching the API
+# Sample type codes the server accepts: a copy of geoDB's pointsample_types
+# (geodata/models/model_variables.py). Any other code is refused row by row on
+# push. Float / Pan Concentrate and the old 'SS' code were never server codes.
 SAMPLE_TYPE_CHOICES = [
     ('SL', 'Soil'),
     ('RK', 'Rock Chip'),
     ('OC', 'Outcrop'),
-    ('FL', 'Float'),
-    ('SS', 'Stream Sediment'),
-    ('PC', 'Pan Concentrate'),
+    ('DP', 'Dump'),
+    ('ST', 'Stream Sediment'),
+    ('BG', 'BLEG'),
     ('OT', 'Other'),
 ]
 
