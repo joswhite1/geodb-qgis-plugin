@@ -143,7 +143,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         'ProjectFile': ('Project Files', 'GeoTIFF / DEM rasters uploaded to geodb.io (pull only)'),
         'FieldNote': ('Field Notes', 'Field notes and note photos (pull only)'),
         'Structure': ('Structures', 'Structural measurements with FGDC symbology'),
-        'VectorLayer': ('Vector Layers', 'Uploaded GIS layers (geology, faults, targets, ...) with server styling'),
+        'VectorLayer': ('Map layers (lines & areas)',
+                        'Geology, faults, alteration zones, targets... Pull them styled, '
+                        'make new ones, and publish to the web map and crew phones'),
     }
 
     def __init__(self, parent=None):
@@ -1378,13 +1380,17 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # FieldNote is pull-only (no push from QGIS)
             self.pushButton.setEnabled(False)
         elif model_name == "VectorLayer":
-            # Layer-grained: pick a named layer, pull it styled, push as draft
+            # Layer-grained: pick a map layer, pull it styled; make new ones;
+            # publish any of them (Q-1 / Q-2)
             if hasattr(self, 'vectorLayerGroupBox'):
                 self.vectorLayerGroupBox.setVisible(True)
                 self._load_vector_layers()
+                self._refresh_publishable_layers()
             self.pushButton.setEnabled(self.project_manager.can_edit())
         else:
             self.pushButton.setEnabled(self.project_manager.can_edit())
+        self.pushButton.setText(
+            "Publish to geoDB" if model_name == "VectorLayer" else "Push Data to Server")
 
         self._log_message(f"Selected model: {model_name}", "info")
 
@@ -1604,9 +1610,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 QMessageBox.warning(
                     self,
                     "No Layer Selected",
-                    "Please select a vector layer from the dropdown before pulling.\n\n"
-                    "If none are available, upload shapefiles, GeoPackages or KML "
-                    "on geodb.io first."
+                    "Please select a map layer from the dropdown before pulling.\n\n"
+                    "None yet? Make one here with “New map layer…”, draw or trace "
+                    "into it, and press “Publish to geoDB”."
                 )
                 return
             self._execute_vectorlayer_pull()
@@ -2356,25 +2362,27 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         options_layout.insertWidget(2, self.projectFileGroupBox)
 
     def _add_vectorlayer_options_ui(self):
-        """Create UI for VectorLayer selection (layer-grained pull/push)."""
+        """Create the map-layer UI: pick a geoDB layer to pull, make a new
+        one, and choose which QGIS map layer “Publish to geoDB” sends."""
         from qgis.PyQt.QtWidgets import QGroupBox, QFormLayout
 
-        self.vectorLayerGroupBox = QGroupBox("Vector Layer Selection")
+        self.vectorLayerGroupBox = QGroupBox("Map layers")
         self.vectorLayerGroupBox.setVisible(False)  # Hidden by default
 
         vl_layout = QFormLayout()
         self.vectorLayerGroupBox.setLayout(vl_layout)
 
-        layer_label = QLabel("Available Layers:")
+        layer_label = QLabel("On geoDB:")
         self.vectorLayerComboBox = QComboBox()
         self.vectorLayerComboBox.setToolTip(
-            "Select an uploaded vector layer to pull into QGIS with its styling"
+            "A map layer live on geoDB: Pull brings it into QGIS with its styling "
+            "and its original coordinates"
         )
         self.vectorLayerComboBox.currentIndexChanged.connect(self._on_vector_layer_selected)
         vl_layout.addRow(layer_label, self.vectorLayerComboBox)
 
         self.reloadVectorLayersButton = QPushButton("Reload Layers")
-        self.reloadVectorLayersButton.setToolTip("Reload available vector layers from server")
+        self.reloadVectorLayersButton.setToolTip("Reload the map layers from geoDB")
         self.reloadVectorLayersButton.clicked.connect(self._load_vector_layers)
         vl_layout.addRow("", self.reloadVectorLayersButton)
 
@@ -2386,8 +2394,92 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         )
         vl_layout.addRow(self.vectorLayerInfoLabel)
 
+        self.newMapLayerButton = QPushButton("New map layer…")
+        self.newMapLayerButton.setToolTip(
+            "Make an empty map layer (lines, areas or points) in the project's "
+            "coordinate system, to draw or trace a field sketch into"
+        )
+        self.newMapLayerButton.clicked.connect(self._on_new_map_layer_clicked)
+        vl_layout.addRow("", self.newMapLayerButton)
+
+        self.publishLayerComboBox = QComboBox()
+        self.publishLayerComboBox.setToolTip(
+            "The QGIS layer “Publish to geoDB” sends: one you pulled from geoDB "
+            "(sent as its new version) or one you made with “New map layer…”"
+        )
+        vl_layout.addRow(QLabel("Publish from QGIS:"), self.publishLayerComboBox)
+        self.refreshPublishLayersButton = QPushButton("Refresh list")
+        self.refreshPublishLayersButton.clicked.connect(self._refresh_publishable_layers)
+        vl_layout.addRow("", self.refreshPublishLayersButton)
+
         options_layout = self.optionsLayout
         options_layout.insertWidget(3, self.vectorLayerGroupBox)
+
+    def _refresh_publishable_layers(self, select_layer=None):
+        """List every QGIS layer tagged as a geoDB map layer (pulled or new)."""
+        if not hasattr(self, 'publishLayerComboBox'):
+            return
+        current = select_layer.id() if select_layer is not None else \
+            self.publishLayerComboBox.currentData()
+        self.publishLayerComboBox.clear()
+        layers = self.sync_manager.map_layers_in_project()
+        if not layers:
+            self.publishLayerComboBox.addItem(
+                "No map layers in QGIS yet: pull one or make a new one", None)
+            return
+        for layer in layers:
+            info = self.sync_manager.map_layer_info(layer) or {}
+            state = "new" if info.get('is_new') else "from geoDB"
+            self.publishLayerComboBox.addItem(f"{layer.name()} ({state})", layer.id())
+        if current:
+            index = self.publishLayerComboBox.findData(current)
+            if index >= 0:
+                self.publishLayerComboBox.setCurrentIndex(index)
+
+    def _on_new_map_layer_clicked(self):
+        """“New map layer…” (Q-1): an empty GeoPackage layer in the project CRS."""
+        from .map_layer_dialogs import NewMapLayerDialog
+
+        project = self.project_manager.active_project
+        if not project:
+            QMessageBox.warning(self, "No Project", "Please select a project first.")
+            return
+        if not self.project_manager.can_edit():
+            QMessageBox.warning(self, "Permission Denied",
+                                "You can't add map layers in this project.")
+            return
+
+        sketches = []
+        try:
+            sketches = self.api_client.get_field_sketches(project.id)
+        except Exception as e:  # the picker is optional; never block on it
+            self._log_message(f"Could not load field sketches: {e}", "warning")
+
+        default_gpkg = ''
+        config = self.storage_manager.get_storage_config(project.id)
+        if config.get('is_geopackage') and config.get('geopackage_path'):
+            default_gpkg = str(config.get('geopackage_path'))
+        else:
+            default_gpkg = str(self.storage_manager.get_suggested_path(project.name, project.id))
+
+        crs = self.data_manager.project_crs_authid(project)
+        dialog = NewMapLayerDialog(self, crs_label=crs, default_gpkg=default_gpkg,
+                                   sketches=sketches)
+        if not dialog.exec():
+            return
+        values = dialog.values()
+        try:
+            layer, crs = self.data_manager.create_map_layer(
+                values['name'], values['geometry'], values['kind'],
+                values['gpkg_path'], traced_from=values['traced_from'])
+        except Exception as e:
+            self.logger.exception("New map layer failed")
+            QMessageBox.critical(self, "Error", f"Could not create the map layer: {e}")
+            return
+        self._log_message(
+            f"✓ New map layer '{layer.name()}' ({crs}) — draw into it, then press "
+            "“Publish to geoDB”.", "success")
+        self._refresh_publishable_layers(select_layer=layer)
 
     def _load_vector_layers(self):
         """Load available vector layers from API (active vintage only)."""
@@ -2402,13 +2494,15 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.vectorLayerInfoLabel.setText("Select a layer to see its details")
 
         try:
-            self._log_message("Loading vector layers...", "info")
+            self._log_message("Loading map layers...", "info")
             layers = self.api_client.get_vector_layers()
             self.vector_layers = layers
 
             if not layers:
-                self._log_message("No vector layers found for this project.", "warning")
-                self.vectorLayerComboBox.addItem("No vector layers available", None)
+                self._log_message(
+                    "No map layers on geoDB yet for this project. Make one with "
+                    "“New map layer…” and publish it.", "info")
+                self.vectorLayerComboBox.addItem("No map layers on geoDB yet", None)
                 return
 
             self.vectorLayerComboBox.addItem(
@@ -2421,11 +2515,11 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 display_text = f"{name} [{kind}] ({count:,} features)"
                 self.vectorLayerComboBox.addItem(display_text, vl.get('id'))
 
-            self._log_message(f"Loaded {len(layers)} vector layer(s)", "success")
+            self._log_message(f"Loaded {len(layers)} map layer(s)", "success")
 
         except Exception as e:
             self.logger.exception("Failed to load vector layers")
-            self._log_message(f"Failed to load vector layers: {e}", "error")
+            self._log_message(f"Failed to load map layers: {e}", "error")
 
     def _on_vector_layer_selected(self, index):
         """Handle vector layer selection from dropdown."""
@@ -2469,10 +2563,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         if not vl:
             return
 
-        display = vl.get('display_name') or vl.get('name') or 'vector layer'
+        display = vl.get('display_name') or vl.get('name') or 'map layer'
 
         try:
-            self._log_message(f"Starting PULL for vector layer '{display}'...", "info")
+            self._log_message(f"Starting PULL for map layer '{display}'...", "info")
             self.pullButton.setEnabled(False)
             self.progressBar.setVisible(True)
             self.progressBar.setValue(0)
@@ -2500,6 +2594,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
             self._set_sync_status(f"✓ Pull complete: {summary}", "success")
             self._record_sync('pull', f"{display}: {summary}")
+            self._refresh_publishable_layers(select_layer=layer)
 
         except APIPermissionError as e:
             self._set_sync_status(f"Permission denied: {e}", "error")
@@ -2510,7 +2605,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._log_message(f"Network error: {e}", "error")
             QMessageBox.critical(self, "Network Error", str(e))
         except Exception as e:
-            self.logger.exception("Vector layer pull failed")
+            self.logger.exception("Map layer pull failed")
             self._set_sync_status(f"Pull failed: {e}", "error")
             self._log_message(f"Pull failed: {e}", "error")
             QMessageBox.critical(self, "Error", f"Pull failed: {e}")
@@ -2519,82 +2614,75 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.progressBar.setVisible(False)
 
     def _execute_vectorlayer_push(self):
-        """Push the pulled (edited) vector layer back as a new server draft."""
-        vl = self.selected_vector_layer
-        if not vl:
+        """“Publish to geoDB” (Q-2): send the chosen QGIS map layer, live by
+        default or as a draft."""
+        from qgis.core import QgsProject
+        from .map_layer_dialogs import DRAFT, PUBLISH, ask_publish_or_draft
+
+        self._refresh_publishable_layers()
+        layer_id = self.publishLayerComboBox.currentData()
+        qgis_layer = QgsProject.instance().mapLayer(layer_id) if layer_id else None
+        if qgis_layer is None:
             QMessageBox.warning(
                 self,
-                "No Layer Selected",
-                "Please select the vector layer you pulled from the dropdown first."
+                "No Map Layer",
+                "Choose the layer to publish under “Publish from QGIS”.\n\n"
+                "Pull a map layer from geoDB, or make one with “New map layer…”."
             )
             return
 
-        display = vl.get('display_name') or vl.get('name') or 'vector layer'
-
-        message = (
-            f"Push your local copy of '{display}' to the server?\n\n"
-            "This creates a NEW DRAFT layer on geodb.io — the published layer "
-            "is not modified. Review and promote the draft on the web."
-        )
-        if (vl.get('style_mode') or 'frozen') == 'catalog':
-            message += (
-                "\n\nNote: this layer is styled by the geoDB catalog. The draft "
-                "will carry frozen styling — to change catalog colors, use "
-                "Display settings on the web."
-            )
-
-        reply = QMessageBox.question(
-            self,
-            "Push as Draft",
-            message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        info = self.sync_manager.map_layer_info(qgis_layer) or {}
+        display = info.get('display_name') or qgis_layer.name()
+        choice = ask_publish_or_draft(
+            self, display,
+            replaces=not info.get('is_new') and bool(info.get('server_layer_id')),
+            catalog=(info.get('style_mode') or 'frozen') == 'catalog')
+        if choice not in (PUBLISH, DRAFT):
             return
+        publish = choice == PUBLISH
 
         try:
-            self._log_message(f"Starting PUSH for vector layer '{display}'...", "info")
+            self._log_message(f"Sending map layer '{display}'...", "info")
             self.pushButton.setEnabled(False)
             self.progressBar.setVisible(True)
             self.progressBar.setValue(0)
 
-            result = self.data_manager.push_vector_layer_draft(
-                vl, progress_callback=self._on_progress
+            result = self.data_manager.publish_map_layer(
+                qgis_layer, publish=publish, progress_callback=self._on_progress
             )
 
             if result.get('no_changes'):
-                self._log_message("No local changes — nothing to push.", "info")
-                self._set_sync_status("No local changes — nothing to push", "info")
+                self._log_message("No local changes — nothing to send.", "info")
+                self._set_sync_status("No local changes — nothing to send", "info")
                 return
 
-            changes = result.get('changes') or {}
-            change_bits = ", ".join(
-                f"{count} {kind}" for kind, count in changes.items() if count
-            )
             imported = result.get('imported', 0)
-            draft_name = (result.get('layer') or {}).get('name') or display
-            summary = f"draft '{draft_name}' created ({imported:,} features)"
-
-            self._log_message(f"✓ Push complete: {summary} — {change_bits}", "success")
+            landed_name = (result.get('layer') or {}).get('name') or display
+            if result.get('status') == 'active':
+                summary = (f"'{landed_name}' published ({imported:,} features): on the "
+                           "web map now, and on crew phones at their next sync")
+            else:
+                summary = (f"draft '{landed_name}' saved ({imported:,} features): "
+                           "publish it from here or on the web")
+            self._log_message(f"✓ {summary}", "success")
+            for old in result.get('archived') or []:
+                self._log_message(
+                    f"The previous version '{old.get('display_name')}' was archived "
+                    "(kept on geoDB, can be made active again).", "info")
             if result.get('style_dropped'):
                 self._log_message(
-                    "Layer style could not be translated by the server — the "
-                    "draft was created without styling.",
-                    "warning"
+                    "The layer's style could not be read by geoDB, so it was sent "
+                    "without styling.", "warning"
                 )
             if result.get('failed'):
                 self._log_message(
-                    f"{result['failed']} feature(s) failed to import server-side",
+                    f"{result['failed']} feature(s) could not be stored on geoDB",
                     "warning"
                 )
-            self._log_message(
-                "Review and promote the draft under Display settings → Map data "
-                "on geodb.io.",
-                "info"
-            )
-            self._set_sync_status(f"✓ Push complete: {summary}", "success")
+            self._set_sync_status(f"✓ {summary}", "success")
             self._record_sync('push', summary)
+            self._load_vector_layers()
+            self._refresh_publishable_layers(select_layer=qgis_layer)
 
         except APIPermissionError as e:
             self._set_sync_status(f"Permission denied: {e}", "error")
@@ -2605,10 +2693,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self._log_message(f"Validation error: {e}", "error")
             QMessageBox.critical(self, "Validation Error", str(e))
         except Exception as e:
-            self.logger.exception("Vector layer push failed")
-            self._set_sync_status(f"Push failed: {e}", "error")
-            self._log_message(f"Push failed: {e}", "error")
-            QMessageBox.critical(self, "Error", f"Push failed: {e}")
+            self.logger.exception("Map layer publish failed")
+            self._set_sync_status(f"Publish failed: {e}", "error")
+            self._log_message(f"Publish failed: {e}", "error")
+            QMessageBox.critical(self, "Error", f"Publish failed: {e}")
         finally:
             self.pushButton.setEnabled(True)
             self.progressBar.setVisible(False)

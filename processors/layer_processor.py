@@ -237,9 +237,26 @@ class LayerProcessor:
         crs: str,
         layer_name: str
     ) -> QgsVectorLayer:
-        """Create a layer in the GeoPackage file.
+        """Create a layer in the configured GeoPackage file (see
+        :meth:`create_geopackage_layer_at`)."""
+        return self.create_geopackage_layer_at(
+            self._geopackage_path, model_name, geometry_type, fields, crs, layer_name)
+
+    def create_geopackage_layer_at(
+        self,
+        gpkg_path: Optional[str],
+        model_name: str,
+        geometry_type: str,
+        fields: QgsFields,
+        crs: str,
+        layer_name: str
+    ) -> QgsVectorLayer:
+        """Create a layer in the GeoPackage file at ``gpkg_path`` (the
+        configured project GeoPackage for synced models; any file the user
+        picked for "New geoDB map layer…").
 
         Args:
+            gpkg_path: GeoPackage file (created if missing)
             model_name: Model name (used as table name in GeoPackage)
             geometry_type: Geometry type string
             fields: QgsFields object with field definitions
@@ -249,7 +266,6 @@ class LayerProcessor:
         Returns:
             QgsVectorLayer (ogr provider)
         """
-        gpkg_path = self._geopackage_path
 
         if not gpkg_path:
             raise LayerError("GeoPackage path not configured")

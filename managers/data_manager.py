@@ -442,24 +442,43 @@ class DataManager:
         layer_summary: Dict[str, Any],
         progress_callback: Optional[Callable[[int, str], None]] = None
     ) -> Dict[str, Any]:
+        """The pre-2.35.6 entry: push the pulled copy of ``layer_summary`` as
+        a DRAFT. A thin caller of :meth:`publish_map_layer`."""
+        server_layer_id = layer_summary.get('id')
+        display = layer_summary.get('display_name') or layer_summary.get('name')
+        qgis_layer = self.sync_manager.find_vector_layer(server_layer_id)
+        if not qgis_layer:
+            raise ValueError(
+                f"Pull '{display}' first — push uploads your edited local copy "
+                "back to the server as a new draft."
+            )
+        return self.publish_map_layer(qgis_layer, publish=False,
+                                      progress_callback=progress_callback)
+
+    def publish_map_layer(
+        self,
+        qgis_layer,
+        publish: bool = True,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> Dict[str, Any]:
         """
-        Push the pulled (and possibly edited) QGIS copy of a vector layer back
-        to the server as a NEW DRAFT layer in the source layer's set.
+        Send a geoDB map layer from QGIS to geoDB ("Publish to geoDB", Q-2).
 
-        The snapshot diff decides WHETHER to push: an unchanged layer returns
-        {'no_changes': True} without touching the server. The upload is always
-        the whole layer (never per-feature CRUD); promotion to active stays on
-        the web manage surface. The layer's current QGIS symbology travels as
-        QML and is translated server-side; if the server can't translate it,
-        the draft is retried without style rather than failing the push.
+        Works for a layer PULLED from geoDB (sent as a new version of it) and
+        for one made with "New geoDB map layer…" (sent as a new layer). With
+        ``publish`` the server lands it LIVE (web map + crew phones) and, for
+        a pulled layer, archives the version on the map (kept, never deleted);
+        without it, a draft reviewed on the web.
 
-        Args:
-            layer_summary: The layer dict from APIClient.get_vector_layers()
-            progress_callback: Optional callback(progress_percent, message)
+        The layer's own CRS is sent (the ORIGINAL CRS for a layer pulled with
+        2.35.6+, the project CRS for a new one), with each pulled feature's
+        geoDB id so the server keeps untouched originals byte for byte. A
+        pulled layer with no local changes is not re-sent unless ``publish``
+        (publishing an unchanged copy is a no-op too: nothing to replace).
 
         Returns:
-            Dict with server response fields (layer, imported, failed, status)
-            plus 'changes' — or {'no_changes': True, 'changes': ...}
+            Dict with the server response fields (layer, imported, failed,
+            status, archived?) plus 'changes' — or {'no_changes': True, ...}
         """
         project = self.project_manager.get_active_project()
         if not project:
@@ -467,45 +486,50 @@ class DataManager:
         if not self.project_manager.can_edit():
             raise APIPermissionError("No permission to edit data")
 
-        server_layer_id = layer_summary.get('id')
-        display = layer_summary.get('display_name') or layer_summary.get('name')
-
-        qgis_layer = self.sync_manager.find_vector_layer(server_layer_id)
-        if not qgis_layer:
+        info = self.sync_manager.map_layer_info(qgis_layer)
+        if info is None:
             raise ValueError(
-                f"Pull '{display}' first — push uploads your edited local copy "
-                "back to the server as a new draft."
+                f"'{qgis_layer.name()}' is not a geoDB map layer. Pull one from "
+                "geoDB, or create one with “New geoDB map layer…”."
             )
+        server_layer_id = info['server_layer_id']
+        pulled = server_layer_id is not None and not info['is_new']
 
         if progress_callback:
             progress_callback(10, "Checking for local changes...")
 
-        changes = self.sync_manager.vector_layer_changes(
-            server_layer_id, qgis_layer
-        )
-        if not any(changes.values()):
-            self.logger.info(f"Vector layer {server_layer_id}: no local changes")
-            if progress_callback:
-                progress_callback(100, "No local changes — nothing to push")
-            return {'no_changes': True, 'changes': changes}
+        changes = {'added': qgis_layer.featureCount(), 'modified': 0, 'removed': 0}
+        if pulled:
+            changes = self.sync_manager.vector_layer_changes(server_layer_id, qgis_layer)
+            if not any(changes.values()):
+                self.logger.info(f"Map layer {server_layer_id}: no local changes")
+                if progress_callback:
+                    progress_callback(100, "No local changes — nothing to send")
+                return {'no_changes': True, 'changes': changes}
 
         if progress_callback:
             progress_callback(30, "Serializing layer for upload...")
 
         rows = self.sync_manager.build_vector_layer_push_rows(qgis_layer)
         if not rows:
-            raise ValueError("Layer has no features with geometry to push")
+            raise ValueError("The layer has no features with geometry to send")
 
         layer_crs = qgis_layer.crs()
         epsg = layer_crs.postgisSrid() if layer_crs.isValid() else 4326
 
         payload = {
-            'name': layer_summary.get('name') or display,
-            'display_name': display,
-            'source_layer_id': server_layer_id,
+            'name': info['name'],
+            'display_name': info['display_name'],
             'epsg': epsg,
+            'publish': bool(publish),
             'features': rows,
         }
+        if pulled:
+            payload['source_layer_id'] = server_layer_id
+        if info['kind']:
+            payload['kind'] = info['kind']
+        if info['traced_from']:
+            payload['traced_from'] = info['traced_from']
 
         style_qml = self._export_layer_qml(qgis_layer)
         if style_qml:
@@ -513,7 +537,8 @@ class DataManager:
 
         if progress_callback:
             progress_callback(
-                60, f"Uploading {len(rows)} features as a new draft..."
+                60, f"Sending {len(rows)} features"
+                    f"{' to publish' if publish else ' as a draft'}..."
             )
 
         try:
@@ -532,15 +557,108 @@ class DataManager:
             else:
                 raise
 
-        # Re-baseline the snapshot so an immediate re-push reports no changes
-        self.sync_manager.store_vector_layer_snapshot(server_layer_id, qgis_layer)
+        result = dict(response) if isinstance(response, dict) else {}
+        landed = result.get('layer') or {}
+        if pulled:
+            # Re-baseline the snapshot so an immediate re-send reports no changes.
+            # The copy stays keyed to the layer it was pulled from: a later
+            # publish replaces whatever version is live then (the server walks
+            # the replacement chain), and its feature ids keep untouched
+            # originals verbatim.
+            self.sync_manager.store_vector_layer_snapshot(server_layer_id, qgis_layer)
+        elif landed.get('id'):
+            # A new layer is now a geoDB layer: the next publish is a new
+            # version of it, not another new layer.
+            self.sync_manager.tag_map_layer(
+                qgis_layer, server_layer_id=landed.get('id'),
+                name=landed.get('name') or info['name'],
+                display_name=landed.get('display_name') or info['display_name'],
+                kind=landed.get('kind') or info['kind'],
+                style_mode=landed.get('style_mode') or 'frozen',
+                traced_from=info['traced_from'], new=False)
+            self.sync_manager.store_vector_layer_snapshot(landed.get('id'), qgis_layer)
 
         if progress_callback:
-            progress_callback(100, "Draft created on server")
+            progress_callback(100, "Published" if publish else "Draft saved on geoDB")
 
-        result = dict(response) if isinstance(response, dict) else {}
         result['changes'] = changes
         return result
+
+    def create_map_layer(
+        self,
+        name: str,
+        geometry: str,
+        kind: str,
+        gpkg_path: str,
+        traced_from: Optional[int] = None,
+    ):
+        """
+        "New geoDB map layer…" (Q-1): an EMPTY GeoPackage-backed layer in the
+        PROJECT's CRS, tagged so "Publish to geoDB" sends it as a new layer.
+
+        Args:
+            name: the layer name (what geoDB will call it)
+            geometry: 'line' | 'polygon' | 'point'
+            kind: one of utils.map_layer_kinds.MAP_LAYER_KINDS
+            gpkg_path: the GeoPackage file to write the layer into
+            traced_from: optional project-file id of the sketch it is traced from
+
+        Returns:
+            (QgsVectorLayer, crs_authid)
+        """
+        from qgis.PyQt.QtCore import QVariant
+        from qgis.core import QgsFields, QgsField
+        from ..utils.map_layer_kinds import MAP_LAYER_GEOMETRIES, MAP_LAYER_KINDS
+
+        project = self.project_manager.get_active_project()
+        if not project:
+            raise ValueError("No project selected")
+        if not self.project_manager.can_edit():
+            raise APIPermissionError("No permission to create data in this project")
+        name = (name or '').strip()
+        if not name:
+            raise ValueError("Give the map layer a name")
+        type_by_geometry = {g: qgis_type for g, _label, qgis_type, _kind in MAP_LAYER_GEOMETRIES}
+        if geometry not in type_by_geometry:
+            raise ValueError(f"Unknown geometry '{geometry}'")
+        if kind not in {code for code, _label in MAP_LAYER_KINDS}:
+            raise ValueError(f"Unknown kind '{kind}'")
+
+        crs = self.project_crs_authid(project)
+        fields = QgsFields()
+        # geodb_label = the label geoDB shows for each feature (popup, phone
+        # info sheet). Add your own attribute columns in QGIS as you like.
+        fields.append(QgsField('geodb_label', QVariant.String))
+
+        table = self._map_layer_table_name(name)
+        layer = self.sync_manager.layer_processor.create_geopackage_layer_at(
+            gpkg_path, table, type_by_geometry[geometry], fields, crs, name)
+        self.sync_manager.tag_map_layer(
+            layer, server_layer_id=None, name=name, display_name=name, kind=kind,
+            traced_from=traced_from, new=True)
+        return layer, crs
+
+    @staticmethod
+    def project_crs_authid(project) -> str:
+        """The geoDB project's CRS as a QGIS authid ('EPSG:32611'). A local
+        mine grid (EPSG 0) or an unreadable code falls back to the QGIS
+        project's CRS, then WGS84 — map layers need a real CRS."""
+        from qgis.core import QgsCoordinateReferenceSystem, QgsProject
+        code = str(getattr(project, 'crs', '') or '').strip().upper().replace('EPSG:', '')
+        if code.isdigit() and code != '0':
+            crs = QgsCoordinateReferenceSystem(f"EPSG:{code}")
+            if crs.isValid():
+                return crs.authid()
+        qgis_crs = QgsProject.instance().crs()
+        if qgis_crs.isValid() and qgis_crs.authid():
+            return qgis_crs.authid()
+        return 'EPSG:4326'
+
+    @staticmethod
+    def _map_layer_table_name(name: str) -> str:
+        """A GeoPackage table name for a new map layer (letters, digits, _)."""
+        safe = ''.join(c if c.isalnum() else '_' for c in name).strip('_') or 'layer'
+        return f"MapLayer_{safe}"[:60]
 
     def _export_layer_qml(self, layer) -> Optional[str]:
         """Export a layer's current symbology as a QML document string."""

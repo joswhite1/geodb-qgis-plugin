@@ -2919,7 +2919,14 @@ class SyncManager:
         project_name: Optional[str] = None
     ):
         """
-        Create/replace the QGIS layer for one pulled server vector layer.
+        Create/replace the QGIS layer for one pulled server map layer.
+
+        ORIGINAL CRS (usability Q-3, 2026-10-27): features pulled with
+        ``?geometry=original`` carry ``manual_geometry`` (the WKT exactly as
+        geoDB stores it) + ``epsg``. When every feature has one and they share
+        one CRS, the layer is built in THAT CRS from those WKTs: Z kept, single
+        parts kept. Otherwise (an older server, mixed CRSs) it falls back to the
+        WGS84 geometry and says so in the log.
 
         Args:
             layer_summary: The layer-summary dict from GET /vector-layers/
@@ -2932,56 +2939,44 @@ class SyncManager:
         from qgis.PyQt.QtCore import QVariant
         from qgis.core import QgsFields, QgsField
 
-        geometry_map = {
-            'point': 'MultiPoint',
-            'line': 'MultiLineString',
-            'polygon': 'MultiPolygon',
-        }
-        geometry_type = geometry_map.get(
-            layer_summary.get('geometry_type'), 'MultiPolygon'
-        )
+        geometry_key, crs, geometry_type, force_multi = self._vector_pull_geometry(
+            layer_summary, features)
 
-        # Union of source attribute keys (first-seen order), type from the
-        # first non-null value. Source names are kept verbatim so the style
-        # spec's categorized `attribute` matches a real field.
+        # Union of source attribute keys (first-seen order). Each column's
+        # type is read from ALL its values (a column holding 1 and 2.5 is a
+        # decimal column, not an integer one). Source names are kept verbatim
+        # so the style spec's categorized `attribute` matches a real field.
         property_keys: List[str] = []
-        property_types: Dict[str, Any] = {}
+        property_values: Dict[str, List[Any]] = {}
         for feature in features:
             for key, value in (feature.get('properties') or {}).items():
                 if key in self.VECTOR_ENVELOPE_FIELDS or key == 'fid':
                     continue
-                if key not in property_types:
+                if key not in property_values:
                     property_keys.append(key)
-                    property_types[key] = None
-                if property_types[key] is None and value is not None:
-                    property_types[key] = type(value)
+                    property_values[key] = []
+                property_values[key].append(value)
 
-        def field_type_for(py_type):
-            if py_type is bool:
-                return QVariant.Bool
-            if py_type is int:
-                return QVariant.LongLong
-            if py_type is float:
-                return QVariant.Double
-            return QVariant.String
-
+        type_names = {'bool': QVariant.Bool, 'int': QVariant.LongLong,
+                      'float': QVariant.Double, 'str': QVariant.String}
         fields = QgsFields()
         fields.append(QgsField('geodb_id', QVariant.LongLong))
         fields.append(QgsField('geodb_label', QVariant.String))
         for key in property_keys:
-            fields.append(QgsField(key, field_type_for(property_types.get(key))))
+            fields.append(QgsField(
+                key, type_names[self.vector_field_type(property_values[key])]))
         fields.append(QgsField('geodb_style', QVariant.String))
 
         effective_name = self.vector_effective_model_name(layer_summary)
         layer = self.layer_processor.remove_and_recreate_layer(
-            effective_name, geometry_type, fields, 'EPSG:4326', project_name
+            effective_name, geometry_type, fields, crs, project_name
         )
 
         # Flatten API features for the shared add path
         flat_features = []
         for feature in features:
             row = {
-                'geometry': feature.get('geometry'),
+                'geometry': feature.get(geometry_key),
                 'geodb_id': feature.get('id'),
                 'geodb_label': feature.get('label') or '',
                 'geodb_style': json.dumps(
@@ -2997,23 +2992,142 @@ class SyncManager:
             flat_features.append(row)
 
         added = self.layer_processor.add_features(
-            layer, flat_features, force_multi=True
+            layer, flat_features, force_multi=force_multi
         )
 
-        # Identity for styling + Q2 push
-        layer.setCustomProperty(self.VECTOR_LAYER_ID_PROP, layer_summary.get('id'))
-        layer.setCustomProperty(
-            self.VECTOR_LAYER_NAME_PROP, layer_summary.get('name') or ''
-        )
-        layer.setCustomProperty(
-            self.VECTOR_LAYER_STYLE_MODE_PROP,
-            layer_summary.get('style_mode') or 'frozen',
+        # Identity for styling + publish
+        self.tag_map_layer(
+            layer,
+            server_layer_id=layer_summary.get('id'),
+            name=layer_summary.get('name') or '',
+            display_name=layer_summary.get('display_name') or layer_summary.get('name') or '',
+            kind=layer_summary.get('kind') or '',
+            style_mode=layer_summary.get('style_mode') or 'frozen',
+            traced_from=layer_summary.get('traced_from_id'),
         )
 
         # Snapshot the as-stored state so push can decide "anything changed?"
         self.store_vector_layer_snapshot(layer_summary.get('id'), layer)
 
         return layer, added
+
+    @staticmethod
+    def vector_field_type(values: List[Any]) -> str:
+        """'bool' | 'int' | 'float' | 'str' for one attribute column, from ALL
+        its non-null values (never only the first)."""
+        kinds = {type(v) for v in values if v is not None}
+        if not kinds:
+            return 'str'
+        if kinds == {bool}:
+            return 'bool'
+        if kinds == {int}:
+            return 'int'
+        if kinds <= {int, float}:
+            return 'float'
+        return 'str'
+
+    def _vector_pull_geometry(self, layer_summary, features):
+        """``(feature key, crs, QGIS geometry type, force_multi)`` for a pull.
+
+        The original geometry when every feature carries one in ONE CRS; else
+        the WGS84 geometry, Multi-typed (the pre-2.35.6 shape)."""
+        from qgis.core import QgsGeometry, QgsWkbTypes
+
+        epsgs = {f.get('epsg') for f in features}
+        originals = [f.get('manual_geometry') for f in features]
+        if features and all(originals) and len(epsgs) == 1 and None not in epsgs:
+            bases, multi, single, has_z = set(), False, False, False
+            for wkt in originals:
+                geometry = QgsGeometry.fromWkt(wkt)
+                if geometry is None or geometry.isNull():
+                    bases = None
+                    break
+                wkb = geometry.wkbType()
+                bases.add(QgsWkbTypes.geometryType(wkb))
+                if QgsWkbTypes.isMultiType(wkb):
+                    multi = True
+                else:
+                    single = True
+                has_z = has_z or QgsWkbTypes.hasZ(wkb)
+            if bases is not None and len(bases) == 1:
+                base = {
+                    QgsWkbTypes.GeometryType.PointGeometry: 'Point',
+                    QgsWkbTypes.GeometryType.LineGeometry: 'LineString',
+                    QgsWkbTypes.GeometryType.PolygonGeometry: 'Polygon',
+                }.get(bases.pop())
+                if base:
+                    type_name = ('Multi' if multi else '') + base + ('Z' if has_z else '')
+                    return ('manual_geometry', f"EPSG:{epsgs.pop()}", type_name,
+                            multi and single)
+        if features:
+            self.logger.warning(
+                f"Map layer {layer_summary.get('id')}: original geometry not "
+                f"available in one CRS (CRSs: {sorted(str(e) for e in epsgs)}) — "
+                "pulled in WGS84 instead. A publish from this copy stores WGS84."
+            )
+        geometry_map = {
+            'point': 'MultiPoint',
+            'line': 'MultiLineString',
+            'polygon': 'MultiPolygon',
+        }
+        return ('geometry', 'EPSG:4326',
+                geometry_map.get(layer_summary.get('geometry_type'), 'MultiPolygon'),
+                True)
+
+    # Custom properties of a geoDB map layer in QGIS (pulled or new)
+    VECTOR_LAYER_DISPLAY_PROP = 'geodb/vector_layer_display_name'
+    VECTOR_LAYER_KIND_PROP = 'geodb/vector_layer_kind'
+    VECTOR_LAYER_TRACED_FROM_PROP = 'geodb/vector_layer_traced_from'
+    #: Set on a layer made with "New geoDB map layer…" until its first publish.
+    VECTOR_LAYER_NEW_PROP = 'geodb/new_map_layer'
+
+    def tag_map_layer(self, layer, *, server_layer_id=None, name='', display_name='',
+                      kind='', style_mode='frozen', traced_from=None, new=False):
+        """Stamp the custom properties that make a QGIS layer a geoDB map layer
+        (what publish reads). ONE writer for the pull and "New map layer"."""
+        layer.setCustomProperty(self.VECTOR_LAYER_ID_PROP, server_layer_id)
+        layer.setCustomProperty(self.VECTOR_LAYER_NAME_PROP, name or '')
+        layer.setCustomProperty(self.VECTOR_LAYER_DISPLAY_PROP, display_name or name or '')
+        layer.setCustomProperty(self.VECTOR_LAYER_KIND_PROP, kind or '')
+        layer.setCustomProperty(self.VECTOR_LAYER_STYLE_MODE_PROP, style_mode or 'frozen')
+        layer.setCustomProperty(self.VECTOR_LAYER_TRACED_FROM_PROP, traced_from)
+        layer.setCustomProperty(self.VECTOR_LAYER_NEW_PROP, bool(new))
+
+    def map_layer_info(self, layer) -> Optional[Dict[str, Any]]:
+        """What publish needs from a tagged QGIS layer, or None for a layer
+        that is not a geoDB map layer."""
+        try:
+            server_id = layer.customProperty(self.VECTOR_LAYER_ID_PROP)
+            is_new = layer.customProperty(self.VECTOR_LAYER_NEW_PROP) in (True, 'true', 1)
+        except AttributeError:
+            return None
+        if not server_id and not is_new:
+            return None
+
+        def _int(value):
+            try:
+                return int(value) if value not in (None, '') else None
+            except (TypeError, ValueError):
+                return None
+
+        name = layer.customProperty(self.VECTOR_LAYER_NAME_PROP) or layer.name()
+        return {
+            'server_layer_id': _int(server_id),
+            'is_new': is_new,
+            'name': name,
+            'display_name': layer.customProperty(self.VECTOR_LAYER_DISPLAY_PROP) or name,
+            'kind': layer.customProperty(self.VECTOR_LAYER_KIND_PROP) or None,
+            'style_mode': layer.customProperty(self.VECTOR_LAYER_STYLE_MODE_PROP) or 'frozen',
+            'traced_from': _int(layer.customProperty(self.VECTOR_LAYER_TRACED_FROM_PROP)),
+        }
+
+    def map_layers_in_project(self) -> List[Any]:
+        """Every QGIS layer tagged as a geoDB map layer (pulled or new)."""
+        found = []
+        for layer in QgsProject.instance().mapLayers().values():
+            if self.map_layer_info(layer) is not None:
+                found.append(layer)
+        return sorted(found, key=lambda lyr: lyr.name().lower())
 
     def find_vector_layer(self, server_layer_id):
         """Find the pulled QGIS layer for a server vector layer id."""
@@ -3049,12 +3163,14 @@ class SyncManager:
 
     def build_vector_layer_push_rows(self, layer) -> List[Dict[str, Any]]:
         """
-        Serialize a pulled vector layer into push-endpoint feature dicts.
+        Serialize a map layer into push-endpoint feature dicts.
 
-        Each row: {'ewkt', 'label', 'properties'}. EWKT at precision 12 —
-        push feeds a NEW DRAFT, and untouched geometry must survive the
-        round trip without degradation. Features without geometry are skipped
-        (the endpoint requires geometry per feature).
+        Each row: {'ewkt', 'label', 'properties', 'source_feature_id'?}. EWKT
+        in the LAYER's CRS (its original CRS since 2.35.6) at precision 12, Z
+        and single parts as the layer holds them. ``source_feature_id`` (the
+        pulled feature's geoDB id) lets the server keep an untouched feature's
+        stored original WKT byte for byte. Features without geometry are
+        skipped (the endpoint requires geometry per feature).
         """
         property_fields = [
             f.name() for f in layer.fields()
@@ -3073,14 +3189,20 @@ class SyncManager:
                 properties[field_name] = self._vector_jsonable(
                     feature.attribute(field_name)
                 )
-            label = self._vector_jsonable(feature.attribute('geodb_label'))
-            rows.append({
+            label = (self._vector_jsonable(feature.attribute('geodb_label'))
+                     if 'geodb_label' in layer.fields().names() else None)
+            row = {
                 'ewkt': self.geometry_processor.qgs_to_ewkt(
                     geometry, srid=epsg, precision=12
                 ),
                 'label': str(label) if label else '',
                 'properties': properties,
-            })
+            }
+            source_id = self._vector_jsonable(feature.attribute('geodb_id')) \
+                if 'geodb_id' in layer.fields().names() else None
+            if isinstance(source_id, int) and source_id > 0:
+                row['source_feature_id'] = source_id
+            rows.append(row)
         return rows
 
     def _vector_rows_with_keys(self, layer) -> List:
@@ -3094,8 +3216,11 @@ class SyncManager:
         layer_crs = layer.crs()
         epsg = layer_crs.postgisSrid() if layer_crs.isValid() else 4326
 
+        has_id = 'geodb_id' in layer.fields().names()
+        has_label = 'geodb_label' in layer.fields().names()
         for feature in layer.getFeatures():
-            server_id = self._vector_jsonable(feature.attribute('geodb_id'))
+            server_id = (self._vector_jsonable(feature.attribute('geodb_id'))
+                         if has_id else None)
             key = str(server_id) if server_id else f"local_{feature.id()}"
 
             geometry = feature.geometry()
@@ -3108,7 +3233,8 @@ class SyncManager:
                 name: self._vector_jsonable(feature.attribute(name))
                 for name in property_fields
             }
-            label = self._vector_jsonable(feature.attribute('geodb_label'))
+            label = (self._vector_jsonable(feature.attribute('geodb_label'))
+                     if has_label else None)
             keyed.append((key, {
                 'ewkt': ewkt,
                 'label': str(label) if label else '',

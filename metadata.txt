@@ -24,7 +24,21 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.35.6 - Planned-sample types match geoDB
+    2.35.6 - Map layers: make them in QGIS and publish them; planned-sample types match geoDB
+        - "Vector Layers" in Data Sync is now "Map layers (lines & areas)".
+        - New map layer: make an empty layer of lines, areas or points, choose
+          its kind (map units, faults, alteration zones, targets...) and,
+          optionally, the field sketch you are tracing. It is kept in a
+          GeoPackage, in the project's coordinate system.
+        - Publish to geoDB: send a map layer and choose Publish now (it shows
+          on the geoDB web map, and on crew phones at their next sync) or Save
+          as draft. Publishing an edited copy of a layer replaces the version
+          on the map; geoDB keeps the old one (archived). Needs geoDB server
+          support for publishing (older servers keep saving drafts).
+        - Map layers now come into QGIS in their ORIGINAL coordinate system,
+          with elevations (Z) and single parts kept, and go back the same way:
+          features you did not touch keep their exact original coordinates.
+          Attribute columns are typed from all their values, not the first.
         - The Field Work dialog's sample types are now exactly the ones geoDB
           accepts (Soil, Rock Chip, Outcrop, Dump, Stream Sediment, BLEG,
           Other). Float, Pan Concentrate and the old Stream Sediment code were

@@ -1376,10 +1376,11 @@ class APIClient:
     def get_vector_layer_features(
         self,
         layer_id: int,
-        progress_callback: Optional[Callable[[int], None]] = None
+        progress_callback: Optional[Callable[[int], None]] = None,
+        original: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        Get ALL features of a vector layer, following pagination.
+        Get ALL features of a map layer, following pagination.
 
         Always fetches FULL-RESOLUTION geometry (never passes ?simplify=) —
         simplified geometry must never enter a pull→edit→push round trip.
@@ -1387,9 +1388,14 @@ class APIClient:
         Each feature dict: id, label, properties (verbatim source attributes),
         epsg (source SRID), geometry (WGS84 GeoJSON dict), style
         (server-resolved symbol JSON — the client does zero style logic).
+        With ``original`` (the default since 2.35.6) also ``manual_geometry``
+        (the ORIGINAL WKT in ``epsg``, Z and single parts kept) and ``has_z``;
+        a server without it simply leaves them out.
         """
         base = self.config.endpoints['vector_layers']
         url = f"{base}{layer_id}/features/?limit=500"
+        if original:
+            url += "&geometry=original"
         features: List[Dict[str, Any]] = []
         total = None
 
@@ -1416,20 +1422,36 @@ class APIClient:
 
     def push_vector_layer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Push a whole layer to the server as a NEW DRAFT vector layer.
+        Push a whole layer to the server as a NEW map layer.
 
         Payload: name, display_name?, kind?, source_layer_id?, epsg?,
         style_qml? (raw QGIS .qml XML, translated server-side), attribution?,
-        features[] (each: ewkt OR wkt+epsg, label?, properties?).
+        publish? (land it live; with source_layer_id the version on the map
+        is archived, never deleted), traced_from? (a project file id, e.g. a
+        field sketch), features[] (each: ewkt OR wkt+epsg, label?,
+        properties?, source_feature_id?).
 
-        The result always lands status='draft' in the source layer's set (or
-        the project default set); promotion happens on the web manage surface.
+        Without ``publish`` the layer lands status='draft' (reviewed on the
+        web); with it, 'active'.
 
         Returns:
-            Dict: {success, layer: <summary>, status: 'draft', imported, failed}
+            Dict: {success, layer: <summary>, status, imported, failed,
+            archived?, kept_original?}
         """
         url = self.config.endpoints['vector_layers_push']
         return self._make_request('POST', url, data=payload)
+
+    def get_field_sketches(self, project_id: int) -> List[Dict[str, Any]]:
+        """The project's field sketches (project files flagged
+        ``is_field_sketch``), newest first — the "traced from sketch" picker."""
+        files = self.get_all_paginated(
+            model_name='ProjectFile', project_id=project_id,
+            include_deletion_metadata=False,
+        )
+        rows = files.get('results', []) if isinstance(files, dict) else (files or [])
+        sketches = [row for row in rows if row.get('is_field_sketch')]
+        sketches.sort(key=lambda row: str(row.get('date_created') or ''), reverse=True)
+        return sketches
 
     # =========================================================================
     # Assay Range Configurations
