@@ -39,6 +39,14 @@ changelog=
           with elevations (Z) and single parts kept, and go back the same way:
           features you did not touch keep their exact original coordinates.
           Attribute columns are typed from all their values, not the first.
+        - A layer coloured by the geoDB catalog stays catalog-coloured when you
+          publish it with its colours unchanged (the same colours as strip logs
+          and 3D); if you recolour it in QGIS, your colours are kept instead.
+          The publish dialog says which will happen.
+        - If someone published a newer version of a layer after you pulled it,
+          Publish asks before replacing it. Pull asks before dropping edits you
+          have not published. A new map layer never replaces another layer of
+          the same name in the GeoPackage.
         - The Field Work dialog's sample types are now exactly the ones geoDB
           accepts (Soil, Rock Chip, Outcrop, Dump, Stream Sediment, BLEG,
           Other). Float, Pan Concentrate and the old Stream Sediment code were
