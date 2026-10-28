@@ -2708,6 +2708,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             layer = result.get('layer')
             summary = f"{result.get('pulled', 0):,} features"
             self._log_message(f"✓ Pull complete: {summary}", "success")
+            if result.get('kept_table'):
+                # An earlier copy that was not open in this project: kept, never
+                # deleted (it may hold edits the plugin cannot see).
+                kept_msg = (f"Your earlier copy of '{display}' (not open in this project) "
+                            f"was kept in the GeoPackage as '{result['kept_table']}'. "
+                            "Open it from the GeoPackage if it holds edits you want to publish.")
+                self._log_message(kept_msg, "warning")
+                QMessageBox.information(self, "Earlier copy kept", kept_msg)
 
             # Apply the server style spec as a native QGIS renderer
             if layer is not None:

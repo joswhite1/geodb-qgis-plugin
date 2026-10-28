@@ -514,13 +514,67 @@ class LayerProcessor:
             if ds is not None:
                 ds = None
 
+    def rename_geopackage_table(self, old: str, new: str) -> bool:
+        """Rename table ``old`` to ``new`` in the current GeoPackage (GDAL
+        ``Rename``, else ``ALTER TABLE … RENAME TO``). Never deletes. True when
+        the table now carries the new name."""
+        if not self._geopackage_path or not os.path.exists(self._geopackage_path):
+            return False
+        ds = None
+        try:
+            from osgeo import ogr
+            ds = ogr.Open(self._geopackage_path, 1)
+            if ds is None:
+                return False
+            lyr = ds.GetLayerByName(old)
+            if lyr is None:
+                return False
+            renamed = False
+            if hasattr(lyr, 'Rename'):
+                renamed = lyr.Rename(new) == 0
+            if not renamed:
+                ds.ExecuteSQL(f'ALTER TABLE "{old}" RENAME TO "{new}"')
+            ds = None
+            return new.lower() in self.geopackage_table_names(self._geopackage_path)
+        except Exception as e:
+            self.logger.error(f"Could not rename GeoPackage table {old}: {e}")
+            return False
+        finally:
+            ds = None
+
+    def keep_unloaded_table_aside(self, model_name: str) -> Optional[str]:
+        """Re-pull safety (review 2026-10-28): the GeoPackage may still hold a
+        table of this name from an earlier pull that is NOT loaded in the QGIS
+        project (pull, edit, save, close QGIS, reopen, pull again). The Pull
+        guard only sees loaded layers and the plugin's snapshot of that copy is
+        gone with the old project, so its edits cannot be judged. It is never
+        deleted: it is renamed to the first free ``<name>_kept_<n>`` and that
+        name is returned (None when there was nothing to keep). Raises
+        LayerError when it cannot be moved — the pull then stops, the table
+        untouched."""
+        if not self.is_using_geopackage():
+            return None
+        if model_name.lower() not in self.geopackage_table_names(self._geopackage_path):
+            return None
+        kept = self.free_geopackage_table_name(self._geopackage_path, f"{model_name}_kept")
+        if not self.rename_geopackage_table(model_name, kept):
+            raise LayerError(
+                f"The GeoPackage already holds a copy of '{model_name}' that is not open "
+                f"in this project and could not be set aside, so nothing was pulled. "
+                f"Open it from {self._geopackage_path} and publish or remove it first.")
+        self.logger.warning(
+            f"An earlier copy of '{model_name}' (not open in this project) was kept in "
+            f"the GeoPackage as table '{kept}' before pulling: {self._geopackage_path}")
+        return kept
+
     def remove_and_recreate_layer(
         self,
         model_name: str,
         geometry_type: str,
         fields: QgsFields,
         crs: Optional[str] = None,
-        project_name: Optional[str] = None
+        project_name: Optional[str] = None,
+        keep_unloaded_table: bool = False
     ) -> QgsVectorLayer:
         """
         Remove existing layer and create a fresh one.
@@ -546,6 +600,12 @@ class LayerProcessor:
         if not existing_layer:
             # Also check for layer without project prefix (for backwards compatibility)
             existing_layer = self.find_layer_by_name(model_name)
+
+        # Map-layer pulls: a table with no loaded layer is somebody's earlier
+        # copy — keep it, never delete it (keep_unloaded_table_aside).
+        self.last_kept_table = None
+        if keep_unloaded_table and not existing_layer:
+            self.last_kept_table = self.keep_unloaded_table_aside(model_name)
 
         if existing_layer:
             QgsProject.instance().removeMapLayer(existing_layer.id())

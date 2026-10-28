@@ -26,6 +26,9 @@ hasProcessingProvider=no
 changelog=
     2.35.6 - Map layers: make them in QGIS and publish them; planned-sample types match geoDB
         - "Vector Layers" in Data Sync is now "Map layers (lines & areas)".
+        - Pulling a map layer again never deletes an earlier copy that is not
+          open in this project (pulled, edited, saved, QGIS closed): it is kept
+          in the GeoPackage under a new table name and the plugin says where.
         - New map layer: make an empty layer of lines, areas or points, choose
           its kind (map units, faults, alteration zones, targets...) and,
           optionally, the field sketch you are tracing. It is kept in a

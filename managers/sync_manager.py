@@ -2983,8 +2983,10 @@ class SyncManager:
             processor.set_geopackage_path(gpkg_path)
         try:
             layer = processor.remove_and_recreate_layer(
-                effective_name, geometry_type, fields, crs, project_name
+                effective_name, geometry_type, fields, crs, project_name,
+                keep_unloaded_table=True,
             )
+            self.last_kept_table = getattr(processor, 'last_kept_table', None)
         finally:
             if borrowed:
                 processor.set_geopackage_path(saved_path)

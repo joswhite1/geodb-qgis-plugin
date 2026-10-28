@@ -442,7 +442,9 @@ class DataManager:
         if progress_callback:
             progress_callback(95, "Finalizing layer...")
 
-        return {'pulled': len(features), 'added': added, 'layer': layer}
+        return {'pulled': len(features), 'added': added, 'layer': layer,
+                # An earlier, unopened copy kept aside in the GeoPackage (or None).
+                'kept_table': getattr(self.sync_manager, 'last_kept_table', None)}
 
     def open_sketch_strokes(self, project_file_id: int,
                             gpkg_path: Optional[str] = None,

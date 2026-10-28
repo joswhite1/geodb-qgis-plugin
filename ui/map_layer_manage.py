@@ -364,11 +364,12 @@ HELP_HTML = """
 <h3>Map layers: from field sketch to project map</h3>
 <p>A <b>map layer</b> is one kind of thing drawn as lines, areas or points, with its
 colours: rock units, contacts, faults, alteration zones, targets. Live map layers show on
-the geoDB web map and on every crew phone (offline too), where tapping a unit or a fault
-says what it is.</p>
+the geoDB web map and on crew phones (offline too); in the field app 2.0 and later, tapping
+a unit or a fault says what it is.</p>
 <h4>1. Sketch in the field</h4>
 <p>On the phone, a crew sketches contacts, faults and units over the basemap on a mapping
-area, one sheet per theme. After their next sync the sketch lands in geoDB, in place.</p>
+area, one sheet per theme. After their next sync the sketch lands in geoDB, in place
+(the field app 2.0 and later also sends the strokes that “Open strokes as lines” needs).</p>
 <h4>2. Open it in QGIS</h4>
 <p><b>Field sketches…</b> lists every sketch by mapping area, author and date.
 <b>Open sketch</b> adds the image in place (white made transparent) to trace over.
@@ -388,9 +389,9 @@ one (archived) and your original coordinates exactly as you drew them.</p>
 <h4>5. Manage</h4>
 <p><b>Manage map layers…</b> shows every layer with its status (live, draft, archived),
 kind, feature count, last edit and the sketch it was traced from. From there: rename,
-change kind, hide or show on crew phones, publish a draft (replacing the layer it updates,
-or alongside it), archive and make live again, discard a draft and restore it from the
-Trash.</p>
+change kind, publish a draft (replacing the layer it updates, or alongside it), archive and
+make live again, discard a draft and restore it from the Trash. “Show on crew phones”
+records the office's default for crews; the field app does not apply it yet.</p>
 <h4>Pulling again</h4>
 <p>Pulling a layer replaces your local copy. If it has edits you have not published, the
 plugin asks first: publish them, discard them, or cancel.</p>
