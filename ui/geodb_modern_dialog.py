@@ -2565,18 +2565,26 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         # Review L5: a pull REPLACES the local copy. Unpublished edits are
         # asked about first: publish them, discard them, or cancel.
+        # Round 3: also the copy the pull replaces BY NAME, and any copy of an
+        # earlier version (a teammate's publish moves the list on while your
+        # copy stays keyed to the version you pulled).
         from .map_layer_dialogs import DISCARD, PUBLISH, ask_unpublished_edits
-        local = self.sync_manager.find_vector_layer(vl.get('id'))
-        if local is not None:
-            changes = self.sync_manager.vector_layer_changes(vl.get('id'), local)
-            if any(changes.values()):
-                answer = ask_unpublished_edits(
-                    self, vl.get('display_name') or vl.get('name') or local.name(), changes)
-                if answer == PUBLISH:
-                    self._publish_qgis_map_layer(local)
-                    return
-                if answer != DISCARD:
-                    return
+        earlier = []
+        try:
+            earlier = self.api_client.get_vector_layer(vl.get('id')).get('earlier_versions') or []
+        except Exception as e:  # an older server: the name + id checks still run
+            self.logger.info(f"Could not read earlier versions of {vl.get('id')}: {e}")
+        project = self.project_manager.active_project
+        at_risk = self.sync_manager.copies_at_risk(
+            vl, earlier, project_name=project.name if project else None)
+        if at_risk:
+            local, changes = at_risk[0]
+            answer = ask_unpublished_edits(self, local.name(), changes)
+            if answer == PUBLISH:
+                self._publish_qgis_map_layer(local)
+                return
+            if answer != DISCARD:
+                return
 
         display = vl.get('display_name') or vl.get('name') or 'map layer'
 

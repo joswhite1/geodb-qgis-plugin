@@ -3092,6 +3092,10 @@ class SyncManager:
     #: Fingerprint of the renderer applied at pull (catalog-coloured layers:
     #: unchanged ⇒ publish keeps the catalog, Joshua's ruling 2026-10-27).
     VECTOR_LAYER_RENDERER_PROP = 'geodb/pulled_renderer'
+    #: The geoDB id of the version THIS copy last put live (review round 3):
+    #: sent as based_on_layer_id so republishing from the same copy is not
+    #: mistaken for a stale copy.
+    VECTOR_LAYER_BASED_ON_PROP = 'geodb/based_on_layer_id'
 
     @staticmethod
     def renderer_fingerprint(layer) -> str:
@@ -3124,6 +3128,11 @@ class SyncManager:
         layer.setCustomProperty(self.VECTOR_LAYER_NEW_PROP, bool(new))
         layer.setCustomProperty(self.VECTOR_LAYER_ORIGINAL_CRS_PROP, bool(original_crs))
         layer.setCustomProperty(self.VECTOR_LAYER_LAST_DRAFT_PROP, None)
+        layer.setCustomProperty(self.VECTOR_LAYER_BASED_ON_PROP, None)
+
+    def note_based_on(self, layer, layer_id):
+        """Remember the version this copy put live."""
+        layer.setCustomProperty(self.VECTOR_LAYER_BASED_ON_PROP, layer_id)
 
     def note_draft_sent(self, layer, draft_id):
         """Remember (or clear, with None) the draft this copy last saved."""
@@ -3158,6 +3167,7 @@ class SyncManager:
             'original_crs': layer.customProperty(self.VECTOR_LAYER_ORIGINAL_CRS_PROP)
             in (True, 'true', 1),
             'last_draft_id': _int(layer.customProperty(self.VECTOR_LAYER_LAST_DRAFT_PROP)),
+            'based_on': _int(layer.customProperty(self.VECTOR_LAYER_BASED_ON_PROP)),
             # A catalog-coloured copy whose renderer is still the pulled one.
             'catalog_renderer_kept': (
                 (layer.customProperty(self.VECTOR_LAYER_STYLE_MODE_PROP) or 'frozen') == 'catalog'
@@ -3165,6 +3175,44 @@ class SyncManager:
                 and layer.customProperty(self.VECTOR_LAYER_RENDERER_PROP)
                 == self.renderer_fingerprint(layer)),
         }
+
+    def copies_at_risk(self, layer_summary: Dict[str, Any], earlier_ids=(),
+                       project_name: Optional[str] = None) -> List[Tuple[Any, Dict[str, int]]]:
+        """What a pull of ``layer_summary`` could overwrite while it holds
+        unpublished edits (review L5, round 3): ``[(qgis_layer, changes)]``.
+
+        A pull replaces the QGIS layer (and GeoPackage table) of the
+        pulled layer's NAME, so that layer is checked whatever it is keyed to,
+        and so is every tagged copy of the pulled layer or of an earlier
+        version of it (``earlier_ids``, from the server) — after a teammate
+        publishes, the list shows their version while your copy is keyed to
+        the one you pulled."""
+        ids = {layer_summary.get('id')} | {i for i in (earlier_ids or ()) if i}
+        effective = self.vector_effective_model_name(layer_summary)
+        names = {self.layer_processor._build_layer_name(effective, project_name), effective}
+        candidates = {}
+        for layer in QgsProject.instance().mapLayers().values():
+            try:
+                info = self.map_layer_info(layer)
+                by_name = layer.name() in names
+            except AttributeError:
+                continue
+            related = info is not None and (
+                info.get('server_layer_id') in ids or info.get('based_on') in ids)
+            if by_name or related:
+                candidates[layer.id()] = (layer, info)
+        at_risk = []
+        for layer, info in candidates.values():
+            if info is not None and info.get('server_layer_id') and not info.get('is_new'):
+                changes = self.vector_layer_changes(info['server_layer_id'], layer)
+            else:
+                # A new layer, or a same-named layer that is not a geoDB copy:
+                # everything in it would go.
+                changes = {'added': layer.featureCount() if hasattr(layer, 'featureCount') else 0,
+                           'modified': 0, 'removed': 0}
+            if any(changes.values()):
+                at_risk.append((layer, changes))
+        return at_risk
 
     def map_layers_in_project(self) -> List[Any]:
         """Every QGIS layer tagged as a geoDB map layer (pulled or new)."""

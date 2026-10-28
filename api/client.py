@@ -1441,6 +1441,19 @@ class APIClient:
         url = self.config.endpoints['vector_layers_push']
         return self._make_request('POST', url, data=payload)
 
+    def publish_vector_layer_draft(self, layer_id: int,
+                                   body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Put an existing DRAFT map layer live (POST vector-layers/<id>/publish/).
+        Body: based_on_layer_id?, replace_newer?. 409 newer_version_live like a
+        published push."""
+        url = f"{self.config.endpoints['vector_layers']}{layer_id}/publish/"
+        return self._make_request('POST', url, data=body or {})
+
+    def get_vector_layer(self, layer_id: int) -> Dict[str, Any]:
+        """One map layer's summary (+ ``earlier_versions``: the layers it
+        replaced, nearest first — newer servers only)."""
+        return self._make_request('GET', f"{self.config.endpoints['vector_layers']}{layer_id}/")
+
     def get_field_sketches(self, project_id: int) -> List[Dict[str, Any]]:
         """The project's field sketches (project files flagged
         ``is_field_sketch``), newest first — the "traced from sketch" picker."""

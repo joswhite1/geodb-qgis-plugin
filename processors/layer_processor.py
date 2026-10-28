@@ -351,9 +351,12 @@ class LayerProcessor:
                     f"({error_msg}). The file was left untouched: close anything "
                     "holding it open, or choose another GeoPackage.")
             if gpkg_exists and "update mode" in error_msg.lower():
-                self.logger.warning("Attempting to recreate GeoPackage file...")
+                # NEVER delete it (review round 3): the project GeoPackage also
+                # holds pulled map layers and new ones with unpublished edits,
+                # and macOS/Linux delete a file QGIS still holds open. Move it
+                # aside, start a fresh one, and say where the old one is.
+                backup = self.move_geopackage_aside(gpkg_path)
                 try:
-                    os.remove(gpkg_path)
                     options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
                     error = QgsVectorFileWriter.writeAsVectorFormatV3(
                         temp_layer,
@@ -362,11 +365,18 @@ class LayerProcessor:
                         options
                     )
                     if error[0] == QgsVectorFileWriter.WriterError.NoError:
-                        self.logger.info("Successfully recreated GeoPackage file")
+                        self.logger.warning(
+                            f"{os.path.basename(gpkg_path)} could not be opened for "
+                            f"writing, so a new one was started. Your previous file "
+                            f"was kept, unchanged, as {backup} — open it in QGIS to "
+                            "get back anything it held.")
                     else:
-                        raise LayerError(f"Failed to create GeoPackage layer: {error[1] or error_msg}")
+                        raise LayerError(
+                            f"Failed to create GeoPackage layer: {error[1] or error_msg}. "
+                            f"Your previous file is kept as {backup}.")
                 except OSError as e:
-                    raise LayerError(f"Failed to recreate GeoPackage: {e}")
+                    raise LayerError(f"Failed to start a new GeoPackage ({e}). "
+                                     f"Your previous file is kept as {backup}.")
             else:
                 raise LayerError(f"Failed to create GeoPackage layer: {error_msg}")
 
@@ -382,6 +392,32 @@ class LayerProcessor:
 
         self.logger.info(f"Created GeoPackage layer: {layer_name} in {gpkg_path}")
         return layer
+
+    def move_geopackage_aside(self, gpkg_path: str) -> str:
+        """Rename ``gpkg_path`` to ``<name>.<timestamp>.bak`` beside it (and
+        its -wal / -shm companions) and return the new path. Never deletes.
+        Raises LayerError when the file cannot be moved (e.g. Windows while
+        QGIS holds it open) — the file is then left exactly where it was."""
+        from datetime import datetime
+        stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        backup = f"{gpkg_path}.{stamp}.bak"
+        n = 1
+        while os.path.exists(backup):
+            n += 1
+            backup = f"{gpkg_path}.{stamp}-{n}.bak"
+        try:
+            os.rename(gpkg_path, backup)
+        except OSError as e:
+            raise LayerError(
+                f"{os.path.basename(gpkg_path)} could not be opened for writing and "
+                f"could not be moved aside ({e}). It was left untouched: close "
+                "anything holding it open and try again.")
+        for suffix in ('-wal', '-shm'):
+            if os.path.exists(gpkg_path + suffix):
+                with suppress(OSError):
+                    os.rename(gpkg_path + suffix, backup + suffix)
+        self.logger.warning(f"Moved {gpkg_path} aside to {backup}")
+        return backup
 
     @staticmethod
     def geopackage_table_names(gpkg_path: Optional[str]) -> set:

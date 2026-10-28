@@ -501,15 +501,31 @@ class DataManager:
             )
         server_layer_id = info['server_layer_id']
         pulled = server_layer_id is not None and not info['is_new']
+        draft_id = info['last_draft_id']
 
         if progress_callback:
             progress_callback(10, "Checking for local changes...")
 
+        # A copy saved as a draft and not changed since: publish THAT draft
+        # (review round 3) instead of landing a second copy beside it.
+        if publish and draft_id and not any(
+                self.sync_manager.vector_layer_changes(draft_id, qgis_layer).values()):
+            body = {'replace_newer': True} if replace_newer else {}
+            if info.get('based_on'):
+                body['based_on_layer_id'] = info['based_on']
+            response = self._send_map_layer(
+                lambda: self.api_client.publish_vector_layer_draft(draft_id, body))
+            result = self._after_map_layer_send(qgis_layer, info, pulled, response)
+            result['changes'] = {'added': 0, 'modified': 0, 'removed': 0}
+            result['published_draft'] = draft_id
+            if progress_callback:
+                progress_callback(100, "Published")
+            return result
+
         changes = {'added': qgis_layer.featureCount(), 'modified': 0, 'removed': 0}
         if pulled:
             changes = self.sync_manager.vector_layer_changes(server_layer_id, qgis_layer)
-            publishing_a_draft = publish and info['last_draft_id']
-            if not any(changes.values()) and not publishing_a_draft:
+            if not any(changes.values()) and not (publish and draft_id):
                 self.logger.info(f"Map layer {server_layer_id}: no local changes")
                 if progress_callback:
                     progress_callback(100, "No local changes — nothing to send")
@@ -534,21 +550,23 @@ class DataManager:
         }
         if pulled:
             payload['source_layer_id'] = server_layer_id
+            if info.get('based_on'):
+                # The version THIS copy last put live: the server's stale
+                # check then refuses only someone else's newer version.
+                payload['based_on_layer_id'] = info['based_on']
         if info['kind']:
             payload['kind'] = info['kind']
         if info['traced_from']:
             payload['traced_from'] = info['traced_from']
         if replace_newer:
             payload['replace_newer'] = True
-
         if pulled and info.get('catalog_renderer_kept'):
             # The catalog colours were kept: geoDB keeps the layer catalog-
-            # coloured and its features linked (no QML — the pulled catalog
-            # renderer categorizes on a column geoDB does not store).
+            # coloured and its features linked. The QML still travels: a
+            # server that lands it frozen keeps the colours the user sees.
             payload['keep_catalog'] = True
-            style_qml = None
-        else:
-            style_qml = self._export_layer_qml(qgis_layer)
+
+        style_qml = self._export_layer_qml(qgis_layer)
         if style_qml:
             payload['style_qml'] = style_qml
 
@@ -558,56 +576,78 @@ class DataManager:
                     f"{' to publish' if publish else ' as a draft'}..."
             )
 
-        try:
-            response = self.api_client.push_vector_layer(payload)
-        except Exception as e:
-            # The server 400s when the QML can't be translated to its style
-            # spec (e.g. rule-based renderers). The geometry+attributes are
-            # still good — retry once without style rather than failing.
-            if isinstance(e, APIException) and e.status_code == 409 and \
-                    (e.response_data or {}).get('code') == 'newer_version_live':
-                raise NewerVersionLive(str(e), e.status_code, e.response_data)
-            if style_qml and 'style' in str(e).lower():
-                self.logger.warning(
-                    f"Server rejected layer style, retrying without it: {e}"
-                )
-                payload.pop('style_qml', None)
-                response = self.api_client.push_vector_layer(payload)
-                response['style_dropped'] = True
-            else:
+        def push():
+            try:
+                return self.api_client.push_vector_layer(payload)
+            except NewerVersionLive:
+                raise
+            except Exception as e:
+                # The server 400s when the QML can't be translated to its style
+                # spec (e.g. rule-based renderers). The geometry+attributes are
+                # still good — retry once without style rather than failing.
+                if payload.get('style_qml') and 'style' in str(e).lower() and not (
+                        isinstance(e, APIException) and e.status_code == 409):
+                    self.logger.warning(
+                        f"Server rejected layer style, retrying without it: {e}")
+                    payload.pop('style_qml', None)
+                    retried = self.api_client.push_vector_layer(payload)
+                    retried['style_dropped'] = True
+                    return retried
                 raise
 
+        response = self._send_map_layer(push)
+        result = self._after_map_layer_send(qgis_layer, info, pulled, response)
+        if progress_callback:
+            progress_callback(100, "Published" if publish else "Draft saved on geoDB")
+        result['changes'] = changes
+        return result
+
+    @staticmethod
+    def _send_map_layer(send):
+        """Run one map-layer send; a 409 ``newer_version_live`` becomes
+        :class:`NewerVersionLive` (ONE place for the push and the draft
+        publish)."""
+        try:
+            return send()
+        except APIException as e:
+            if e.status_code == 409 and \
+                    (e.response_data or {}).get('code') == 'newer_version_live':
+                raise NewerVersionLive(str(e), e.status_code, e.response_data)
+            raise
+
+    def _after_map_layer_send(self, qgis_layer, info, pulled, response):
+        """Re-tag / re-baseline the copy after a send (push or draft publish)."""
         result = dict(response) if isinstance(response, dict) else {}
         landed = result.get('layer') or {}
+        landed_id = landed.get('id')
         went_live = result.get('status') == 'active'
+        sync = self.sync_manager
         if pulled:
-            # Re-baseline the snapshot so an immediate re-send reports no changes.
-            # The copy stays keyed to the layer it was pulled from: a later
-            # publish replaces whatever version is live then (the server walks
-            # the replacement chain), and its feature ids keep untouched
-            # originals verbatim.
-            self.sync_manager.store_vector_layer_snapshot(server_layer_id, qgis_layer)
-            self.sync_manager.note_draft_sent(
-                qgis_layer, None if went_live else landed.get('id'))
-        elif landed.get('id') and went_live:
+            # The copy stays keyed to the layer it was pulled from (its feature
+            # ids keep untouched originals verbatim); after a publish it also
+            # remembers the version it put live (based_on).
+            sync.store_vector_layer_snapshot(info['server_layer_id'], qgis_layer)
+            if went_live:
+                sync.note_based_on(qgis_layer, landed_id)
+                sync.note_draft_sent(qgis_layer, None)
+            elif landed_id:
+                sync.note_draft_sent(qgis_layer, landed_id)
+                sync.store_vector_layer_snapshot(landed_id, qgis_layer)
+        elif landed_id and went_live:
             # A new layer is now a geoDB layer: the next publish is a new
             # version of it, not another new layer. (A DRAFT of a new layer
-            # leaves it new: publishing later sends it as a new layer again.)
-            self.sync_manager.tag_map_layer(
-                qgis_layer, server_layer_id=landed.get('id'),
+            # leaves it new until it is published.)
+            sync.tag_map_layer(
+                qgis_layer, server_layer_id=landed_id,
                 name=landed.get('name') or info['name'],
                 display_name=landed.get('display_name') or info['display_name'],
                 kind=landed.get('kind') or info['kind'],
                 style_mode=landed.get('style_mode') or 'frozen',
                 traced_from=info['traced_from'], new=False)
-            self.sync_manager.store_vector_layer_snapshot(landed.get('id'), qgis_layer)
-        elif landed.get('id'):
-            self.sync_manager.note_draft_sent(qgis_layer, landed.get('id'))
-
-        if progress_callback:
-            progress_callback(100, "Published" if publish else "Draft saved on geoDB")
-
-        result['changes'] = changes
+            sync.store_vector_layer_snapshot(landed_id, qgis_layer)
+        elif landed_id:
+            sync.note_draft_sent(qgis_layer, landed_id)
+            sync.store_vector_layer_snapshot(landed_id, qgis_layer)
         return result
 
     def create_map_layer(
