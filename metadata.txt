@@ -45,8 +45,13 @@ changelog=
           The publish dialog says which will happen.
         - If someone published a newer version of a layer after you pulled it,
           Publish asks before replacing it. Pull asks before dropping edits you
-          have not published. A new map layer never replaces another layer of
-          the same name in the GeoPackage.
+          have not published (also in a copy of an earlier version, or a layer
+          of the same name). A new map layer never replaces another layer of
+          the same name in the GeoPackage. Publishing a layer you saved as a
+          draft publishes that draft instead of making a second copy.
+        - A GeoPackage the plugin cannot open for writing is never deleted any
+          more: it is kept beside the new one as <name>.<date>.bak, and the Log
+          tab says where.
         - The Field Work dialog's sample types are now exactly the ones geoDB
           accepts (Soil, Rock Chip, Outcrop, Dump, Stream Sediment, BLEG,
           Other). Float, Pan Concentrate and the old Stream Sediment code were
