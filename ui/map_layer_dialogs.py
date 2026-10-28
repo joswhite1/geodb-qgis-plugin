@@ -152,7 +152,7 @@ def publish_message(layer_name, *, replaces=False, catalog=False, wgs84_copy=Fal
         text += (" It replaces the version on the map now; geoDB keeps that one "
                  "(archived), so it can be brought back.")
     text += ("\n\nSave as draft: nobody sees it on a map until someone publishes "
-             "it (geoDB web: Display settings → Map data).")
+             "it (here: “Manage map layers…”; or on the geoDB web).")
     if wgs84_copy:
         text += ("\n\n⚠ This copy is in WGS84 degrees, not the layer's original "
                  "coordinate system (it was pulled by an older plugin, or its "

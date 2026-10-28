@@ -1454,6 +1454,59 @@ class APIClient:
         replaced, nearest first — newer servers only)."""
         return self._make_request('GET', f"{self.config.endpoints['vector_layers']}{layer_id}/")
 
+    # -- Manage map layers from QGIS (usability Q-4 / Q-5, server S-2 / S-5) --
+
+    #: The manage verbs the server serves on ``vector-layers/<id>/<verb>/``.
+    MAP_LAYER_VERBS = ('meta', 'archive', 'reactivate', 'discard', 'restore', 'publish')
+
+    def _map_layer_call(self, method: str, url: str, data=None) -> Dict[str, Any]:
+        """One manage call; a refusal becomes :class:`MapLayerActionError`
+        whose message is the server's own sentence (``error``)."""
+        from .exceptions import MapLayerActionError
+        try:
+            return self._make_request(method, url, data=data)
+        except (AuthenticationError, NetworkError):
+            raise
+        except APIException as e:
+            body = getattr(e, 'response_data', None) or {}
+            message = body.get('error') or body.get('detail') or str(e)
+            raise MapLayerActionError(str(message), getattr(e, 'status_code', None), body)
+
+    def get_map_layers_manage(self, trashed: bool = False) -> Dict[str, Any]:
+        """EVERY map layer of the active project (live, draft, archived; with
+        ``trashed`` the discarded ones): ``{project_id, results, can_write}``.
+        GET vector-layers/manage/."""
+        url = f"{self.config.endpoints['vector_layers']}manage/"
+        if trashed:
+            url += "?trashed=true"
+        return self._map_layer_call('GET', url)
+
+    def map_layer_action(self, layer_id: int, verb: str,
+                         body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """POST vector-layers/<layer_id>/<verb>/ (meta, archive, reactivate,
+        discard, restore, publish) → ``{success, layer}``."""
+        if verb not in self.MAP_LAYER_VERBS:
+            raise ValueError(f"Unknown map-layer action '{verb}'")
+        url = f"{self.config.endpoints['vector_layers']}{int(layer_id)}/{verb}/"
+        return self._map_layer_call('POST', url, data=body or {})
+
+    def get_sketch_list(self) -> List[Dict[str, Any]]:
+        """The active project's field sketches, one row per mapping area:
+        area, author, date, the whole-sketch file, sheets, stroke counts and
+        the layers already traced from it. GET vector-layers/sketches/."""
+        url = f"{self.config.endpoints['vector_layers']}sketches/"
+        return self._map_layer_call('GET', url).get('results') or []
+
+    def sketch_strokes_to_layers(self, project_file_id: int) -> Dict[str, Any]:
+        """A field sketch's strokes → DRAFT line layers on geoDB, one per
+        sheet: ``{success, layers, skipped}``. POST vector-layers/from-sketch/."""
+        url = f"{self.config.endpoints['vector_layers']}from-sketch/"
+        return self._map_layer_call('POST', url, data={'project_file_id': int(project_file_id)})
+
+    def get_project_file(self, file_id: int) -> Dict[str, Any]:
+        """One project file's record (what the raster loader reads)."""
+        return self._make_request('GET', f"{self.config.endpoints['project_files']}{int(file_id)}/")
+
     def get_field_sketches(self, project_id: int) -> List[Dict[str, Any]]:
         """The project's field sketches (project files flagged
         ``is_field_sketch``), newest first — the "traced from sketch" picker."""

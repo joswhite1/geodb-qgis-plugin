@@ -143,6 +143,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         'ProjectFile': ('Project Files', 'GeoTIFF / DEM rasters uploaded to geodb.io (pull only)'),
         'FieldNote': ('Field Notes', 'Field notes and note photos (pull only)'),
         'Structure': ('Structures', 'Structural measurements with FGDC symbology'),
+        'Road': ('Roads', 'Access roads and tracks, styled by access; pull and push'),
         'VectorLayer': ('Map layers (lines & areas)',
                         'Geology, faults, alteration zones, targets... Pull them styled, '
                         'make new ones, and publish to the web map and crew phones'),
@@ -1730,14 +1731,21 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
     def _execute_raster_pull(self):
         """Execute pull for a single selected raster file (ProjectFile)."""
-        from ..processors.raster_processor import RasterProcessor
-
         pf = self.selected_project_file
         if not pf:
             return
+        self._load_project_file_raster(pf)
+
+    def _load_project_file_raster(self, pf):
+        """Download and add ONE project file as a raster layer (georeferenced;
+        a field sketch's white made transparent). THE raster path: the Project
+        Files pull and “Open sketch” (Field sketches) both use it. Returns the
+        processor's result, or None on failure (said in the Log tab)."""
+        from ..processors.raster_processor import RasterProcessor
 
         project = self.project_manager.active_project
         file_name = pf.get('name', 'Unknown')
+        result = None
 
         try:
             self._log_message(f"Starting download of '{file_name}'...", "info")
@@ -1800,6 +1808,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         finally:
             self.pullButton.setEnabled(True)
             self.progressBar.setVisible(False)
+
+        return result
 
     def _get_server_base_url(self) -> str:
         """
@@ -2364,7 +2374,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
     def _add_vectorlayer_options_ui(self):
         """Create the map-layer UI: pick a geoDB layer to pull, make a new
         one, and choose which QGIS map layer “Publish to geoDB” sends."""
-        from qgis.PyQt.QtWidgets import QGroupBox, QFormLayout
+        from qgis.PyQt.QtWidgets import QGroupBox, QFormLayout, QHBoxLayout, QWidget
 
         self.vectorLayerGroupBox = QGroupBox("Map layers")
         self.vectorLayerGroupBox.setVisible(False)  # Hidden by default
@@ -2401,6 +2411,29 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         )
         self.newMapLayerButton.clicked.connect(self._on_new_map_layer_clicked)
         vl_layout.addRow("", self.newMapLayerButton)
+
+        # Usability Q-4 / Q-5 / Q-7: manage every layer, the field sketches,
+        # and the in-plugin help, without a browser.
+        manage_row = QWidget()
+        manage_layout = QHBoxLayout(manage_row)
+        manage_layout.setContentsMargins(0, 0, 0, 0)
+        self.manageMapLayersButton = QPushButton("Manage map layers…")
+        self.manageMapLayersButton.setToolTip(
+            "Every map layer of the project (live, drafts, archived): rename, change "
+            "kind, show on crew phones, publish, archive, discard and restore")
+        self.manageMapLayersButton.clicked.connect(self._on_manage_map_layers_clicked)
+        self.fieldSketchesButton = QPushButton("Field sketches…")
+        self.fieldSketchesButton.setToolTip(
+            "Your crew's phone sketches by mapping area, author and date: open the "
+            "sketch to trace it, or its strokes as lines")
+        self.fieldSketchesButton.clicked.connect(self._on_field_sketches_clicked)
+        self.mapLayersHelpButton = QPushButton("Help")
+        self.mapLayersHelpButton.setToolTip("How map layers work: sketch, trace, publish, manage")
+        self.mapLayersHelpButton.clicked.connect(self._on_map_layers_help_clicked)
+        manage_layout.addWidget(self.manageMapLayersButton)
+        manage_layout.addWidget(self.fieldSketchesButton)
+        manage_layout.addWidget(self.mapLayersHelpButton)
+        vl_layout.addRow("", manage_row)
 
         self.publishLayerComboBox = QComboBox()
         self.publishLayerComboBox.setToolTip(
@@ -2455,12 +2488,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         except Exception as e:  # the picker is optional; never block on it
             self._log_message(f"Could not load field sketches: {e}", "warning")
 
-        default_gpkg = ''
-        config = self.storage_manager.get_storage_config(project.id)
-        if config.get('is_geopackage') and config.get('geopackage_path'):
-            default_gpkg = str(config.get('geopackage_path'))
-        else:
-            default_gpkg = str(self.storage_manager.get_suggested_path(project.name, project.id))
+        default_gpkg = self._map_layer_gpkg_path(project)
 
         crs = self.data_manager.project_crs_authid(project)
         dialog = NewMapLayerDialog(self, crs_label=crs, default_gpkg=default_gpkg,
@@ -2480,6 +2508,76 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             f"✓ New map layer '{layer.name()}' ({crs}) — draw into it, then press "
             "“Publish to geoDB”.", "success")
         self._refresh_publishable_layers(select_layer=layer)
+
+    def _map_layer_gpkg_path(self, project) -> str:
+        """THE GeoPackage map layers are kept in (usability Q-6): the project's
+        configured GeoPackage storage, else its suggested project GeoPackage.
+        Never a memory layer: a map layer is edited and published, and a memory
+        copy is gone (with its link to geoDB) when QGIS closes (V-017). Read by
+        "New map layer…", the map-layer Pull and "Open strokes as lines"."""
+        config = self.storage_manager.get_storage_config(project.id)
+        if config.get('is_geopackage') and config.get('geopackage_path'):
+            return str(config.get('geopackage_path'))
+        return str(self.storage_manager.get_suggested_path(project.name, project.id))
+
+    def _on_manage_map_layers_clicked(self):
+        """“Manage map layers…” (Q-4)."""
+        from .map_layer_manage import ManageMapLayersDialog
+        if not self.project_manager.active_project:
+            QMessageBox.warning(self, "No Project", "Please select a project first.")
+            return None
+        dialog = ManageMapLayersDialog(self, self.api_client,
+                                       on_changed=self._load_vector_layers)
+        dialog.exec()
+        return dialog
+
+    def _on_field_sketches_clicked(self):
+        """“Field sketches…” (Q-5)."""
+        from .map_layer_manage import FieldSketchesDialog
+        if not self.project_manager.active_project:
+            QMessageBox.warning(self, "No Project", "Please select a project first.")
+            return None
+        dialog = FieldSketchesDialog(
+            self, self.api_client, open_sketch=self._open_field_sketch,
+            open_strokes=self._open_sketch_strokes,
+            can_edit=self.project_manager.can_edit())
+        dialog.exec()
+        return dialog
+
+    def _on_map_layers_help_clicked(self):
+        from .map_layer_manage import MapLayersHelpDialog
+        MapLayersHelpDialog(self).exec()
+
+    def _open_field_sketch(self, file_id):
+        """“Open sketch”: the sketch image through the raster path every
+        project file uses (georeferenced, white made transparent)."""
+        pf = self.api_client.get_project_file(file_id)
+        return self._load_project_file_raster(pf)
+
+    def _open_sketch_strokes(self, file_id):
+        """“Open strokes as lines”: draft line layers made by geoDB from the
+        sketch's strokes, pulled into the project's map-layer GeoPackage and
+        styled, ready to clean up and publish."""
+        project = self.project_manager.active_project
+        opened = self.data_manager.open_sketch_strokes(
+            file_id, gpkg_path=self._map_layer_gpkg_path(project),
+            should_pull=self._pull_guard_allows)
+        for summary in opened.get('kept') or []:
+            self._log_message(
+                f"Kept your copy of '{summary.get('display_name') or summary.get('name')}' "
+                "(it has unpublished edits).", "info")
+        summaries = {s.get('id'): s for s in (opened.get('result') or {}).get('layers') or []}
+        for layer in opened.get('layers') or []:
+            info = self.sync_manager.map_layer_info(layer) or {}
+            summary = summaries.get(info.get('server_layer_id'))
+            if summary is not None:
+                self.style_processor.apply_vector_layer_style(layer, summary)
+                self.sync_manager.remember_pulled_renderer(layer)
+            self._log_message(
+                f"✓ Opened draft '{layer.name()}' from the sketch's strokes — clean it "
+                "up, then press “Publish to geoDB”.", "success")
+        self._refresh_publishable_layers()
+        return opened
 
     def _load_vector_layers(self):
         """Load available vector layers from API (active vintage only)."""
@@ -2557,17 +2655,14 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             f"{geometry} layer · {count:,} features · {style_text}"
         )
 
-    def _execute_vectorlayer_pull(self):
-        """Pull the selected vector layer into a styled QGIS layer."""
-        vl = self.selected_vector_layer
-        if not vl:
-            return
-
-        # Review L5: a pull REPLACES the local copy. Unpublished edits are
-        # asked about first: publish them, discard them, or cancel.
-        # Round 3: also the copy the pull replaces BY NAME, and any copy of an
-        # earlier version (a teammate's publish moves the list on while your
-        # copy stays keyed to the version you pulled).
+    def _pull_guard_allows(self, vl) -> bool:
+        """THE Pull guard, asked before EVERY map-layer pull (the layer Pull
+        and “Open strokes as lines”): a pull REPLACES the local copy, so
+        unpublished edits are asked about first — publish them, discard them,
+        or cancel (review L5). Round 3: also the copy the pull replaces BY
+        NAME, and any copy of an earlier version (a teammate's publish moves
+        the list on while your copy stays keyed to the version you pulled).
+        True = go ahead and pull."""
         from .map_layer_dialogs import DISCARD, PUBLISH, ask_unpublished_edits
         earlier = []
         try:
@@ -2582,9 +2677,20 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             answer = ask_unpublished_edits(self, local.name(), changes)
             if answer == PUBLISH:
                 self._publish_qgis_map_layer(local)
-                return
+                return False
             if answer != DISCARD:
-                return
+                return False
+        return True
+
+    def _execute_vectorlayer_pull(self):
+        """Pull the selected vector layer into a styled QGIS layer."""
+        vl = self.selected_vector_layer
+        if not vl:
+            return
+
+        if not self._pull_guard_allows(vl):
+            return
+        project = self.project_manager.active_project
 
         display = vl.get('display_name') or vl.get('name') or 'map layer'
 
@@ -2594,8 +2700,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.progressBar.setVisible(True)
             self.progressBar.setValue(0)
 
+            gpkg_path = self._map_layer_gpkg_path(project) if project else None
             result = self.data_manager.pull_vector_layer(
-                vl, progress_callback=self._on_progress
+                vl, progress_callback=self._on_progress, gpkg_path=gpkg_path
             )
 
             layer = result.get('layer')
@@ -2713,6 +2820,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 summary = (f"draft '{landed_name}' saved ({imported:,} features): "
                            "publish it from here or on the web")
             self._log_message(f"✓ {summary}", "success")
+            left = result.get('source_draft_left')
+            if left:
+                self._log_message(
+                    f"The draft '{left.get('name')}' you started from is still a draft on "
+                    "geoDB: discard it in “Manage map layers…” if you no longer need it.",
+                    "info")
             for old in result.get('archived') or []:
                 self._log_message(
                     f"The previous version '{old.get('display_name')}' was archived "
@@ -2779,6 +2892,16 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
                 files = response.get('results', [])
             else:
                 files = response if response else []
+
+            # V-006: field sketches live under Map layers → “Field sketches…”
+            # (by area, author and date); here they were every sketch, mixed
+            # in with the rasters as "[Geology Raster]".
+            sketches = [f for f in files if f.get('is_field_sketch')]
+            files = [f for f in files if not f.get('is_field_sketch')]
+            if sketches:
+                self._log_message(
+                    f"{len(sketches)} field sketch file(s) are listed under Map layers "
+                    "(lines & areas) → “Field sketches…”.", "info")
 
             self.project_files = files
 
@@ -3219,7 +3342,8 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         self.gpkg_sync_widget.upload_completed.connect(
             self._on_map_capture_uploaded
         )
-        self.raster_tools_tab.addTab(self.gpkg_sync_widget, "GeoPackage Sync")
+        from .gpkg_sync_widget import GPKG_STORE_TAB
+        self.raster_tools_tab.addTab(self.gpkg_sync_widget, GPKG_STORE_TAB)
 
         # Add as a new tab before the Log tab in the main tab widget
         if hasattr(self, 'mainTabWidget'):

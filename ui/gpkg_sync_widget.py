@@ -34,6 +34,18 @@ from ..utils.compat import (
 from ..utils.theme import T
 
 
+
+#: The tab and panel words (U-011 / L-R9). Kept as constants so the tab label
+#: in the main dialog and a test read the same text.
+GPKG_STORE_TAB = "Store a GeoPackage file"
+GPKG_STORE_TITLE = "Store a GeoPackage file in geoDB (not shown on phones)"
+GPKG_STORE_SUBTITLE = (
+    "Keeps a copy of a GeoPackage file in geoDB, with its layer styles, so your team "
+    "can download the same file. The file is stored as it is: its layers do not appear "
+    "on the geoDB web map or on crew phones. To put lines and areas on the map, use "
+    "Data Sync → Map layers (lines & areas) → “Publish to geoDB”."
+)
+
 class GpkgSyncWidget(QWidget):
     """Widget for syncing GeoPackage files between QGIS and the geodb.io server."""
 
@@ -75,15 +87,13 @@ class GpkgSyncWidget(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
 
         # Title
-        title = QLabel("GeoPackage Sync")
+        # U-011 / ruling L-R9 (2026-10-28): this stores the FILE; it never
+        # becomes map layers (one door for layers: Publish to geoDB).
+        title = QLabel(GPKG_STORE_TITLE)
         title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {T.SLATE_STRONG};")
         layout.addWidget(title)
 
-        subtitle = QLabel(
-            "Push GeoPackage files from your QGIS project to the server, or pull "
-            "GeoPackages from the server to load locally. Layer styles are preserved "
-            "in the GeoPackage for seamless sharing."
-        )
+        subtitle = QLabel(GPKG_STORE_SUBTITLE)
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(f"color: {T.SLATE_MUTED}; font-size: 12px; margin-bottom: 4px;")
         layout.addWidget(subtitle)
@@ -110,7 +120,7 @@ class GpkgSyncWidget(QWidget):
 
     def _build_push_section(self, parent_layout):
         """Build the Push GeoPackage section."""
-        group = QGroupBox("Push GeoPackage to Server")
+        group = QGroupBox("Store a GeoPackage file in geoDB")
         group.setStyleSheet(f"""
             QGroupBox {{
                 font-weight: bold;
@@ -240,7 +250,7 @@ class GpkgSyncWidget(QWidget):
 
     def _build_pull_section(self, parent_layout):
         """Build the Pull GeoPackage section."""
-        group = QGroupBox("Pull GeoPackage from Server")
+        group = QGroupBox("Download a stored GeoPackage file")
         group.setStyleSheet(f"""
             QGroupBox {{
                 font-weight: bold;

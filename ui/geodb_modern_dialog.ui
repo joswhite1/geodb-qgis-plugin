@@ -466,6 +466,15 @@
          </item>
          <item>
           <property name="text">
+           <string>Road</string>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>../icons/map.png</normaloff>../icons/map.png</iconset>
+          </property>
+         </item>
+         <item>
+          <property name="text">
            <string>VectorLayer</string>
           </property>
           <property name="icon">

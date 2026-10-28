@@ -48,6 +48,19 @@ class NewerVersionLive(APIException):
         return (self.response_data or {}).get('newer_version') or {}
 
 
+class MapLayerActionError(APIException):
+    """A map-layer manage action or sketch conversion the server refused,
+    carrying its plain-words ``error`` as the message and its ``code``
+    (``wrong_status``, ``name_taken``, ``no_strokes``, ...) when it sent one.
+    The 400 branch of the client folds every body key into "Validation
+    failed - ...", which buries the sentence the server wrote for a person;
+    the manage panel shows this message instead."""
+
+    @property
+    def code(self):
+        return (self.response_data or {}).get('code')
+
+
 class DataException(GeodbException):
     """Base exception for data-related errors."""
 

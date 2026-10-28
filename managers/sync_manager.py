@@ -2916,7 +2916,8 @@ class SyncManager:
         self,
         layer_summary: Dict[str, Any],
         features: List[Dict[str, Any]],
-        project_name: Optional[str] = None
+        project_name: Optional[str] = None,
+        gpkg_path: Optional[str] = None
     ):
         """
         Create/replace the QGIS layer for one pulled server map layer.
@@ -2932,6 +2933,11 @@ class SyncManager:
             layer_summary: The layer-summary dict from GET /vector-layers/
             features: Feature dicts from GET /vector-layers/<id>/features/
             project_name: Active project name (layer-name prefix)
+            gpkg_path: the project's map-layer GeoPackage (usability Q-6): when
+                the plugin is not already storing data in a GeoPackage, the
+                pulled layer is written THERE instead of a memory layer, so
+                closing QGIS never loses the copy or its link to geoDB
+                (V-017). A configured GeoPackage storage always wins.
 
         Returns:
             Tuple of (QgsVectorLayer, added_count)
@@ -2970,9 +2976,18 @@ class SyncManager:
         fields.append(QgsField('geodb_style', FieldType_QString))
 
         effective_name = self.vector_effective_model_name(layer_summary)
-        layer = self.layer_processor.remove_and_recreate_layer(
-            effective_name, geometry_type, fields, crs, project_name
-        )
+        processor = self.layer_processor
+        borrowed = bool(gpkg_path) and not processor.is_using_geopackage()
+        if borrowed:
+            saved_path = processor.get_geopackage_path()
+            processor.set_geopackage_path(gpkg_path)
+        try:
+            layer = processor.remove_and_recreate_layer(
+                effective_name, geometry_type, fields, crs, project_name
+            )
+        finally:
+            if borrowed:
+                processor.set_geopackage_path(saved_path)
 
         # Flatten API features for the shared add path
         flat_features = []
@@ -3007,7 +3022,12 @@ class SyncManager:
             style_mode=layer_summary.get('style_mode') or 'frozen',
             traced_from=layer_summary.get('traced_from_id'),
             original_crs=(geometry_key == 'manual_geometry'),
+            source_status=layer_summary.get('status') or 'active',
         )
+        if (layer_summary.get('status') or 'active') == 'draft':
+            # A pulled DRAFT: Publish with no edits puts THIS draft live in
+            # place (review M5's path), never a second copy beside it.
+            self.note_draft_sent(layer, layer_summary.get('id'))
 
         # Snapshot the as-stored state so push can decide "anything changed?"
         self.store_vector_layer_snapshot(layer_summary.get('id'), layer)
@@ -3096,6 +3116,11 @@ class SyncManager:
     #: sent as based_on_layer_id so republishing from the same copy is not
     #: mistaken for a stale copy.
     VECTOR_LAYER_BASED_ON_PROP = 'geodb/based_on_layer_id'
+    #: The status of the geoDB layer this copy was pulled from ('draft' for a
+    #: draft made from a sketch's strokes, usability Q-5). Publishing it
+    #: unchanged puts that draft live in place; an edited copy lands a new
+    #: layer and the starting draft stays in the manage list (said so).
+    VECTOR_LAYER_SOURCE_STATUS_PROP = 'geodb/source_status'
 
     @staticmethod
     def renderer_fingerprint(layer) -> str:
@@ -3116,7 +3141,7 @@ class SyncManager:
 
     def tag_map_layer(self, layer, *, server_layer_id=None, name='', display_name='',
                       kind='', style_mode='frozen', traced_from=None, new=False,
-                      original_crs=True):
+                      original_crs=True, source_status='active'):
         """Stamp the custom properties that make a QGIS layer a geoDB map layer
         (what publish reads). ONE writer for the pull and "New map layer"."""
         layer.setCustomProperty(self.VECTOR_LAYER_ID_PROP, server_layer_id)
@@ -3129,6 +3154,7 @@ class SyncManager:
         layer.setCustomProperty(self.VECTOR_LAYER_ORIGINAL_CRS_PROP, bool(original_crs))
         layer.setCustomProperty(self.VECTOR_LAYER_LAST_DRAFT_PROP, None)
         layer.setCustomProperty(self.VECTOR_LAYER_BASED_ON_PROP, None)
+        layer.setCustomProperty(self.VECTOR_LAYER_SOURCE_STATUS_PROP, source_status or 'active')
 
     def note_based_on(self, layer, layer_id):
         """Remember the version this copy put live."""
@@ -3168,6 +3194,7 @@ class SyncManager:
             in (True, 'true', 1),
             'last_draft_id': _int(layer.customProperty(self.VECTOR_LAYER_LAST_DRAFT_PROP)),
             'based_on': _int(layer.customProperty(self.VECTOR_LAYER_BASED_ON_PROP)),
+            'source_status': layer.customProperty(self.VECTOR_LAYER_SOURCE_STATUS_PROP) or 'active',
             # A catalog-coloured copy whose renderer is still the pulled one.
             'catalog_renderer_kept': (
                 (layer.customProperty(self.VECTOR_LAYER_STYLE_MODE_PROP) or 'frozen') == 'catalog'

@@ -388,7 +388,8 @@ class DataManager:
     def pull_vector_layer(
         self,
         layer_summary: Dict[str, Any],
-        progress_callback: Optional[Callable[[int, str], None]] = None
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+        gpkg_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Pull one server vector layer into a styled QGIS layer.
@@ -399,6 +400,9 @@ class DataManager:
         Args:
             layer_summary: A layer dict from APIClient.get_vector_layers()
             progress_callback: Optional callback(progress_percent, message)
+            gpkg_path: the project's map-layer GeoPackage (Q-6): the copy is
+                written there unless a GeoPackage storage is already set up,
+                never into a memory layer that closing QGIS would lose.
 
         Returns:
             Dict with 'pulled', 'added', 'layer' (the QgsVectorLayer)
@@ -431,13 +435,45 @@ class DataManager:
             )
 
         layer, added = self.sync_manager.sync_vector_layer_pull(
-            layer_summary, features, project_name=project.name
+            layer_summary, features, project_name=project.name, gpkg_path=gpkg_path
         )
 
         if progress_callback:
             progress_callback(95, "Finalizing layer...")
 
         return {'pulled': len(features), 'added': added, 'layer': layer}
+
+    def open_sketch_strokes(self, project_file_id: int,
+                            gpkg_path: Optional[str] = None,
+                            should_pull: Optional[Callable[[Dict[str, Any]], bool]] = None
+                            ) -> Dict[str, Any]:
+        """"Open strokes as lines" (usability Q-5): geoDB turns the field
+        sketch's strokes into DRAFT line layers (one per sheet, traced from
+        the sketch; ``POST vector-layers/from-sketch/``), and each is pulled
+        into QGIS through :meth:`pull_vector_layer`, so it is a tagged copy
+        "Publish to geoDB" can send. A sheet geoDB already converted comes
+        back as the same draft (``existing``), never a second copy.
+
+        ``should_pull(summary)``: THE Pull guard (the caller's): asked before
+        each pull, because opening the strokes again replaces a local copy that
+        may hold unpublished edits; False keeps that copy (``kept``).
+
+        Returns ``{'result': <server body>, 'layers': [QgsVectorLayer],
+        'kept': [summary]}``."""
+        project = self.project_manager.get_active_project()
+        if not project:
+            raise ValueError("No project selected")
+        if not self.project_manager.can_edit():
+            raise APIPermissionError("No permission to create data in this project")
+        result = self.api_client.sketch_strokes_to_layers(project_file_id)
+        layers, kept = [], []
+        for summary in result.get('layers') or []:
+            if should_pull is not None and not should_pull(summary):
+                kept.append(summary)
+                continue
+            pulled = self.pull_vector_layer(summary, gpkg_path=gpkg_path)
+            layers.append(pulled['layer'])
+        return {'result': result, 'layers': layers, 'kept': kept}
 
     def push_vector_layer_draft(
         self,
@@ -630,6 +666,14 @@ class DataManager:
             if went_live:
                 sync.note_based_on(qgis_layer, landed_id)
                 sync.note_draft_sent(qgis_layer, None)
+                if landed_id == info['server_layer_id']:
+                    # The draft this copy was pulled from went live in place.
+                    qgis_layer.setCustomProperty(sync.VECTOR_LAYER_SOURCE_STATUS_PROP, 'active')
+                elif info.get('source_status') == 'draft':
+                    # An edited copy of a draft landed as a NEW layer: the
+                    # draft it started from is still a draft on geoDB.
+                    result['source_draft_left'] = {
+                        'id': info['server_layer_id'], 'name': info['display_name']}
             elif landed_id:
                 sync.note_draft_sent(qgis_layer, landed_id)
                 sync.store_vector_layer_snapshot(landed_id, qgis_layer)
