@@ -1377,7 +1377,8 @@ class APIClient:
         self,
         layer_id: int,
         progress_callback: Optional[Callable[[int], None]] = None,
-        original: bool = True
+        original: bool = True,
+        status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get ALL features of a map layer, following pagination.
@@ -1391,9 +1392,14 @@ class APIClient:
         With ``original`` (the default since 2.35.6) also ``manual_geometry``
         (the ORIGINAL WKT in ``epsg``, Z and single parts kept) and ``has_z``;
         a server without it simply leaves them out.
+
+        A DRAFT or ARCHIVED layer (``status``) is read through
+        ``manage-features/`` (the manage floor, persons only): the pull door
+        ``features/`` serves live layers only (the draft fence).
         """
         base = self.config.endpoints['vector_layers']
-        url = f"{base}{layer_id}/features/?limit=500"
+        door = 'manage-features' if status in ('draft', 'archived') else 'features'
+        url = f"{base}{layer_id}/{door}/?limit=500"
         if original:
             url += "&geometry=original"
         features: List[Dict[str, Any]] = []

@@ -422,6 +422,7 @@ class DataManager:
 
         features = self.api_client.get_vector_layer_features(
             layer_id,
+            status=layer_summary.get('status'),
             progress_callback=(
                 (lambda p: progress_callback(
                     5 + int(p * 0.55), f"Downloading features ({p}%)..."
