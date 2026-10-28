@@ -2563,6 +2563,21 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         if not vl:
             return
 
+        # Review L5: a pull REPLACES the local copy. Unpublished edits are
+        # asked about first: publish them, discard them, or cancel.
+        from .map_layer_dialogs import DISCARD, PUBLISH, ask_unpublished_edits
+        local = self.sync_manager.find_vector_layer(vl.get('id'))
+        if local is not None:
+            changes = self.sync_manager.vector_layer_changes(vl.get('id'), local)
+            if any(changes.values()):
+                answer = ask_unpublished_edits(
+                    self, vl.get('display_name') or vl.get('name') or local.name(), changes)
+                if answer == PUBLISH:
+                    self._publish_qgis_map_layer(local)
+                    return
+                if answer != DISCARD:
+                    return
+
         display = vl.get('display_name') or vl.get('name') or 'map layer'
 
         try:
@@ -2582,6 +2597,9 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             # Apply the server style spec as a native QGIS renderer
             if layer is not None:
                 styled = self.style_processor.apply_vector_layer_style(layer, vl)
+                # What Publish compares against: an unchanged catalog renderer
+                # keeps the catalog colours on geoDB.
+                self.sync_manager.remember_pulled_renderer(layer)
                 if styled:
                     self._log_message(
                         f"✓ Applied server styling to '{layer.name()}'", "success"
@@ -2617,11 +2635,19 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         """“Publish to geoDB” (Q-2): send the chosen QGIS map layer, live by
         default or as a draft."""
         from qgis.core import QgsProject
-        from .map_layer_dialogs import DRAFT, PUBLISH, ask_publish_or_draft
 
         self._refresh_publishable_layers()
         layer_id = self.publishLayerComboBox.currentData()
         qgis_layer = QgsProject.instance().mapLayer(layer_id) if layer_id else None
+        self._publish_qgis_map_layer(qgis_layer)
+
+    def _publish_qgis_map_layer(self, qgis_layer):
+        """Ask Publish now / Save as draft, then send ``qgis_layer``; a stale
+        copy asks before replacing a newer version (review M4)."""
+        from .map_layer_dialogs import (
+            DRAFT, PUBLISH, REPLACE_ANYWAY, ask_publish_or_draft, ask_replace_newer,
+        )
+        from ..api.exceptions import NewerVersionLive
         if qgis_layer is None:
             QMessageBox.warning(
                 self,
@@ -2633,10 +2659,12 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
 
         info = self.sync_manager.map_layer_info(qgis_layer) or {}
         display = info.get('display_name') or qgis_layer.name()
+        pulled = not info.get('is_new') and bool(info.get('server_layer_id'))
         choice = ask_publish_or_draft(
-            self, display,
-            replaces=not info.get('is_new') and bool(info.get('server_layer_id')),
-            catalog=(info.get('style_mode') or 'frozen') == 'catalog')
+            self, display, replaces=pulled,
+            catalog=(info.get('style_mode') or 'frozen') == 'catalog',
+            catalog_kept=pulled and bool(info.get('catalog_renderer_kept')),
+            wgs84_copy=pulled and not info.get('original_crs'))
         if choice not in (PUBLISH, DRAFT):
             return
         publish = choice == PUBLISH
@@ -2647,9 +2675,21 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
             self.progressBar.setVisible(True)
             self.progressBar.setValue(0)
 
-            result = self.data_manager.publish_map_layer(
-                qgis_layer, publish=publish, progress_callback=self._on_progress
-            )
+            try:
+                result = self.data_manager.publish_map_layer(
+                    qgis_layer, publish=publish, progress_callback=self._on_progress
+                )
+            except NewerVersionLive as stale:
+                if ask_replace_newer(self, display, stale.newer_version) != REPLACE_ANYWAY:
+                    self._log_message(
+                        f"Not sent: a newer version of '{display}' is on geoDB. Pull it "
+                        "to see it.", "info")
+                    self._set_sync_status("Not sent: a newer version is on geoDB", "info")
+                    return
+                result = self.data_manager.publish_map_layer(
+                    qgis_layer, publish=publish, progress_callback=self._on_progress,
+                    replace_newer=True
+                )
 
             if result.get('no_changes'):
                 self._log_message("No local changes — nothing to send.", "info")

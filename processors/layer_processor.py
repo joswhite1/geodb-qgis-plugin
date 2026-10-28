@@ -249,11 +249,18 @@ class LayerProcessor:
         geometry_type: str,
         fields: QgsFields,
         crs: str,
-        layer_name: str
+        layer_name: str,
+        may_replace: bool = True
     ) -> QgsVectorLayer:
         """Create a layer in the GeoPackage file at ``gpkg_path`` (the
         configured project GeoPackage for synced models; any file the user
         picked for "New geoDB map layer…").
+
+        ``may_replace=False`` (the "New map layer" flow, review H1): a table of
+        that name already in the file is REFUSED (the caller picks a free name
+        with :meth:`free_geopackage_table_name`), and a file that cannot be
+        opened for update is never deleted and recreated — this flow did not
+        create it and it may hold the project's synced layers.
 
         Args:
             gpkg_path: GeoPackage file (created if missing)
@@ -302,6 +309,11 @@ class LayerProcessor:
         temp_layer.updateFields()
         temp_layer.commitChanges()
 
+        if not may_replace and self.geopackage_table_names(gpkg_path) & {model_name.lower()}:
+            raise LayerError(
+                f"The GeoPackage already has a layer named '{model_name}'; "
+                "it was left untouched.")
+
         # Write to GeoPackage
         options = QgsVectorFileWriter.SaveVectorOptions()
         options.driverName = "GPKG"
@@ -331,7 +343,13 @@ class LayerProcessor:
             self.logger.error(f"  Geometry type: {geometry_type}")
             self.logger.error(f"  Layer name: {model_name}")
 
-            # If the GeoPackage exists but we can't update it, try recreating the whole file
+            # If the GeoPackage exists but we can't update it, try recreating
+            # the whole file — never in a may_replace=False flow (review H1).
+            if not may_replace:
+                raise LayerError(
+                    f"Could not add a layer to {os.path.basename(gpkg_path)} "
+                    f"({error_msg}). The file was left untouched: close anything "
+                    "holding it open, or choose another GeoPackage.")
             if gpkg_exists and "update mode" in error_msg.lower():
                 self.logger.warning("Attempting to recreate GeoPackage file...")
                 try:
@@ -364,6 +382,33 @@ class LayerProcessor:
 
         self.logger.info(f"Created GeoPackage layer: {layer_name} in {gpkg_path}")
         return layer
+
+    @staticmethod
+    def geopackage_table_names(gpkg_path: Optional[str]) -> set:
+        """Lower-cased layer (table) names in a GeoPackage; empty when the file
+        does not exist. GeoPackage table names compare case-insensitively."""
+        if not gpkg_path or not os.path.exists(gpkg_path):
+            return set()
+        from osgeo import ogr
+        ds = ogr.Open(gpkg_path, 0)
+        if ds is None:
+            return set()
+        try:
+            return {ds.GetLayerByIndex(i).GetName().lower()
+                    for i in range(ds.GetLayerCount())}
+        finally:
+            ds = None
+
+    def free_geopackage_table_name(self, gpkg_path: Optional[str], base: str) -> str:
+        """``base``, or ``base_2``, ``base_3``… — the first name no layer in the
+        GeoPackage holds (review H1: a second "Contacts" never replaces the
+        first)."""
+        taken = self.geopackage_table_names(gpkg_path)
+        name, n = base, 1
+        while name.lower() in taken:
+            n += 1
+            name = f"{base}_{n}"
+        return name
 
     def _load_layer_from_geopackage(self, model_name: str) -> Optional[QgsVectorLayer]:
         """

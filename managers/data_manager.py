@@ -8,7 +8,9 @@ from typing import Optional, Callable, Dict, Any, List
 from datetime import datetime
 
 from ..api.client import APIClient
-from ..api.exceptions import APIPermissionError, AuthenticationError
+from ..api.exceptions import (
+    APIException, APIPermissionError, AuthenticationError, NewerVersionLive,
+)
 from .project_manager import ProjectManager
 from .sync_manager import SyncManager
 from ..utils.config import Config
@@ -459,7 +461,8 @@ class DataManager:
         self,
         qgis_layer,
         publish: bool = True,
-        progress_callback: Optional[Callable[[int, str], None]] = None
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+        replace_newer: bool = False
     ) -> Dict[str, Any]:
         """
         Send a geoDB map layer from QGIS to geoDB ("Publish to geoDB", Q-2).
@@ -473,8 +476,12 @@ class DataManager:
         The layer's own CRS is sent (the ORIGINAL CRS for a layer pulled with
         2.35.6+, the project CRS for a new one), with each pulled feature's
         geoDB id so the server keeps untouched originals byte for byte. A
-        pulled layer with no local changes is not re-sent unless ``publish``
-        (publishing an unchanged copy is a no-op too: nothing to replace).
+        pulled layer with no local changes is not re-sent — unless its last
+        send was a DRAFT and this one publishes (review M5).
+
+        A publish from a stale copy (someone published a newer version since
+        the pull) raises :class:`NewerVersionLive`; send again with
+        ``replace_newer`` once the user says to replace it anyway (review M4).
 
         Returns:
             Dict with the server response fields (layer, imported, failed,
@@ -501,7 +508,8 @@ class DataManager:
         changes = {'added': qgis_layer.featureCount(), 'modified': 0, 'removed': 0}
         if pulled:
             changes = self.sync_manager.vector_layer_changes(server_layer_id, qgis_layer)
-            if not any(changes.values()):
+            publishing_a_draft = publish and info['last_draft_id']
+            if not any(changes.values()) and not publishing_a_draft:
                 self.logger.info(f"Map layer {server_layer_id}: no local changes")
                 if progress_callback:
                     progress_callback(100, "No local changes — nothing to send")
@@ -530,8 +538,17 @@ class DataManager:
             payload['kind'] = info['kind']
         if info['traced_from']:
             payload['traced_from'] = info['traced_from']
+        if replace_newer:
+            payload['replace_newer'] = True
 
-        style_qml = self._export_layer_qml(qgis_layer)
+        if pulled and info.get('catalog_renderer_kept'):
+            # The catalog colours were kept: geoDB keeps the layer catalog-
+            # coloured and its features linked (no QML — the pulled catalog
+            # renderer categorizes on a column geoDB does not store).
+            payload['keep_catalog'] = True
+            style_qml = None
+        else:
+            style_qml = self._export_layer_qml(qgis_layer)
         if style_qml:
             payload['style_qml'] = style_qml
 
@@ -547,6 +564,9 @@ class DataManager:
             # The server 400s when the QML can't be translated to its style
             # spec (e.g. rule-based renderers). The geometry+attributes are
             # still good — retry once without style rather than failing.
+            if isinstance(e, APIException) and e.status_code == 409 and \
+                    (e.response_data or {}).get('code') == 'newer_version_live':
+                raise NewerVersionLive(str(e), e.status_code, e.response_data)
             if style_qml and 'style' in str(e).lower():
                 self.logger.warning(
                     f"Server rejected layer style, retrying without it: {e}"
@@ -559,6 +579,7 @@ class DataManager:
 
         result = dict(response) if isinstance(response, dict) else {}
         landed = result.get('layer') or {}
+        went_live = result.get('status') == 'active'
         if pulled:
             # Re-baseline the snapshot so an immediate re-send reports no changes.
             # The copy stays keyed to the layer it was pulled from: a later
@@ -566,9 +587,12 @@ class DataManager:
             # the replacement chain), and its feature ids keep untouched
             # originals verbatim.
             self.sync_manager.store_vector_layer_snapshot(server_layer_id, qgis_layer)
-        elif landed.get('id'):
+            self.sync_manager.note_draft_sent(
+                qgis_layer, None if went_live else landed.get('id'))
+        elif landed.get('id') and went_live:
             # A new layer is now a geoDB layer: the next publish is a new
-            # version of it, not another new layer.
+            # version of it, not another new layer. (A DRAFT of a new layer
+            # leaves it new: publishing later sends it as a new layer again.)
             self.sync_manager.tag_map_layer(
                 qgis_layer, server_layer_id=landed.get('id'),
                 name=landed.get('name') or info['name'],
@@ -577,6 +601,8 @@ class DataManager:
                 style_mode=landed.get('style_mode') or 'frozen',
                 traced_from=info['traced_from'], new=False)
             self.sync_manager.store_vector_layer_snapshot(landed.get('id'), qgis_layer)
+        elif landed.get('id'):
+            self.sync_manager.note_draft_sent(qgis_layer, landed.get('id'))
 
         if progress_callback:
             progress_callback(100, "Published" if publish else "Draft saved on geoDB")
@@ -606,8 +632,8 @@ class DataManager:
         Returns:
             (QgsVectorLayer, crs_authid)
         """
-        from qgis.PyQt.QtCore import QVariant
         from qgis.core import QgsFields, QgsField
+        from ..utils.compat import FieldType_QString
         from ..utils.map_layer_kinds import MAP_LAYER_GEOMETRIES, MAP_LAYER_KINDS
 
         project = self.project_manager.get_active_project()
@@ -628,11 +654,14 @@ class DataManager:
         fields = QgsFields()
         # geodb_label = the label geoDB shows for each feature (popup, phone
         # info sheet). Add your own attribute columns in QGIS as you like.
-        fields.append(QgsField('geodb_label', QVariant.String))
+        fields.append(QgsField('geodb_label', FieldType_QString))
 
-        table = self._map_layer_table_name(name)
-        layer = self.sync_manager.layer_processor.create_geopackage_layer_at(
-            gpkg_path, table, type_by_geometry[geometry], fields, crs, name)
+        processor = self.sync_manager.layer_processor
+        table = processor.free_geopackage_table_name(
+            gpkg_path, self._map_layer_table_name(name))
+        layer = processor.create_geopackage_layer_at(
+            gpkg_path, table, type_by_geometry[geometry], fields, crs, name,
+            may_replace=False)
         self.sync_manager.tag_map_layer(
             layer, server_layer_id=None, name=name, display_name=name, kind=kind,
             traced_from=traced_from, new=True)
@@ -658,7 +687,7 @@ class DataManager:
     def _map_layer_table_name(name: str) -> str:
         """A GeoPackage table name for a new map layer (letters, digits, _)."""
         safe = ''.join(c if c.isalnum() else '_' for c in name).strip('_') or 'layer'
-        return f"MapLayer_{safe}"[:60]
+        return f"MapLayer_{safe}"[:56]   # room for a _<n> suffix
 
     def _export_layer_qml(self, layer) -> Optional[str]:
         """Export a layer's current symbology as a QML document string."""

@@ -2936,8 +2936,10 @@ class SyncManager:
         Returns:
             Tuple of (QgsVectorLayer, added_count)
         """
-        from qgis.PyQt.QtCore import QVariant
         from qgis.core import QgsFields, QgsField
+        from ..utils.compat import (
+            FieldType_Bool, FieldType_Double, FieldType_LongLong, FieldType_QString,
+        )
 
         geometry_key, crs, geometry_type, force_multi = self._vector_pull_geometry(
             layer_summary, features)
@@ -2957,15 +2959,15 @@ class SyncManager:
                     property_values[key] = []
                 property_values[key].append(value)
 
-        type_names = {'bool': QVariant.Bool, 'int': QVariant.LongLong,
-                      'float': QVariant.Double, 'str': QVariant.String}
+        type_names = {'bool': FieldType_Bool, 'int': FieldType_LongLong,
+                      'float': FieldType_Double, 'str': FieldType_QString}
         fields = QgsFields()
-        fields.append(QgsField('geodb_id', QVariant.LongLong))
-        fields.append(QgsField('geodb_label', QVariant.String))
+        fields.append(QgsField('geodb_id', FieldType_LongLong))
+        fields.append(QgsField('geodb_label', FieldType_QString))
         for key in property_keys:
             fields.append(QgsField(
                 key, type_names[self.vector_field_type(property_values[key])]))
-        fields.append(QgsField('geodb_style', QVariant.String))
+        fields.append(QgsField('geodb_style', FieldType_QString))
 
         effective_name = self.vector_effective_model_name(layer_summary)
         layer = self.layer_processor.remove_and_recreate_layer(
@@ -3004,6 +3006,7 @@ class SyncManager:
             kind=layer_summary.get('kind') or '',
             style_mode=layer_summary.get('style_mode') or 'frozen',
             traced_from=layer_summary.get('traced_from_id'),
+            original_crs=(geometry_key == 'manual_geometry'),
         )
 
         # Snapshot the as-stored state so push can decide "anything changed?"
@@ -3043,19 +3046,19 @@ class SyncManager:
                     bases = None
                     break
                 wkb = geometry.wkbType()
-                bases.add(QgsWkbTypes.geometryType(wkb))
+                # Version-safe base type: the display NAME of the flat single
+                # type ('Point' / 'LineString' / 'Polygon'), never an enum
+                # member whose scoping moved between QGIS 3 and 4.
+                bases.add(QgsWkbTypes.displayString(
+                    QgsWkbTypes.flatType(QgsWkbTypes.singleType(wkb))))
                 if QgsWkbTypes.isMultiType(wkb):
                     multi = True
                 else:
                     single = True
                 has_z = has_z or QgsWkbTypes.hasZ(wkb)
             if bases is not None and len(bases) == 1:
-                base = {
-                    QgsWkbTypes.GeometryType.PointGeometry: 'Point',
-                    QgsWkbTypes.GeometryType.LineGeometry: 'LineString',
-                    QgsWkbTypes.GeometryType.PolygonGeometry: 'Polygon',
-                }.get(bases.pop())
-                if base:
+                base = bases.pop()
+                if base in ('Point', 'LineString', 'Polygon'):
                     type_name = ('Multi' if multi else '') + base + ('Z' if has_z else '')
                     return ('manual_geometry', f"EPSG:{epsgs.pop()}", type_name,
                             multi and single)
@@ -3080,9 +3083,36 @@ class SyncManager:
     VECTOR_LAYER_TRACED_FROM_PROP = 'geodb/vector_layer_traced_from'
     #: Set on a layer made with "New geoDB map layer…" until its first publish.
     VECTOR_LAYER_NEW_PROP = 'geodb/new_map_layer'
+    #: True when the copy holds the layer's ORIGINAL coordinates (a 2.35.6+
+    #: pull in one CRS, or a new layer); False/absent for a WGS84 copy.
+    VECTOR_LAYER_ORIGINAL_CRS_PROP = 'geodb/original_crs'
+    #: The geoDB id of the DRAFT this copy last saved, until it is published
+    #: (review M5: a later Publish must still send, though nothing changed).
+    VECTOR_LAYER_LAST_DRAFT_PROP = 'geodb/last_draft_id'
+    #: Fingerprint of the renderer applied at pull (catalog-coloured layers:
+    #: unchanged ⇒ publish keeps the catalog, Joshua's ruling 2026-10-27).
+    VECTOR_LAYER_RENDERER_PROP = 'geodb/pulled_renderer'
+
+    @staticmethod
+    def renderer_fingerprint(layer) -> str:
+        """A hash of the layer's renderer as QGIS saves it ('' without one)."""
+        renderer = layer.renderer() if layer is not None else None
+        if renderer is None:
+            return ''
+        from qgis.PyQt.QtXml import QDomDocument
+        from qgis.core import QgsReadWriteContext
+        document = QDomDocument()
+        document.appendChild(renderer.save(document, QgsReadWriteContext()))
+        return hashlib.sha256(document.toString().encode('utf-8')).hexdigest()
+
+    def remember_pulled_renderer(self, layer):
+        """Call right after the pulled layer's geoDB styling is applied."""
+        layer.setCustomProperty(self.VECTOR_LAYER_RENDERER_PROP,
+                                self.renderer_fingerprint(layer))
 
     def tag_map_layer(self, layer, *, server_layer_id=None, name='', display_name='',
-                      kind='', style_mode='frozen', traced_from=None, new=False):
+                      kind='', style_mode='frozen', traced_from=None, new=False,
+                      original_crs=True):
         """Stamp the custom properties that make a QGIS layer a geoDB map layer
         (what publish reads). ONE writer for the pull and "New map layer"."""
         layer.setCustomProperty(self.VECTOR_LAYER_ID_PROP, server_layer_id)
@@ -3092,6 +3122,12 @@ class SyncManager:
         layer.setCustomProperty(self.VECTOR_LAYER_STYLE_MODE_PROP, style_mode or 'frozen')
         layer.setCustomProperty(self.VECTOR_LAYER_TRACED_FROM_PROP, traced_from)
         layer.setCustomProperty(self.VECTOR_LAYER_NEW_PROP, bool(new))
+        layer.setCustomProperty(self.VECTOR_LAYER_ORIGINAL_CRS_PROP, bool(original_crs))
+        layer.setCustomProperty(self.VECTOR_LAYER_LAST_DRAFT_PROP, None)
+
+    def note_draft_sent(self, layer, draft_id):
+        """Remember (or clear, with None) the draft this copy last saved."""
+        layer.setCustomProperty(self.VECTOR_LAYER_LAST_DRAFT_PROP, draft_id)
 
     def map_layer_info(self, layer) -> Optional[Dict[str, Any]]:
         """What publish needs from a tagged QGIS layer, or None for a layer
@@ -3119,6 +3155,15 @@ class SyncManager:
             'kind': layer.customProperty(self.VECTOR_LAYER_KIND_PROP) or None,
             'style_mode': layer.customProperty(self.VECTOR_LAYER_STYLE_MODE_PROP) or 'frozen',
             'traced_from': _int(layer.customProperty(self.VECTOR_LAYER_TRACED_FROM_PROP)),
+            'original_crs': layer.customProperty(self.VECTOR_LAYER_ORIGINAL_CRS_PROP)
+            in (True, 'true', 1),
+            'last_draft_id': _int(layer.customProperty(self.VECTOR_LAYER_LAST_DRAFT_PROP)),
+            # A catalog-coloured copy whose renderer is still the pulled one.
+            'catalog_renderer_kept': (
+                (layer.customProperty(self.VECTOR_LAYER_STYLE_MODE_PROP) or 'frozen') == 'catalog'
+                and bool(layer.customProperty(self.VECTOR_LAYER_RENDERER_PROP))
+                and layer.customProperty(self.VECTOR_LAYER_RENDERER_PROP)
+                == self.renderer_fingerprint(layer)),
         }
 
     def map_layers_in_project(self) -> List[Any]:

@@ -37,6 +37,17 @@ class ValidationError(APIException):
     """Raised when request validation fails."""
 
 
+class NewerVersionLive(APIException):
+    """Publish refused (409 ``newer_version_live``): someone published a newer
+    version of the layer after this copy was pulled. ``newer_version`` holds
+    ``{id, name, published_by, published_on}``; the caller asks the user and
+    may send again with ``replace_newer``."""
+
+    @property
+    def newer_version(self) -> dict:
+        return (self.response_data or {}).get('newer_version') or {}
+
+
 class DataException(GeodbException):
     """Base exception for data-related errors."""
 
