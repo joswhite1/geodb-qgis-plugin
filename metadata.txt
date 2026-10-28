@@ -56,6 +56,24 @@ changelog=
           accepts (Soil, Rock Chip, Outcrop, Dump, Stream Sediment, BLEG,
           Other). Float, Pan Concentrate and the old Stream Sediment code were
           refused by the server; Dump and BLEG were missing.
+        - Manage map layers: every map layer of the project in one list, live,
+          draft or archived, with its kind, feature count, last edit and the
+          sketch it was traced from. Rename it, change its kind, hide or show
+          it on crew phones, publish a draft (replacing the layer it updates,
+          or alongside it), archive it and make it live again, discard a draft
+          and restore it from the Trash, all without a browser.
+        - Field sketches: your crew's phone sketches by mapping area, author
+          and date. Open the sketch in place (white made transparent) to trace
+          it, or open its strokes as lines: geoDB turns them into draft line
+          layers, one per sheet, ready to clean up and publish. Opening them
+          again opens the same drafts, and asks first if you edited them.
+          Sketches no longer clutter the Project Files raster list.
+        - Map layers you pull are kept in the project's GeoPackage, not in a
+          temporary layer, so closing QGIS no longer loses your copy.
+        - Roads are back in the Data Sync list.
+        - "GeoPackage Sync" is now "Store a GeoPackage file in geoDB (not
+          shown on phones)", and says how to put layers on the map instead.
+        - A Help page for map layers: sketch, trace, publish, manage.
     2.35.5 - Deleted packages are never brought back without asking; the plugin keeps its own project
         - Generate Documents no longer silently restores a claim package that
           was deleted on geoDB. If the wizard's package is in the geoDB Trash,
