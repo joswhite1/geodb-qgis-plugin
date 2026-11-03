@@ -63,6 +63,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame_NoFrame)
+        self._scroll_area = scroll
 
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
@@ -213,9 +214,10 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Info
         info_label = QLabel(
-            "Select an existing claims GeoPackage from the server, browse for a "
-            "local file, or create a new one. "
-            "All claim metadata and layers will be stored in this file."
+            "Required. Select an existing claims GeoPackage from the server, browse "
+            "for a local file, or create a new one. "
+            "All claim metadata and layers are stored in this file, so your work "
+            "survives if QGIS closes or crashes."
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet(self._get_info_label_style())
@@ -266,7 +268,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         file_layout.addWidget(QLabel("GeoPackage:"))
 
-        self.gpkg_path_label = QLabel("Not selected")
+        self.gpkg_path_label = QLabel("Not selected (required)")
         self.gpkg_path_label.setStyleSheet(f"color: {T.TEXT_MUTED};")
         file_layout.addWidget(self.gpkg_path_label, 1)
 
@@ -777,6 +779,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Add to project
         QgsProject.instance().addMapLayer(layer)
+        self._pending_pulled_layer_id = layer.id()
 
         # Zoom to layer
         from qgis.utils import iface
@@ -862,6 +865,7 @@ class ClaimsStep1Widget(ClaimsStepBase):
 
         # Add to project
         QgsProject.instance().addMapLayer(layer)
+        self._pending_pulled_layer_id = layer.id()
 
         # Zoom to layer
         from qgis.utils import iface
@@ -1209,7 +1213,11 @@ class ClaimsStep1Widget(ClaimsStepBase):
                 # Any previous package ID from another GeoPackage is now invalid
                 self.state.claim_package_id = None
                 self.state.geopackage_path = path
-                self.state.save_to_geopackage()
+                if not self.state.save_to_geopackage():
+                    # Never let the wizard believe a file exists that does not.
+                    self.state.geopackage_path = None
+                    self.emit_validation_changed()
+                    raise OSError(f"Could not write to {path}")
 
                 self.gpkg_path_label.setText(path)
                 self.emit_status(f"Created GeoPackage: {Path(path).name}", "success")
@@ -1341,6 +1349,14 @@ class ClaimsStep1Widget(ClaimsStepBase):
         # Refresh server GeoPackages if a project is selected
         if self.state.project_id:
             QTimer.singleShot(100, self._refresh_server_geopackages)
+        # The wizard cannot go on without a GeoPackage: don't leave its buttons
+        # below the fold. Deferred until the step has been laid out.
+        if self.state.persistence_errors():
+            QTimer.singleShot(150, self.show_geopackage_buttons)
+
+    def show_geopackage_buttons(self):
+        """Scroll the GeoPackage buttons into view."""
+        self._scroll_area.ensureWidgetVisible(self.create_gpkg_btn)
 
     def on_leave(self):
         """Called when leaving step."""
@@ -1360,6 +1376,43 @@ class ClaimsStep1Widget(ClaimsStepBase):
         if self.state.geopackage_path:
             self.state.save_to_geopackage()
 
+        self._adopt_pulled_layer()
+
+    # A pull builds a memory layer, possibly before a GeoPackage is chosen; it
+    # moves into the file when the user leaves this step.
+    _pending_pulled_layer_id = None
+
+    def _adopt_pulled_layer(self):
+        """Move the claims just pulled from geoDB into the claims GeoPackage."""
+        layer_id = self._pending_pulled_layer_id
+        if not layer_id or not self.state.resolve_existing_geopackage():
+            return
+
+        self._pending_pulled_layer_id = None
+        layer = QgsProject.instance().mapLayer(layer_id)
+        if layer is None:
+            return
+
+        if self.state.has_saved_layout():
+            reply = QMessageBox.question(
+                self,
+                "Replace Saved Layout?",
+                f"This GeoPackage already holds a claim layout.\n\n"
+                f"Replace it with \"{layer.name()}\"?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            self.state.adopt_layer_into_geopackage(layer)
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error",
+                f"Could not save the pulled claims to the GeoPackage: {e}"
+            )
+
     def load_state(self):
         """Load widget state from shared state."""
         self.name_prefix_edit.setText(self.state.grid_name_prefix or "GE")
@@ -1373,4 +1426,4 @@ class ClaimsStep1Widget(ClaimsStepBase):
         if self.state.geopackage_path:
             self.gpkg_path_label.setText(self.state.geopackage_path)
         else:
-            self.gpkg_path_label.setText("Not selected")
+            self.gpkg_path_label.setText("Not selected (required)")

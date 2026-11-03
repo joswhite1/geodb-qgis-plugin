@@ -442,6 +442,72 @@ class ClaimsWizardState:
 
         return None
 
+    def persistence_errors(self) -> List[str]:
+        """Why this claim block's work would not survive a crash ([] if it will).
+
+        THE rule behind the wizard's block on moving forward: no GeoPackage
+        means memory layers, and memory layers die with QGIS. This cost a
+        customer a 366-claim block on 2026-11-02.
+        """
+        path = self.resolve_existing_geopackage()
+        if path and Path(path).exists():
+            return []
+        return [
+            "No Claims GeoPackage is selected, so this work is only in temporary "
+            "memory and will be lost if QGIS closes or crashes. In Step 1, click "
+            "Create New... or Browse Local... to continue."
+        ]
+
+    def has_saved_layout(self) -> bool:
+        """True when the claims GeoPackage already holds a claim layout."""
+        from ..managers.claims_storage_manager import ClaimsStorageManager
+        path = self.resolve_existing_geopackage()
+        if not path or not Path(path).exists():
+            return False
+        return ClaimsStorageManager().layer_exists(
+            ClaimsStorageManager.INITIAL_LAYOUT_TABLE, path
+        )
+
+    def adopt_layer_into_geopackage(self, layer: QgsVectorLayer) -> QgsVectorLayer:
+        """Copy a layer from outside the GeoPackage in as the claim layout.
+
+        Replaces any saved layout; callers ask the user first. A memory source
+        is removed from the project once its copy is verified, so nobody keeps
+        editing the copy that will not survive. A file-backed source is the
+        user's own, so it stays.
+
+        Raises:
+            ValueError: if there is no GeoPackage, or the copy lost features.
+        """
+        from ..managers.claims_storage_manager import ClaimsStorageManager
+        path = self.resolve_existing_geopackage()
+        if not path:
+            raise ValueError("No Claims GeoPackage is selected.")
+
+        expected = layer.featureCount()
+        storage_manager = ClaimsStorageManager()
+        storage_manager.set_claims_group_name(self.claims_group_name)
+        adopted = storage_manager.create_or_update_layer(
+            table_name=ClaimsStorageManager.INITIAL_LAYOUT_TABLE,
+            layer_display_name=layer.name(),
+            geometry_type='Polygon',
+            fields=layer.fields(),
+            crs=layer.crs(),
+            gpkg_path=path,
+            source_layer=layer,
+        )
+        if adopted.featureCount() != expected:
+            raise ValueError(
+                f"Copied {adopted.featureCount()} of {expected} claims into the "
+                f"GeoPackage; the original layer was left in place."
+            )
+
+        self.claims_layer = adopted
+        self.initial_layout_layer_id = adopted.id()
+        if layer.dataProvider().name() == "memory":
+            QgsProject.instance().removeMapLayer(layer.id())
+        return adopted
+
     def _geopackage_from_claims_layer(self) -> Optional[str]:
         """
         Derive the GeoPackage path from the existing claims layer's data source.

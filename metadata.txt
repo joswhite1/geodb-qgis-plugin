@@ -24,7 +24,14 @@ license=GPL-2.0-or-later
 
 hasProcessingProvider=no
 changelog=
-    2.35.6 - Map layers: make them in QGIS and publish them; planned-sample types match geoDB
+    2.35.6 - Claims wizard now requires a GeoPackage; map layers: make them in QGIS and publish them; planned-sample types match geoDB
+        - The claims wizard now requires a Claims GeoPackage in Step 1. Without
+          one, claim layers were held only in memory and were lost if QGIS closed
+          or crashed. A red banner says so until one is selected, and Next stays
+          off.
+        - Claims pulled from geoDB are now saved into the GeoPackage when you
+          leave Step 1, and "Use Another Layer..." in Step 2 copies your own
+          polygon layer in as the claim layout.
         - "Vector Layers" in Data Sync is now "Map layers (lines & areas)".
         - Pulling a map layer again never deletes an earlier copy that is not
           open in this project (pulled, edited, saved, QGIS closed): it is kept

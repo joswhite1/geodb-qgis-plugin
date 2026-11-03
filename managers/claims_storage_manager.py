@@ -666,12 +666,15 @@ class ClaimsStorageManager:
         fields: QgsFields,
         crs: QgsCoordinateReferenceSystem,
         gpkg_path: Optional[str] = None,
-        add_to_project: bool = True
+        add_to_project: bool = True,
+        source_layer: Optional[QgsVectorLayer] = None,
     ) -> QgsVectorLayer:
         """
         Create or replace a layer in the claims GeoPackage.
 
         If the layer already exists in the GeoPackage, it will be replaced.
+        With ``source_layer`` the new table is a copy of that layer, features
+        included; otherwise it starts empty with the given schema.
 
         Args:
             table_name: Name for the table in GeoPackage (e.g., 'initial_layout')
@@ -709,10 +712,13 @@ class ClaimsStorageManager:
             self._delete_table_from_geopackage(table_name, gpkg_path)
 
         # Create a temporary memory layer with the schema
-        temp_uri = f"{geometry_type}?crs={crs.authid()}"
-        temp_layer = QgsVectorLayer(temp_uri, table_name, "memory")
-        temp_layer.dataProvider().addAttributes(fields.toList())
-        temp_layer.updateFields()
+        if source_layer is not None:
+            temp_layer = source_layer
+        else:
+            temp_uri = f"{geometry_type}?crs={crs.authid()}"
+            temp_layer = QgsVectorLayer(temp_uri, table_name, "memory")
+            temp_layer.dataProvider().addAttributes(fields.toList())
+            temp_layer.updateFields()
 
         # Write to GeoPackage
         options = QgsVectorFileWriter.SaveVectorOptions()

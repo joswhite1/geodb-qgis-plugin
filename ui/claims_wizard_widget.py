@@ -5,6 +5,7 @@ Claims wizard main container widget.
 Provides step navigation, step indicator, and manages step widget transitions.
 """
 from contextlib import suppress
+from html import escape
 from typing import List, TYPE_CHECKING
 
 from qgis.PyQt.QtWidgets import (
@@ -287,6 +288,18 @@ class ClaimsWizardWidget(QWidget):
             }}
         """)
         layout.addWidget(self.step_indicator)
+
+        # Shown on every step while the work is not being saved to a file.
+        self.persistence_banner = QLabel()
+        self.persistence_banner.setWordWrap(True)
+        self.persistence_banner.setTextFormat(Qt.TextFormat.RichText)
+        self.persistence_banner.linkActivated.connect(self._show_geopackage_buttons)
+        self.persistence_banner.setStyleSheet(
+            f"background-color: {T.DANGER}; color: white; "
+            f"font-size: 13px; font-weight: bold; padding: 10px;"
+        )
+        self.persistence_banner.hide()
+        layout.addWidget(self.persistence_banner)
 
         # Stacked widget for step content
         self.stack = QStackedWidget()
@@ -662,7 +675,24 @@ class ClaimsWizardWidget(QWidget):
 
         # Next button enabled based on current step validation
         current_widget = self.step_widgets[self.current_step]
-        self.next_btn.setEnabled(current_widget.is_valid())
+        persistence_errors = self.state.persistence_errors()
+        if persistence_errors:
+            self.persistence_banner.setText(
+                escape(" ".join(persistence_errors))
+                + ' <a href="geopackage" style="color: white;">Show me the buttons</a>'
+            )
+        self.persistence_banner.setVisible(bool(persistence_errors))
+        self.next_btn.setEnabled(current_widget.is_valid() and not persistence_errors)
+
+    def _show_geopackage_buttons(self, _link: str = ''):
+        """Take the user from the banner to Step 1's GeoPackage buttons."""
+        if self.current_step != 0:
+            self.go_to_step(0)
+        self.step_widgets[0].show_geopackage_buttons()
+
+    def _forward_errors(self, step) -> List[str]:
+        """Everything stopping the user moving forward from this step."""
+        return step.validate() + self.state.persistence_errors()
 
     def _on_back_clicked(self):
         """Handle Back button click."""
@@ -710,7 +740,7 @@ class ClaimsWizardWidget(QWidget):
         current_widget = self.step_widgets[self.current_step]
 
         # Validate current step
-        errors = current_widget.validate()
+        errors = self._forward_errors(current_widget)
         if errors:
             error_msg = "Please fix the following issues:\n\n" + "\n".join(f"• {e}" for e in errors)
             QMessageBox.warning(self, "Validation Error", error_msg)
@@ -770,8 +800,8 @@ class ClaimsWizardWidget(QWidget):
         elif step_index > self.current_step:
             # Going forward - check if current step is valid
             current_widget = self.step_widgets[self.current_step]
-            if not current_widget.is_valid():
-                errors = current_widget.validate()
+            errors = self._forward_errors(current_widget)
+            if errors:
                 error_msg = "Please complete this step first:\n\n" + "\n".join(f"• {e}" for e in errors)
                 QMessageBox.warning(self, "Cannot Skip Ahead", error_msg)
                 return

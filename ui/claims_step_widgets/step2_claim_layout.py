@@ -232,6 +232,15 @@ class ClaimsStep2Widget(ClaimsStepBase):
         self.refresh_layers_btn.setMaximumWidth(80)
         layer_layout.addWidget(self.refresh_layers_btn)
 
+        self.bring_in_btn = QPushButton("Use Another Layer...")
+        self.bring_in_btn.setStyleSheet(self._get_secondary_button_style())
+        self.bring_in_btn.setToolTip(
+            "Copy a polygon layer already in this QGIS project into the Claims "
+            "GeoPackage and use it as the claim layout."
+        )
+        self.bring_in_btn.clicked.connect(self._bring_in_layer)
+        layer_layout.addWidget(self.bring_in_btn)
+
         layout.addLayout(layer_layout)
 
         # Layer info
@@ -300,6 +309,11 @@ class ClaimsStep2Widget(ClaimsStepBase):
 
     def _generate_grid(self):
         """Generate a claim grid at the map center."""
+        persistence_errors = self.state.persistence_errors()
+        if persistence_errors:
+            QMessageBox.warning(self, "GeoPackage Required", "\n".join(persistence_errors))
+            return
+
         try:
             from qgis.utils import iface
             if not iface or not iface.mapCanvas():
@@ -432,11 +446,8 @@ class ClaimsStep2Widget(ClaimsStepBase):
 
             if gpkg_path:
                 # Only show layers from the workflow GeoPackage
-                source = layer.source()
-                gpkg_norm = os.path.normpath(gpkg_path)
-                source_path = os.path.normpath(source.split('|')[0])
-                if source_path != gpkg_norm:
-                    logger.debug(f"[Step2] Skipping layer '{layer.name()}' - not from GeoPackage (source: {source_path})")
+                if not self._is_in_geopackage(layer, gpkg_path):
+                    logger.debug(f"[Step2] Skipping layer '{layer.name()}' - not from GeoPackage (source: {layer.source()})")
                     continue
 
                 logger.debug(f"[Step2] Adding layer to combo: '{layer.name()}' (id={layer_id})")
@@ -459,6 +470,72 @@ class ClaimsStep2Widget(ClaimsStepBase):
                 self.layer_info_label.setText("No polygon layers found. Generate a grid above.")
         else:
             self._on_layer_changed(self.layer_combo.currentIndex())
+
+    @staticmethod
+    def _is_in_geopackage(layer: QgsVectorLayer, gpkg_path: str) -> bool:
+        """True when this layer's data lives in the given GeoPackage."""
+        source_path = os.path.normpath(layer.source().split('|')[0])
+        return source_path == os.path.normpath(gpkg_path)
+
+    def _bring_in_layer(self):
+        """Copy a polygon layer from this QGIS project in as the claim layout.
+
+        The Layer list shows only what is in the GeoPackage, so this is the way
+        in for the user's own file, or for a layout still held in memory.
+        """
+        from qgis.PyQt.QtWidgets import QInputDialog
+
+        persistence_errors = self.state.persistence_errors()
+        if persistence_errors:
+            QMessageBox.warning(self, "GeoPackage Required", "\n".join(persistence_errors))
+            return
+
+        gpkg_path = self.state.geopackage_path
+        candidates = [
+            layer for layer in QgsProject.instance().mapLayers().values()
+            if isinstance(layer, QgsVectorLayer)
+            and layer.geometryType() == 2  # Polygon only
+            and not self._is_in_geopackage(layer, gpkg_path)
+        ]
+        if not candidates:
+            QMessageBox.information(
+                self, "No Other Layers",
+                "There are no polygon layers outside the GeoPackage in this project."
+            )
+            return
+
+        labels = [
+            f"{i + 1}. {layer.name()} ({layer.featureCount()} features)"
+            for i, layer in enumerate(candidates)
+        ]
+        choice, accepted = QInputDialog.getItem(
+            self, "Use Another Layer",
+            "Copy this layer into the Claims GeoPackage as the claim layout:",
+            labels, 0, False
+        )
+        if not accepted:
+            return
+        layer = candidates[labels.index(choice)]
+
+        if self.state.has_saved_layout():
+            reply = QMessageBox.question(
+                self,
+                "Replace Saved Layout?",
+                f"This GeoPackage already holds a claim layout.\n\n"
+                f"Replace it with \"{layer.name()}\"?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            self.state.adopt_layer_into_geopackage(layer)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not copy the layer: {e}")
+            return
+
+        self._refresh_layers()
 
     def _on_layer_changed(self, index: int):
         """Handle layer selection change."""
