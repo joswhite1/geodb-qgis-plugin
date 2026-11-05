@@ -1150,13 +1150,17 @@ class ClaimsStep5AdjustWidget(ClaimsStepBase):
         """
         project = QgsProject.instance()
 
-        # If state tracks specific monument layer IDs, verify those layers exist
-        # This means Step 5 was already run in this session
-        has_state_refs = (
-            self.state.monuments_layer_id
-            or self.state.sideline_monuments_layer_id
-            or self.state.endline_monuments_layer_id
-        )
+        # If state tracks this block's monument layers, verify those layers
+        # exist: Step 5 already ran for this block. ⭐ Read through the state's
+        # properties, never the raw IDs: after a reopen the IDs are empty, and
+        # the properties re-attach the layers from THIS block's GeoPackage.
+        # Reading the raw IDs here regenerated the layers on every reopen,
+        # overwriting the operator's hand-moved LMs with the server defaults.
+        has_state_refs = any(layer is not None for layer in (
+            self.state.monuments_layer,
+            self.state.sideline_monuments_layer,
+            self.state.endline_monuments_layer,
+        ))
 
         if has_state_refs:
             # Verify the tracked layers still exist in the project

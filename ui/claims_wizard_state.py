@@ -21,6 +21,18 @@ from ..utils.layer_utils import feature_point, is_lode_claims_polygon_layer
 logger = logging.getLogger('geodb')
 
 
+def monument_layer_tables() -> Dict[str, tuple]:
+    """The Step-5 monument layers: state ID attribute -> (GeoPackage table,
+    display name). One map, read by the lookup and by the reopen restore.
+    Imported lazily, like every ClaimsStorageManager use in this module."""
+    from ..managers.claims_storage_manager import ClaimsStorageManager as CSM
+    return {
+        'monuments_layer_id': (CSM.MONUMENTS_TABLE, "Monuments"),
+        'sideline_monuments_layer_id': (CSM.SIDELINE_MONUMENTS_TABLE, "Sideline Monuments"),
+        'endline_monuments_layer_id': (CSM.ENDLINE_MONUMENTS_TABLE, "Endline Monuments"),
+    }
+
+
 @dataclass
 class ClaimsWizardState:
     """
@@ -192,30 +204,48 @@ class ClaimsWizardState:
     @property
     def monuments_layer(self) -> Optional[QgsVectorLayer]:
         """Get the discovery monuments layer from QGIS project."""
-        if not self.monuments_layer_id:
-            return None
-        layer = QgsProject.instance().mapLayer(self.monuments_layer_id)
-        if isinstance(layer, QgsVectorLayer):
-            return layer
-        return None
+        return self._monument_layer('monuments_layer_id')
 
     @property
     def sideline_monuments_layer(self) -> Optional[QgsVectorLayer]:
         """Get the sideline monuments layer (Wyoming) from QGIS project."""
-        if not self.sideline_monuments_layer_id:
-            return None
-        layer = QgsProject.instance().mapLayer(self.sideline_monuments_layer_id)
-        if isinstance(layer, QgsVectorLayer):
-            return layer
-        return None
+        return self._monument_layer('sideline_monuments_layer_id')
 
     @property
     def endline_monuments_layer(self) -> Optional[QgsVectorLayer]:
         """Get the endline monuments layer (Arizona) from QGIS project."""
-        if not self.endline_monuments_layer_id:
+        return self._monument_layer('endline_monuments_layer_id')
+
+    def _monument_layer(self, id_attr: str) -> Optional[QgsVectorLayer]:
+        """THE lookup for a Step-5 monument layer: by its tracked ID, else by
+        THIS block's GeoPackage table.
+
+        ⭐ The tracked IDs live only in memory. After QGIS or the wizard is
+        reopened they are empty while the layers, and every LM the operator
+        moved by hand, still sit in the block's GeoPackage. Before 2.35.5.1 an
+        empty ID meant "no monuments": Step 5 then regenerated the layers from
+        the server's defaults (overwriting the GeoPackage table), and Step 6
+        printed notices and pushed stakes at the default LM positions.
+
+        The fallback matches on the GeoPackage FILE and TABLE, never on a layer
+        name: a name can belong to another claim block in the same project,
+        which is why Step 5 has refused to adopt layers by name since 2.2x.
+        A found layer's ID is cached, so every later read agrees.
+        """
+        layer_id = getattr(self, id_attr)
+        if layer_id:
+            layer = QgsProject.instance().mapLayer(layer_id)
+            if isinstance(layer, QgsVectorLayer):
+                return layer
+        gpkg_path = self.resolve_existing_geopackage()
+        if not gpkg_path:
             return None
-        layer = QgsProject.instance().mapLayer(self.endline_monuments_layer_id)
+        from ..managers.claims_storage_manager import ClaimsStorageManager
+        table_name = monument_layer_tables()[id_attr][0]
+        layer = ClaimsStorageManager()._find_layer_in_project(table_name, gpkg_path)
         if isinstance(layer, QgsVectorLayer):
+            setattr(self, id_attr, layer.id())
+            logger.info("Re-attached %s from %s", table_name, gpkg_path)
             return layer
         return None
 
@@ -1157,5 +1187,15 @@ class ClaimsWizardState:
                     self.processed_claims_layer_id = layer.id()
                 elif table_name == ClaimsStorageManager.CLAIM_WAYPOINTS_TABLE:
                     self.waypoints_layer_id = layer.id()
+
+        # The Step-5 monument layers too: they hold the operator's hand-moved
+        # LMs, and Step 5/6 lose them without a tracked layer (see
+        # _monument_layer). load_layer adopts a layer already in the project
+        # by its GeoPackage source before it loads a second copy.
+        for id_attr, (table_name, display_name) in monument_layer_tables().items():
+            layer = storage_manager.load_layer(table_name, display_name, self.geopackage_path)
+            layers[table_name] = layer
+            if layer:
+                setattr(self, id_attr, layer.id())
 
         return layers
