@@ -37,6 +37,9 @@ changelog=
         - Claims pulled from geoDB are now saved into the GeoPackage when you
           leave Step 1, and "Use Another Layer..." in Step 2 copies your own
           polygon layer in as the claim layout.
+        - If your geoDB account lacks the claims permission on a project, the
+          error now reads "No access to claims" and shows the server's message
+          saying who to ask. Your other layers are unaffected.
         - "Vector Layers" in Data Sync is now "Map layers (lines & areas)".
         - Pulling a map layer again never deletes an earlier copy that is not
           open in this project (pulled, edited, saved, QGIS closed): it is kept

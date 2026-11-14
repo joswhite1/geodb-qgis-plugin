@@ -24,6 +24,15 @@ class AuthenticationError(APIException):
 class APIPermissionError(APIException):
     """Raised when user lacks required permissions."""
 
+    @property
+    def dialog_title(self) -> str:
+        """Dialog title for this refusal. The server's own `detail` (the
+        message) stays the body; the remedy text is never hard-coded here."""
+        data = self.response_data if isinstance(self.response_data, dict) else {}
+        if data.get('reason_code') == 'claims_permission_missing':
+            return "No access to claims"
+        return "Permission Denied"
+
 
 class NetworkError(APIException):
     """Raised when network communication fails."""

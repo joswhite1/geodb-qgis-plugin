@@ -1715,7 +1715,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         except APIPermissionError as e:
             self._set_sync_status(f"Permission denied: {e}", "error")
             self._log_message(f"Permission denied: {e}", "error")
-            QMessageBox.critical(self, "Permission Denied", str(e))
+            QMessageBox.critical(self, e.dialog_title, str(e))
         except NetworkError as e:
             self._set_sync_status(f"Network error: {e}", "error")
             self._log_message(f"Network error: {e}", "error")
@@ -2092,7 +2092,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         except APIPermissionError as e:
             self._set_sync_status(f"Permission denied: {e}", "error")
             self._log_message(f"Permission denied: {e}", "error")
-            QMessageBox.critical(self, "Permission Denied", str(e))
+            QMessageBox.critical(self, e.dialog_title, str(e))
         except ValidationError as e:
             self._set_sync_status(f"Validation error: {e}", "error")
             self._log_message(f"Validation error: {e}", "error")
@@ -2740,7 +2740,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         except APIPermissionError as e:
             self._set_sync_status(f"Permission denied: {e}", "error")
             self._log_message(f"Permission denied: {e}", "error")
-            QMessageBox.critical(self, "Permission Denied", str(e))
+            QMessageBox.critical(self, e.dialog_title, str(e))
         except NetworkError as e:
             self._set_sync_status(f"Network error: {e}", "error")
             self._log_message(f"Network error: {e}", "error")
@@ -2856,7 +2856,7 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         except APIPermissionError as e:
             self._set_sync_status(f"Permission denied: {e}", "error")
             self._log_message(f"Permission denied: {e}", "error")
-            QMessageBox.critical(self, "Permission Denied", str(e))
+            QMessageBox.critical(self, e.dialog_title, str(e))
         except ValidationError as e:
             self._set_sync_status(f"Validation error: {e}", "error")
             self._log_message(f"Validation error: {e}", "error")
