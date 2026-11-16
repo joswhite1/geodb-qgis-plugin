@@ -391,7 +391,7 @@ one (archived) and your original coordinates exactly as you drew them.</p>
 kind, feature count, last edit and the sketch it was traced from. From there: rename,
 change kind, publish a draft (replacing the layer it updates, or alongside it), archive and
 make live again, discard a draft and restore it from the Trash. “Show on crew phones”
-records the office's default for crews; the field app does not apply it yet.</p>
+tells the field app to show the layer on phones; each crew member can still hide it on their own phone.</p>
 <h4>Pulling again</h4>
 <p>Pulling a layer replaces your local copy. If it has edits you have not published, the
 plugin asks first: publish them, discard them, or cancel.</p>
