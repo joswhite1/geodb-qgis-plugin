@@ -2442,7 +2442,10 @@ class GeodbModernDialog(QDialog, FORM_CLASS):
         )
         vl_layout.addRow(QLabel("Publish from QGIS:"), self.publishLayerComboBox)
         self.refreshPublishLayersButton = QPushButton("Refresh list")
-        self.refreshPublishLayersButton.clicked.connect(self._refresh_publishable_layers)
+        # clicked(bool) would land its `checked` flag in select_layer and
+        # crash on False.id(); call with no argument.
+        self.refreshPublishLayersButton.clicked.connect(
+            lambda: self._refresh_publishable_layers())
         vl_layout.addRow("", self.refreshPublishLayersButton)
 
         options_layout = self.optionsLayout
