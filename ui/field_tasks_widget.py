@@ -71,8 +71,9 @@ class FieldTasksWidget(QWidget):
 
         pull_desc = QLabel(
             "Download planned and assigned samples from geodb.io as a "
-            "field tasks layer. Samples are styled by status: "
-            "Planned (gray), Assigned (yellow), Collected (green), Skipped (red)."
+            "field tasks layer, styled Planned (gray) and Assigned (yellow). "
+            "Collected and skipped samples leave this layer at the next pull; "
+            "pull Point Samples to see what the crew collected."
         )
         pull_desc.setWordWrap(True)
         pull_desc.setStyleSheet(f"font-weight: normal; color: {T.TEXT_PRIMARY};")
